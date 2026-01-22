@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000/api/users';
+// Docker API endpoint
+const API_URL = 'http://localhost:8000/api/auth';
 
 export default function Login({ onLoginSuccess }) {
   const [formData, setFormData] = useState({
-    email: '',
+    username: '',
     password: '',
     rememberMe: false
   });
@@ -31,10 +32,8 @@ export default function Login({ onLoginSuccess }) {
   const validateForm = () => {
     const newErrors = {};
     
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
+    if (!formData.username.trim()) {
+      newErrors.username = 'Username is required';
     }
     
     if (!formData.password) {
@@ -55,41 +54,50 @@ export default function Login({ onLoginSuccess }) {
 
     try {
       const response = await axios.post(`${API_URL}/login/`, {
-        email: formData.email,
+        username: formData.username,
         password: formData.password
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
 
-      if (response.data.status === 'success') {
-        const { user, tokens } = response.data.data;
+      console.log('Login response:', response.data);
+
+      // Check if login was successful
+      if (response.data.status === 'success' && response.data.data) {
+        const { user, token } = response.data.data;
         
-        // Store tokens and user data
-        if (formData.rememberMe) {
-          localStorage.setItem('access_token', tokens.access);
-          localStorage.setItem('refresh_token', tokens.refresh);
-          localStorage.setItem('user_data', JSON.stringify(user));
-        } else {
-          sessionStorage.setItem('access_token', tokens.access);
-          sessionStorage.setItem('refresh_token', tokens.refresh);
-          sessionStorage.setItem('user_data', JSON.stringify(user));
-        }
+        // Store token and user data based on rememberMe preference
+        const storage = formData.rememberMe ? localStorage : sessionStorage;
+        
+        // Store token (your API uses 'token' not 'access' and 'refresh')
+        storage.setItem('access_token', token);
+        storage.setItem('user_data', JSON.stringify(user));
 
         console.log('Login successful:', user);
         
         // Call parent function with user data
         onLoginSuccess(user);
+      } else {
+        setApiError('Login failed. Please check your credentials.');
       }
     } catch (error) {
       console.error('Login error:', error);
+      console.error('Error response:', error.response?.data);
       
       if (error.response) {
         // Server responded with error
-        const errorMessage = error.response.data?.message || 
-                           error.response.data?.errors?.non_field_errors?.[0] ||
-                           'Invalid email or password';
+        const errorData = error.response.data;
+        const errorMessage = errorData?.errors || 
+                           errorData?.detail || 
+                           errorData?.message ||
+                           errorData?.non_field_errors?.[0] ||
+                           'Invalid username or password';
         setApiError(errorMessage);
       } else if (error.request) {
         // Request made but no response
-        setApiError('Unable to connect to server. Please try again.');
+        setApiError('Unable to connect to server. Please check if the Docker container is running.');
       } else {
         // Something else happened
         setApiError('An unexpected error occurred. Please try again.');
@@ -210,29 +218,29 @@ export default function Login({ onLoginSuccess }) {
             )}
 
             <div className="space-y-4 sm:space-y-5">
-              {/* Email Input */}
+              {/* Username Input */}
               <div>
-                <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-2">
-                  Email Address
+                <label htmlFor="username" className="block text-sm font-semibold text-slate-700 mb-2">
+                  Username
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
                   <input
-                    type="email"
-                    id="email"
-                    name="email"
-                    value={formData.email}
+                    type="text"
+                    id="username"
+                    name="username"
+                    value={formData.username}
                     onChange={handleChange}
                     onKeyPress={handleKeyPress}
-                    className={`block w-full pl-10 sm:pl-11 pr-4 py-3 sm:py-3.5 text-sm sm:text-base border ${errors.email ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-slate-200 focus:ring-teal-500 focus:border-teal-500'} rounded-xl focus:outline-none focus:ring-2 transition-all bg-slate-50 focus:bg-white`}
-                    placeholder="you@company.com"
+                    className={`block w-full pl-10 sm:pl-11 pr-4 py-3 sm:py-3.5 text-sm sm:text-base border ${errors.username ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-slate-200 focus:ring-teal-500 focus:border-teal-500'} rounded-xl focus:outline-none focus:ring-2 transition-all bg-slate-50 focus:bg-white`}
+                    placeholder="Enter your username"
                   />
                 </div>
-                {errors.email && <p className="mt-2 text-xs sm:text-sm text-red-600">{errors.email}</p>}
+                {errors.username && <p className="mt-2 text-xs sm:text-sm text-red-600">{errors.username}</p>}
               </div>
 
               {/* Password Input */}
