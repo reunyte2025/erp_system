@@ -4,7 +4,6 @@ import { Search, Bell, ChevronDown, User, Settings, Lock, LogOut, Menu } from 'l
 export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
   const notifications = [
     { id: 1, text: 'New order received', time: '5 minutes ago', unread: true },
@@ -78,7 +77,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
               </div>
             </div>
 
-            {/* Center Section - Page Title & Search */}
+            {/* Center Section - Page Title */}
             <div className="flex-1 flex items-center justify-between px-3 sm:px-4 lg:px-6">
               {/* Page Title - Responsive */}
               <div className="flex-shrink-0 min-w-0">
@@ -87,28 +86,19 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                 </h2>
               </div>
 
-              {/* Search Bar - Desktop Only */}
-              <div className="hidden xl:flex flex-1 max-w-md mx-8">
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50 text-sm"
-                  />
+              {/* Right side - Search & Actions */}
+              <div className="flex items-center space-x-2 sm:space-x-3 lg:space-x-4 flex-shrink-0">
+                {/* Search Bar - Fixed position next to actions */}
+                <div className="hidden md:flex">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      className="w-48 lg:w-64 xl:w-80 pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50 text-sm"
+                    />
+                  </div>
                 </div>
-              </div>
-
-              {/* Right side - Actions */}
-              <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-3 flex-shrink-0">
-                {/* Search Button - Mobile/Tablet */}
-                <button
-                  onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
-                  className="xl:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                  aria-label="Search"
-                >
-                  <Search className="w-5 h-5 text-gray-600" />
-                </button>
 
                 {/* Notifications */}
                 <div className="relative">
@@ -241,21 +231,6 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
             </div>
           </div>
         </div>
-
-        {/* Mobile Search Bar - Expandable */}
-        {isMobileSearchOpen && (
-          <div className="xl:hidden border-t border-gray-200 bg-white p-3 sm:p-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search..."
-                autoFocus
-                className="w-full pl-10 pr-4 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-              />
-            </div>
-          </div>
-        )}
       </nav>
     </>
   );
