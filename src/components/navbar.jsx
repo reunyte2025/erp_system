@@ -41,8 +41,14 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
     return colors[userType] || 'bg-gray-500';
   };
 
-  const fullName = user?.full_name || user?.username || 'User';
-  const userType = user?.user_type_display || 'User';
+  // Extract user data with proper fallbacks matching your API structure
+  const firstName = user?.first_name || '';
+  const lastName = user?.last_name || '';
+  const fullName = firstName && lastName 
+    ? `${firstName} ${lastName}` 
+    : user?.username || 'User';
+  
+  const userType = user?.role?.name || 'User';
   const userEmail = user?.email || '';
 
   return (
