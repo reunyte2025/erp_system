@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from '../pages/Login';
 import POS from '../pages/pos';
 import Quotations from '../pages/quotations';
-import Proforma from '../pages/Proforma';
+import Proforma from '../pages/proforma';
 import Invoices from '../pages/invoices';
 import Projects from '../pages/projects';
 import Clients from '../pages/clients';
