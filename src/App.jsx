@@ -4,7 +4,7 @@ import Navbar from './components/navbar';
 import Sidebar from './components/sidebar';
 import POS from './pages/pos';
 import Quotations from './pages/quotations';
-import Proforma from './pages/Proforma';
+import Proforma from './pages/proforma';
 import Invoices from './pages/invoices';
 import Projects from './pages/projects';
 import Employees from './pages/employees';
