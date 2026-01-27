@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
+import config from './../config.js'
 
-// Docker API endpoint
-const API_URL = 'http://localhost:8000/api/auth';
+const API_URL = `${config.apiUrl}/api/auth/login/`;
 
 export default function Login({ onLoginSuccess }) {
   const [formData, setFormData] = useState({
@@ -53,7 +53,7 @@ export default function Login({ onLoginSuccess }) {
     setApiError('');
 
     try {
-      const response = await axios.post(`${API_URL}/login/`, {
+      const response = await axios.post(`${API_URL}`, {
         username: formData.username,
         password: formData.password
       }, {
