@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { ShoppingCart, FileText, FileEdit, Receipt, Briefcase, Users, Award, BarChart3, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { ShoppingCart, FileText, FileEdit, Receipt, Briefcase, Users, Award, BarChart3, Settings, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
 
-export default function Sidebar({ activeItem = 'POS', onNavigate, onCollapseChange, isMobileMenuOpen, setIsMobileMenuOpen }) {
+export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobileMenuOpen }) {
   const [hoveredItem, setHoveredItem] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const buttonRefs = useRef({});
+  const location = useLocation();
 
   useEffect(() => {
     if (onCollapseChange) {
@@ -14,21 +16,19 @@ export default function Sidebar({ activeItem = 'POS', onNavigate, onCollapseChan
   }, [isCollapsed, onCollapseChange]);
 
   const menuItems = [
-    { id: 'POS', label: 'POS', icon: ShoppingCart },
-    { id: 'Quotations', label: 'Quotations', icon: FileText },
-    { id: 'Proforma', label: 'Proforma', icon: FileEdit },
-    { id: 'Invoices', label: 'Invoices', icon: Receipt },
-    { id: 'Projects', label: 'Projects', icon: Briefcase },
-    { id: 'Employees', label: 'Employees', icon: Users },
-    { id: 'Certificates', label: 'Certificates', icon: Award },
-    { id: 'Reports', label: 'Reports', icon: BarChart3 },
-    { id: 'Settings', label: 'Settings', icon: Settings },
+    { id: 'POS', label: 'POS', icon: ShoppingCart, path: '/pos' },
+    { id: 'Projects', label: 'Projects', icon: Briefcase, path: '/projects' },
+    { id: 'Quotations', label: 'Quotations', icon: FileText, path: '/quotations' },
+    { id: 'Proforma', label: 'Proforma', icon: FileEdit, path: '/proforma' },
+    { id: 'Invoices', label: 'Invoices', icon: Receipt, path: '/invoices' },
+    { id: 'Clients', label: 'Clients', icon: UserCircle, path: '/clients' },
+    { id: 'Employees', label: 'Employees', icon: Users, path: '/employees' },
+    { id: 'Certificates', label: 'Certificates', icon: Award, path: '/certificates' },
+    { id: 'Reports', label: 'Reports', icon: BarChart3, path: '/reports' },
+    { id: 'Settings', label: 'Settings', icon: Settings, path: '/settings' },
   ];
 
-  const handleItemClick = (itemId) => {
-    if (onNavigate) {
-      onNavigate(itemId);
-    }
+  const handleItemClick = () => {
     if (setIsMobileMenuOpen) {
       setIsMobileMenuOpen(false);
     }
@@ -51,6 +51,11 @@ export default function Sidebar({ activeItem = 'POS', onNavigate, onCollapseChan
 
   const handleMouseLeave = () => {
     setHoveredItem(null);
+  };
+
+  // Determine if a menu item is active based on current route
+  const isItemActive = (itemPath) => {
+    return location.pathname === itemPath;
   };
 
   return (
@@ -92,14 +97,15 @@ export default function Sidebar({ activeItem = 'POS', onNavigate, onCollapseChan
           <ul className="space-y-2">
             {menuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeItem === item.id;
+              const isActive = isItemActive(item.path);
               const isHovered = hoveredItem === item.id;
 
               return (
                 <li key={item.id} className="relative">
-                  <button
+                  <Link
+                    to={item.path}
                     ref={(el) => (buttonRefs.current[item.id] = el)}
-                    onClick={() => handleItemClick(item.id)}
+                    onClick={handleItemClick}
                     onMouseEnter={() => handleMouseEnter(item.id)}
                     onMouseLeave={handleMouseLeave}
                     className={`
@@ -130,7 +136,7 @@ export default function Sidebar({ activeItem = 'POS', onNavigate, onCollapseChan
                     `}>
                       {item.label}
                     </span>
-                  </button>
+                  </Link>
                 </li>
               );
             })}

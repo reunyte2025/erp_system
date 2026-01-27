@@ -68,17 +68,17 @@ export default function Login({ onLoginSuccess }) {
       if (response.data.status === 'success' && response.data.data) {
         const { user, token } = response.data.data;
         
-        // Store token and user data based on rememberMe preference
-        const storage = formData.rememberMe ? localStorage : sessionStorage;
-        
-        // Store token (your API uses 'token' not 'access' and 'refresh')
-        storage.setItem('access_token', token);
-        storage.setItem('user_data', JSON.stringify(user));
+        // PRODUCTION: Always use localStorage for persistence across reloads
+        // Token should never disappear on page refresh
+        localStorage.setItem('access_token', token);
+        localStorage.setItem('user_data', JSON.stringify(user));
+        localStorage.setItem('remember_me', formData.rememberMe.toString());
+        localStorage.setItem('login_timestamp', new Date().getTime().toString());
 
-        console.log('Login successful:', user);
+        console.log('✅ Login successful - Token stored:', user);
         
-        // Call parent function with user data
-        onLoginSuccess(user);
+        // Call parent function with user data and token
+        onLoginSuccess({ user, token });
       } else {
         setApiError('Login failed. Please check your credentials.');
       }
