@@ -54,7 +54,7 @@ export default function Login({ onLoginSuccess }) {
 
     try {
       const response = await axios.post(`${API_URL}`, {
-        email: formData.email,
+        username: formData.username,
         password: formData.password
       }, {
         headers: {
