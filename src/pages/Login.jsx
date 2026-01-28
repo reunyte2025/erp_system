@@ -2,7 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import config from './../config.js'
 
-const API_URL = `${config.apiUrl}/api/auth/login/`;
+const API_URL = `${config.apiUrl}/auth/login/`;
 
 export default function Login({ onLoginSuccess }) {
   const [formData, setFormData] = useState({
