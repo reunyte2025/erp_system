@@ -70,10 +70,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-    - name: Trigger deployment
-      run: |
-        curl -X POST \
-          -H "Authorization: token ${{ secrets.DEPLOY_REPO_TOKEN }}" \
-          -H "Accept: application/vnd.github+json" \
-          https://api.github.com/repos/${{secrets.ORG}}/${{secrets.REPO}}/dispatches \
-          -d '{"event_type":"deploy","client_payload":{"service":"frontend"}}'
+      - name: Trigger deployment
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.DEPLOY_REPO_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{secrets.ORG}}/${{secrets.REPO}}/dispatches \
+            -d '{"event_type":"deploy","client_payload":{"service":"frontend"}}'
