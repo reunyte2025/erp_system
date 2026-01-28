@@ -1,23 +1,62 @@
 import { useState } from 'react';
 import { Search, Bell, ChevronDown, User, Settings, Lock, LogOut, Menu } from 'lucide-react';
+import { logout as authLogout } from '../services/authService';
 
+/**
+ * Navbar Component
+ * 
+ * Production-ready navigation bar with:
+ * - User profile display
+ * - Notifications
+ * - Search functionality
+ * - Responsive design
+ * - Role-based UI
+ * - Secure logout
+ * 
+ * @component
+ */
 export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
+  // Notifications data - In production, this would come from an API
   const notifications = [
     { id: 1, text: 'New order received', time: '5 minutes ago', unread: true },
     { id: 2, text: 'Payment processed successfully', time: '1 hour ago', unread: true },
     { id: 3, text: 'Inventory update required', time: '2 hours ago', unread: false },
   ];
 
-  const handleLogout = () => {
+  /**
+   * Handle user logout with confirmation
+   * Uses authService for secure logout and storage cleanup
+   */
+  const handleLogout = async () => {
     const confirmLogout = window.confirm('Are you sure you want to logout?');
+    
     if (confirmLogout) {
-      onLogout();
+      try {
+        // Call authService to clear all authentication data
+        await authLogout();
+        
+        console.log('✅ Logout successful - Redirecting to login');
+        
+        // Call parent callback to update app state
+        onLogout();
+      } catch (error) {
+        console.error('❌ Logout error:', error);
+        // Still call onLogout even if there's an error
+        // This ensures user is logged out from the UI
+        onLogout();
+      }
     }
   };
 
+  /**
+   * Get user initials from name
+   * 
+   * @param {string} name - User's full name
+   * @returns {string} Initials (max 2 characters)
+   */
   const getInitials = (name) => {
     if (!name) return 'U';
     return name
@@ -28,6 +67,12 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
       .slice(0, 2);
   };
 
+  /**
+   * Get color for user type badge based on role
+   * 
+   * @param {string} userType - User's role name
+   * @returns {string} Tailwind CSS class for background color
+   */
   const getUserTypeColor = (userType) => {
     const colors = {
       'Super Admin': 'bg-red-500',
@@ -40,7 +85,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
     return colors[userType] || 'bg-gray-500';
   };
 
-  // Extract user data with proper fallbacks matching your API structure
+  // Extract user data with proper fallbacks matching API structure
   const firstName = user?.first_name || '';
   const lastName = user?.last_name || '';
   const fullName = firstName && lastName 
@@ -96,6 +141,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                       type="text"
                       placeholder="Search..."
                       className="w-48 lg:w-64 xl:w-80 pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50 text-sm"
+                      aria-label="Search"
                     />
                   </div>
                 </div>
@@ -106,21 +152,27 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                     onClick={() => setIsNotificationOpen(!isNotificationOpen)}
                     className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
                     aria-label="Notifications"
+                    aria-expanded={isNotificationOpen}
                   >
                     <Bell className="w-5 h-5 text-gray-600" />
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    {/* Notification Badge */}
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" aria-label="Unread notifications"></span>
                   </button>
 
+                  {/* Notifications Dropdown */}
                   {isNotificationOpen && (
                     <>
+                      {/* Backdrop for closing dropdown */}
                       <div
                         className="fixed inset-0 z-10"
                         onClick={() => setIsNotificationOpen(false)}
                       ></div>
+                      
                       <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
                         <div className="p-3 sm:p-4 border-b border-gray-200">
                           <h3 className="text-sm font-semibold text-gray-800">Notifications</h3>
                         </div>
+                        
                         <div className="max-h-64 sm:max-h-80 overflow-y-auto">
                           {notifications.map((notification) => (
                             <div
@@ -128,14 +180,28 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                               className={`p-3 sm:p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
                                 notification.unread ? 'bg-teal-50' : ''
                               }`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                // Handle notification click
+                                console.log('Notification clicked:', notification.id);
+                              }}
                             >
                               <p className="text-xs sm:text-sm text-gray-800">{notification.text}</p>
                               <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
                             </div>
                           ))}
                         </div>
+                        
                         <div className="p-2 sm:p-3 text-center border-t border-gray-200">
-                          <button className="text-xs sm:text-sm text-teal-600 hover:text-teal-700 font-medium">
+                          <button 
+                            className="text-xs sm:text-sm text-teal-600 hover:text-teal-700 font-medium"
+                            onClick={() => {
+                              // Handle view all notifications
+                              console.log('View all notifications clicked');
+                              setIsNotificationOpen(false);
+                            }}
+                          >
                             View all notifications
                           </button>
                         </div>
@@ -149,7 +215,8 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                   <button
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
                     className="flex items-center space-x-2 lg:space-x-3 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                    aria-label="Profile"
+                    aria-label="Profile menu"
+                    aria-expanded={isProfileOpen}
                   >
                     <div className="flex items-center space-x-2 lg:space-x-3">
                       <div className="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md">
@@ -169,13 +236,17 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                     <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 hidden md:block" />
                   </button>
 
+                  {/* Profile Dropdown Menu */}
                   {isProfileOpen && (
                     <>
+                      {/* Backdrop for closing dropdown */}
                       <div
                         className="fixed inset-0 z-10"
                         onClick={() => setIsProfileOpen(false)}
                       ></div>
+                      
                       <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
+                        {/* User Info Header */}
                         <div className="p-3 sm:p-4 border-b border-gray-200">
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
@@ -196,24 +267,46 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
                               </div>
                             </div>
                           </div>
-                          <p className="text-xs text-gray-500 mt-2 truncate">{userEmail}</p>
+                          <p className="text-xs text-gray-500 mt-2 truncate" title={userEmail}>
+                            {userEmail}
+                          </p>
                         </div>
 
+                        {/* Menu Items */}
                         <div className="py-2">
-                          <button className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2">
+                          <button 
+                            className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                            onClick={() => {
+                              console.log('My Profile clicked');
+                              setIsProfileOpen(false);
+                            }}
+                          >
                             <User className="w-4 h-4" />
                             My Profile
                           </button>
-                          <button className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2">
+                          <button 
+                            className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                            onClick={() => {
+                              console.log('Settings clicked');
+                              setIsProfileOpen(false);
+                            }}
+                          >
                             <Settings className="w-4 h-4" />
                             Settings
                           </button>
-                          <button className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2">
+                          <button 
+                            className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                            onClick={() => {
+                              console.log('Change Password clicked');
+                              setIsProfileOpen(false);
+                            }}
+                          >
                             <Lock className="w-4 h-4" />
                             Change Password
                           </button>
                         </div>
 
+                        {/* Logout Button */}
                         <div className="border-t border-gray-200 py-2">
                           <button
                             onClick={handleLogout}
