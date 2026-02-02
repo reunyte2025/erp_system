@@ -46,12 +46,15 @@ export default function ClientDetails() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [newProject, setNewProject] = useState({
+    name: "",
+    date: "",
+    location: "",
+    gst: "",
+    sac: "",
+  });
 
-const [newProject, setNewProject] = useState({
-  name: "",
-  date: "",
-  status: "Pending",
-});
+  const [touched, setTouched] = useState({});
   
   const [attachments, setAttachments] = useState([
     "Aadhaar Card",
@@ -86,33 +89,6 @@ const [newProject, setNewProject] = useState({
 };
 
   if (!client) return <div className="p-10">Loading client data...</div>;
-  const errors = {
-  name: !newProject.name || newProject.name.length < 3
-    ? "Project name must be at least 3 characters"
-    : "",
-
-  date: !newProject.date
-    ? "Plot / CTS / Survey number is required"
-    : "",
-
-  location: !newProject.location
-    ? "Location is required"
-    : "",
-
-  gst: !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(
-    newProject.gst || ""
-  )
-    ? "Enter a valid 15-character GST number"
-    : "",
-
-  sac: !/^\d{6}$/.test(newProject.sac || "")
-    ? "SAC number must be 6 digits"
-    : "",
-};
-
-const isFormValid = Object.values(errors).every((e) => e === "");
-
-
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -441,162 +417,182 @@ const isFormValid = Object.values(errors).every((e) => e === "");
 
         const isFormValid = Object.values(errors).every((e) => e === "");
 
-        return (
-          <div className="p-5 space-y-4 text-sm">
+        // -------------------- MODAL --------------------
+        return(
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white w-full max-w-md rounded-xl shadow-xl overflow-hidden">
 
-            {/* ================= Project Name ================= */}
-            <div>
-              <label className="block mb-1 text-gray-600">
-                Project / Property Name
-              </label>
-              <div
-                className={`flex items-center border rounded-lg px-3 py-2 gap-2
-                  ${errors.name ? "border-red-500" : "border-gray-300"}`}
-              >
-                <span className="text-gray-400">🏢</span>
-                <input
-                  type="text"
-                  placeholder="Project Name"
-                  value={newProject.name}
-                  onChange={(e) =>
-                    setNewProject({ ...newProject, name: e.target.value })
-                  }
-                  className="w-full outline-none"
-                />
+              {/* Header */}
+              <div className="flex items-center justify-between bg-teal-700 px-5 py-4">
+                <div className="flex items-center gap-2 text-white font-semibold">
+                  <span className="text-lg">📄</span>
+                  <span>Project Details</span>
+                </div>
+                <button
+                  onClick={() => setIsProjectModalOpen(false)}
+                  className="text-white text-xl"
+                >
+                  ×
+                </button>
               </div>
-              {errors.name && (
-                <p className="text-red-500 text-xs mt-1">{errors.name}</p>
-              )}
-            </div>
 
-            {/* ================= Plot / CTS ================= */}
-            <div>
-              <label className="block mb-1 text-gray-600">
-                Plot / CTS / Survey Number
-              </label>
-              <div
-                className={`flex items-center border rounded-lg px-3 py-2 gap-2
-                  ${errors.date ? "border-red-500" : "border-gray-300"}`}
-              >
-                <span className="text-gray-400">#</span>
-                <input
-                  type="text"
-                  placeholder="Survey Number"
-                  value={newProject.date}
-                  onChange={(e) =>
-                    setNewProject({ ...newProject, date: e.target.value })
-                  }
-                  className="w-full outline-none"
-                />
+              {/* Form */}
+              <div className="p-5 space-y-4 text-sm">
+
+                {/* Project Name */}
+                <div>
+                  <label className="block mb-1 text-gray-600">
+                    Project / Property Name
+                  </label>
+                  <div
+                    className={`flex items-center border rounded-lg px-3 py-2 gap-2
+                      ${touched.name && errors.name ? "border-red-500" : "border-gray-300"}`}
+                  >
+                    <span className="text-gray-400">🏢</span>
+                    <input
+                      type="text"
+                      value={newProject.name}
+                      placeholder="Project Name"
+                      onChange={(e) => {
+                        setNewProject({ ...newProject, name: e.target.value });
+                        setTouched({ ...touched, name: true });
+                      }}
+                      className="w-full outline-none"
+                    />
+                  </div>
+                  {touched.name && errors.name && (
+                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                  )}
+                </div>
+
+                {/* Plot / CTS */}
+                <div>
+                  <label className="block mb-1 text-gray-600">
+                    Plot / CTS / Survey Number
+                  </label>
+                  <div
+                    className={`flex items-center border rounded-lg px-3 py-2 gap-2
+                      ${touched.date && errors.date ? "border-red-500" : "border-gray-300"}`}
+                  >
+                    <span className="text-gray-400">#</span>
+                    <input
+                      type="text"
+                      value={newProject.date}
+                      placeholder="Survey Number"
+                      onChange={(e) => {
+                        setNewProject({ ...newProject, date: e.target.value });
+                        setTouched({ ...touched, date: true });
+                      }}
+                      className="w-full outline-none"
+                    />
+                  </div>
+                  {touched.date && errors.date && (
+                    <p className="text-red-500 text-xs mt-1">{errors.date}</p>
+                  )}
+                </div>
+
+                {/* Location */}
+                <div>
+                  <label className="block mb-1 text-gray-600">Location</label>
+                  <div
+                    className={`flex items-center border rounded-lg px-3 py-2 gap-2
+                      ${touched.location && errors.location ? "border-red-500" : "border-gray-300"}`}
+                  >
+                    <span className="text-gray-400">📍</span>
+                    <input
+                      type="text"
+                      value={newProject.location}
+                      placeholder="Location"
+                      onChange={(e) => {
+                        setNewProject({ ...newProject, location: e.target.value });
+                        setTouched({ ...touched, location: true });
+                      }}
+                      className="w-full outline-none"
+                    />
+                  </div>
+                  {touched.location && errors.location && (
+                    <p className="text-red-500 text-xs mt-1">{errors.location}</p>
+                  )}
+                </div>
+
+                {/* GST */}
+                <div>
+                  <label className="block mb-1 text-gray-600">GST Number</label>
+                  <div
+                    className={`flex items-center border rounded-lg px-3 py-2 gap-2
+                      ${touched.gst && errors.gst ? "border-red-500" : "border-gray-300"}`}
+                  >
+                    <span className="text-gray-400">🧾</span>
+                    <input
+                      type="text"
+                      value={newProject.gst}
+                      placeholder="GST Number"
+                      onChange={(e) => {
+                        setNewProject({
+                          ...newProject,
+                          gst: e.target.value.toUpperCase(),
+                        });
+                        setTouched({ ...touched, gst: true });
+                      }}
+                      className="w-full outline-none"
+                    />
+                  </div>
+                  {touched.gst && errors.gst && (
+                    <p className="text-red-500 text-xs mt-1">{errors.gst}</p>
+                  )}
+                </div>
+
+                {/* SAC */}
+                <div>
+                  <label className="block mb-1 text-gray-600">SAC Number</label>
+                  <div
+                    className={`flex items-center border rounded-lg px-3 py-2 gap-2
+                      ${touched.sac && errors.sac ? "border-red-500" : "border-gray-300"}`}
+                  >
+                    <span className="text-gray-400">🧮</span>
+                    <input
+                      type="text"
+                      value={newProject.sac}
+                      placeholder="SAC Number"
+                      onChange={(e) => {
+                        setNewProject({ ...newProject, sac: e.target.value });
+                        setTouched({ ...touched, sac: true });
+                      }}
+                      className="w-full outline-none"
+                    />
+                  </div>
+                  {touched.sac && errors.sac && (
+                    <p className="text-red-500 text-xs mt-1">{errors.sac}</p>
+                  )}
+                </div>
+
+                {/* Buttons */}
+                <div className="space-y-3 pt-3">
+                  <button
+                    onClick={addProject}
+                    disabled={!isFormValid}
+                    className={`w-full py-3 rounded-lg font-medium
+                      ${
+                        isFormValid
+                          ? "bg-teal-700 text-white"
+                          : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      }`}
+                  >
+                    🏢 Add Project
+                  </button>
+
+                  <button
+                    onClick={() => setIsProjectModalOpen(false)}
+                    className="w-full py-3 rounded-lg font-medium border border-teal-700 text-teal-700"
+                  >
+                    Save Draft
+                  </button>
+                </div>
+
               </div>
-              {errors.date && (
-                <p className="text-red-500 text-xs mt-1">{errors.date}</p>
-              )}
             </div>
-
-            {/* ================= Location ================= */}
-            <div>
-              <label className="block mb-1 text-gray-600">
-                Location
-              </label>
-              <div
-                className={`flex items-center border rounded-lg px-3 py-2 gap-2
-                  ${errors.location ? "border-red-500" : "border-gray-300"}`}
-              >
-                <span className="text-gray-400">📍</span>
-                <input
-                  type="text"
-                  placeholder="Location"
-                  value={newProject.location}
-                  onChange={(e) =>
-                    setNewProject({ ...newProject, location: e.target.value })
-                  }
-                  className="w-full outline-none"
-                />
-              </div>
-              {errors.location && (
-                <p className="text-red-500 text-xs mt-1">{errors.location}</p>
-              )}
-            </div>
-
-            {/* ================= GST ================= */}
-            <div>
-              <label className="block mb-1 text-gray-600">
-                GST Number
-              </label>
-              <div
-                className={`flex items-center border rounded-lg px-3 py-2 gap-2
-                  ${errors.gst ? "border-red-500" : "border-gray-300"}`}
-              >
-                <span className="text-gray-400">🧾</span>
-                <input
-                  type="text"
-                  placeholder="GST Number"
-                  value={newProject.gst}
-                  onChange={(e) =>
-                    setNewProject({
-                      ...newProject,
-                      gst: e.target.value.toUpperCase(),
-                    })
-                  }
-                  className="w-full outline-none"
-                />
-              </div>
-              {errors.gst && (
-                <p className="text-red-500 text-xs mt-1">{errors.gst}</p>
-              )}
-            </div>
-
-            {/* ================= SAC ================= */}
-            <div>
-              <label className="block mb-1 text-gray-600">
-                SAC Number
-              </label>
-              <div
-                className={`flex items-center border rounded-lg px-3 py-2 gap-2
-                  ${errors.sac ? "border-red-500" : "border-gray-300"}`}
-              >
-                <span className="text-gray-400">🧮</span>
-                <input
-                  type="text"
-                  placeholder="SAC Number"
-                  value={newProject.sac}
-                  onChange={(e) =>
-                    setNewProject({ ...newProject, sac: e.target.value })
-                  }
-                  className="w-full outline-none"
-                />
-              </div>
-              {errors.sac && (
-                <p className="text-red-500 text-xs mt-1">{errors.sac}</p>
-              )}
-            </div>
-
-            {/* ================= Buttons ================= */}
-            <div className="space-y-3 pt-3">
-              <button
-                onClick={addProject}
-                disabled={!isFormValid}
-                className={`w-full py-3 rounded-lg font-medium flex justify-center gap-2
-                  ${
-                    isFormValid
-                      ? "bg-teal-700 text-white"
-                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  }`}
-              >
-                🏢 Add Project
-              </button>
-
-              <button
-                onClick={() => setIsProjectModalOpen(false)}
-                className="w-full py-3 rounded-lg font-medium border border-teal-700 text-teal-700 flex justify-center gap-2"
-              >
-                🏢 Save Draft
-              </button>
-            </div>
-
           </div>
-        );
+        )
       })()}
     </div>
   </div>
