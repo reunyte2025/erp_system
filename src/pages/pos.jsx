@@ -62,13 +62,7 @@ export default function POS() {
     state: '',
     pincode: '',
     gstNumber: '',
-    sacCode: '',
-    projectName: '',
-    surveyNumber: '',
-    projectAddress: '',
-    projectCity: '',
-    projectState: '',
-    projectPincode: ''
+    sacCode: ''
   });
 
   // PRODUCTION: Load token and user data on component mount
@@ -159,20 +153,6 @@ export default function POS() {
     if (formData.gstNumber) payload.gst_number = formData.gstNumber;
     if (formData.sacCode) payload.sac_code = formData.sacCode;
 
-    // Only add projects array if project name is provided
-    if (formData.projectName && formData.projectName.trim()) {
-      payload.projects = [{
-        name: formData.projectName
-      }];
-      
-      // Add optional project fields
-      if (formData.surveyNumber) payload.projects[0].servey_number = formData.surveyNumber;
-      if (formData.projectAddress) payload.projects[0].address = formData.projectAddress;
-      if (formData.projectCity) payload.projects[0].city = formData.projectCity;
-      if (formData.projectState) payload.projects[0].state = formData.projectState;
-      if (formData.projectPincode) payload.projects[0].pincode = formData.projectPincode;
-    }
-
     console.log('🚀 Sending payload:', JSON.stringify(payload, null, 2));
 
     try {
@@ -215,75 +195,76 @@ export default function POS() {
           // If response is not JSON, try to get text
           try {
             const errorText = await response.text();
-            console.error('Server error text:', errorText);
-            errorMessage = errorText.substring(0, 200) || `Server error (${response.status})`;
+            if (errorText) {
+              errorMessage = errorText;
+            }
           } catch (textError) {
-            errorMessage = `Server error (${response.status})`;
+            console.error('Could not parse error response:', textError);
           }
         }
-        throw new Error(errorMessage);
+        setError(errorMessage);
+        setSubmitting(false);
+        return;
       }
 
       const responseData = await response.json();
       console.log('✅ Client created successfully:', responseData);
 
-      // Clear form on success
+      setSuccess('Client created successfully!');
+      
+      // Reset form after successful creation
       setFormData({
-        firstName: '', lastName: '', phoneNumber: '', email: '',
-        address: '', city: '', state: '', pincode: '',
-        gstNumber: '', sacCode: '', projectName: '', surveyNumber: '',
-        projectAddress: '', projectCity: '', projectState: '', projectPincode: ''
+        firstName: '',
+        lastName: '',
+        phoneNumber: '',
+        email: '',
+        address: '',
+        city: '',
+        state: '',
+        pincode: '',
+        gstNumber: '',
+        sacCode: ''
       });
 
-      setSuccess(`✅ Client "${formData.firstName} ${formData.lastName}" created successfully!`);
-      
-      // Auto-hide success message after 5 seconds
-      setTimeout(() => setSuccess(''), 5000);
-
     } catch (err) {
-      if (err.message.includes('Failed to fetch')) {
-        setError(`Cannot connect to API server at ${API_BASE_URL}. Please ensure the backend is running.`);
-      } else {
-        setError(err.message);
-      }
-      console.error('Error creating client:', err);
+      console.error('Network or unexpected error:', err);
+      setError(`Network error: ${err.message || 'Unable to connect to server'}`);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleSaveDraft = () => {
-    localStorage.setItem('clientDraft', JSON.stringify(formData));
-    setSuccess('💾 Draft saved successfully!');
-    setTimeout(() => setSuccess(''), 3000);
+    try {
+      localStorage.setItem('clientDraft', JSON.stringify(formData));
+      setSuccess('Draft saved successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError('Failed to save draft');
+      setTimeout(() => setError(''), 3000);
+    }
   };
 
   const handleLoadDraft = () => {
-    const draft = localStorage.getItem('clientDraft');
-    if (draft) {
-      setFormData(JSON.parse(draft));
-      setSuccess('📂 Draft loaded successfully!');
-      setTimeout(() => setSuccess(''), 3000);
-    } else {
-      setError('No saved draft found');
+    try {
+      const draft = localStorage.getItem('clientDraft');
+      if (draft) {
+        setFormData(JSON.parse(draft));
+        setSuccess('Draft loaded successfully!');
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError('No draft found');
+        setTimeout(() => setError(''), 3000);
+      }
+    } catch (err) {
+      setError('Failed to load draft');
       setTimeout(() => setError(''), 3000);
     }
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Success Message */}
-      {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-start gap-3 animate-fade-in">
-          <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium">{success}</p>
-          </div>
-          <button onClick={() => setSuccess('')} className="text-green-700 hover:text-green-900 text-xl font-bold leading-none">×</button>
-        </div>
-      )}
-
-      {/* Error Message */}
+    <div className="space-y-6">
+      {/* Status Messages */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
           <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
@@ -291,11 +272,19 @@ export default function POS() {
             <p className="text-sm font-medium mb-1">Error</p>
             <p className="text-sm">{error}</p>
           </div>
-          <button onClick={() => setError('')} className="text-red-700 hover:text-red-900 text-xl font-bold leading-none">×</button>
+        </div>
+      )}
+      
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-start gap-3">
+          <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium">{success}</p>
+          </div>
         </div>
       )}
 
-      {/* Main Form */}
+      {/* Main Content Card */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="p-4 sm:p-6 border-b border-gray-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -318,165 +307,103 @@ export default function POS() {
         </div>
 
         <div className="p-4 sm:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
-            {/* Client Details */}
-            <div>
-              <div className="flex items-center gap-2 mb-4">
-                <Building2 className="w-5 h-5 text-teal-600" />
-                <h3 className="text-base sm:text-lg font-semibold text-gray-800">Client Details</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <InputField 
-                    icon={User} 
-                    label="First Name" 
-                    name="firstName" 
-                    placeholder="John" 
-                    required 
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                  />
-                  <InputField 
-                    icon={User} 
-                    label="Last Name" 
-                    name="lastName" 
-                    placeholder="Doe" 
-                    required 
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <InputField 
-                  icon={Phone} 
-                  label="Phone Number" 
-                  name="phoneNumber" 
-                  type="tel" 
-                  placeholder="9876543210" 
-                  required 
-                  value={formData.phoneNumber}
-                  onChange={handleInputChange}
-                />
-                <InputField 
-                  icon={Mail} 
-                  label="Email Address" 
-                  name="email" 
-                  type="email" 
-                  placeholder="john@example.com" 
-                  required 
-                  value={formData.email}
-                  onChange={handleInputChange}
-                />
-                <InputField 
-                  icon={MapPin} 
-                  label="Address" 
-                  name="address" 
-                  placeholder="123 Main Street" 
-                  value={formData.address}
-                  onChange={handleInputChange}
-                />
-                <div className="grid grid-cols-3 gap-4">
-                  <InputField 
-                    icon={Building2} 
-                    label="City" 
-                    name="city" 
-                    placeholder="Mumbai" 
-                    value={formData.city}
-                    onChange={handleInputChange}
-                  />
-                  <InputField 
-                    icon={MapPin} 
-                    label="State" 
-                    name="state" 
-                    placeholder="Maharashtra" 
-                    value={formData.state}
-                    onChange={handleInputChange}
-                  />
-                  <InputField 
-                    icon={Hash} 
-                    label="Pincode" 
-                    name="pincode" 
-                    placeholder="400001" 
-                    value={formData.pincode}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <InputField 
-                  icon={Hash} 
-                  label="GST Number" 
-                  name="gstNumber" 
-                  placeholder="22AAAAA0000A1Z5" 
-                  value={formData.gstNumber}
-                  onChange={handleInputChange}
-                />
-                <InputField 
-                  icon={Hash} 
-                  label="SAC Code" 
-                  name="sacCode" 
-                  placeholder="998314" 
-                  value={formData.sacCode}
-                  onChange={handleInputChange}
-                />
-              </div>
+          {/* Client Details */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Building2 className="w-5 h-5 text-teal-600" />
+              <h3 className="text-base sm:text-lg font-semibold text-gray-800">Client Details</h3>
             </div>
-
-            {/* Project Details */}
-            <div>
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-teal-600" />
-                <h3 className="text-base sm:text-lg font-semibold text-gray-800">Project Details (Optional)</h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <InputField 
+                  icon={User} 
+                  label="First Name" 
+                  name="firstName" 
+                  placeholder="John" 
+                  required 
+                  value={formData.firstName}
+                  onChange={handleInputChange}
+                />
+                <InputField 
+                  icon={User} 
+                  label="Last Name" 
+                  name="lastName" 
+                  placeholder="Doe" 
+                  required 
+                  value={formData.lastName}
+                  onChange={handleInputChange}
+                />
               </div>
-              <div className="space-y-4">
+              <InputField 
+                icon={Phone} 
+                label="Phone Number" 
+                name="phoneNumber" 
+                type="tel" 
+                placeholder="9876543210" 
+                required 
+                value={formData.phoneNumber}
+                onChange={handleInputChange}
+              />
+              <InputField 
+                icon={Mail} 
+                label="Email Address" 
+                name="email" 
+                type="email" 
+                placeholder="john@example.com" 
+                required 
+                value={formData.email}
+                onChange={handleInputChange}
+              />
+              <InputField 
+                icon={MapPin} 
+                label="Address" 
+                name="address" 
+                placeholder="123 Main Street" 
+                value={formData.address}
+                onChange={handleInputChange}
+              />
+              <div className="grid grid-cols-3 gap-4">
                 <InputField 
                   icon={Building2} 
-                  label="Project Name" 
-                  name="projectName" 
-                  placeholder="Riverside Corporate Tower" 
-                  value={formData.projectName}
-                  onChange={handleInputChange}
-                />
-                <InputField 
-                  icon={Hash} 
-                  label="Survey Number" 
-                  name="surveyNumber" 
-                  placeholder="123/4A" 
-                  value={formData.surveyNumber}
+                  label="City" 
+                  name="city" 
+                  placeholder="Mumbai" 
+                  value={formData.city}
                   onChange={handleInputChange}
                 />
                 <InputField 
                   icon={MapPin} 
-                  label="Project Address" 
-                  name="projectAddress" 
-                  placeholder="Plot 45, Sector 5" 
-                  value={formData.projectAddress}
+                  label="State" 
+                  name="state" 
+                  placeholder="Maharashtra" 
+                  value={formData.state}
                   onChange={handleInputChange}
                 />
-                <div className="grid grid-cols-3 gap-4">
-                  <InputField 
-                    icon={Building2} 
-                    label="City" 
-                    name="projectCity" 
-                    placeholder="Mumbai" 
-                    value={formData.projectCity}
-                    onChange={handleInputChange}
-                  />
-                  <InputField 
-                    icon={MapPin} 
-                    label="State" 
-                    name="projectState" 
-                    placeholder="Maharashtra" 
-                    value={formData.projectState}
-                    onChange={handleInputChange}
-                  />
-                  <InputField 
-                    icon={Hash} 
-                    label="Pincode" 
-                    name="projectPincode" 
-                    placeholder="400001" 
-                    value={formData.projectPincode}
-                    onChange={handleInputChange}
-                  />
-                </div>
+                <InputField 
+                  icon={Hash} 
+                  label="Pincode" 
+                  name="pincode" 
+                  placeholder="400001" 
+                  value={formData.pincode}
+                  onChange={handleInputChange}
+                />
               </div>
+              <InputField 
+                icon={Hash} 
+                label="GST Number" 
+                name="gstNumber" 
+                placeholder="22AAAAA0000A1Z5" 
+                value={formData.gstNumber}
+                onChange={handleInputChange}
+              />
+              <InputField 
+                icon={Hash} 
+                label="SAC Code" 
+                name="sacCode" 
+                placeholder="998314" 
+                value={formData.sacCode}
+                onChange={handleInputChange}
+              />
             </div>
           </div>
 
