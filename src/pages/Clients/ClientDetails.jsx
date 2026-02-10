@@ -31,6 +31,14 @@ const fetchClientDetails = () =>
       });
     }, 700);
   });
+  const clientNotes = [
+  "we discuss about some points at first meeting and the client had focused on xyz things so we need to do those AEAP",
+  "we discuss about some points at first meeting and the client had focused on xyz things so we need to do those AEAP",
+  "we discuss about some points at first meeting and the client had focused on xyz things so we need to do those AEAP",
+  "we discuss about some points at first meeting and the client had focused on xyz things so we need to do those AEAP",
+  "we discuss about some points at first meeting and the client had focused on xyz things so we need to do those AEAP",
+];
+
 
 /* 🔹 Status Badge Colors */
 const statusColors = {
@@ -43,9 +51,18 @@ const statusColors = {
 
 export default function ClientDetails() {
   const [client, setClient] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [showProjectSuccess, setShowProjectSuccess] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isViewAllNotesOpen, setIsViewAllNotesOpen] = useState(false);
+  const [notes, setNotes] = useState(clientNotes); // wrap existing notes
+  const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
+  const [newNote, setNewNote] = useState("");
+
+
   const [newProject, setNewProject] = useState({
     name: "",
     date: "",
@@ -70,6 +87,13 @@ export default function ClientDetails() {
     const files = Array.from(e.target.files).map((f) => f.name);
     setAttachments((prev) => [...prev, ...files]);
   };
+  const handleSaveClientInfo = () => {
+  console.log("Saved Client Info:", client);
+
+  setIsModalOpen(false);        // close edit form modal
+  setShowSuccessModal(true);    // show success popup
+  };
+
 
   const removeFile = (index) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
@@ -83,10 +107,17 @@ export default function ClientDetails() {
     projectsCount: prev.projectsCount + 1,
   }));
 
-  // Reset form after adding
   setNewProject({ name: "", date: "", status: "Pending" });
-  setIsProjectModalOpen(false);
-};
+  setIsProjectModalOpen(false);      // close add project form
+  setShowProjectSuccess(true);       // show success popup
+  };
+  const filteredProjects = client.projects.filter((p) =>
+  p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  const filteredInvoices = client.invoices.filter((inv) =>
+  inv.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
 
   if (!client) return <div className="p-10">Loading client data...</div>;
   return (
@@ -120,7 +151,17 @@ export default function ClientDetails() {
           </div>
 
           <div className="mt-6">
-            <h4 className="font-semibold">Notes:</h4>
+            <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold">Notes</h4>
+
+            <button
+              onClick={() => setIsViewAllNotesOpen(true)}
+              className="text-sm text-teal-600 font-medium"
+            >
+              View All
+            </button>
+          </div>
+
             <p className="text-sm text-gray-500 mt-1">{client.notes}</p>
           </div>
 
@@ -168,6 +209,8 @@ export default function ClientDetails() {
             <input
               type="text"
               placeholder="Search projects, invoices..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="outline-none text-sm w-full"
             />
           </div>
@@ -201,7 +244,7 @@ export default function ClientDetails() {
   <h4 className="font-semibold mb-4">Projects</h4>
 
   <div className="space-y-4">
-    {(showAllProjects ? [...client.projects] : client.projects.slice(0, 5)).map((p, i) => (
+    {(showAllProjects ? filteredProjects : filteredProjects.slice(0, 5)).map((p, i) => (
       <div
         key={i}
         className="flex justify-between items-center border-b pb-3 last:border-none"
@@ -222,7 +265,7 @@ export default function ClientDetails() {
     ))}
   </div>
 
-  {client.projects.length > 5 && (
+  {filteredProjects.length > 5 && (
     <button
       onClick={() => setShowAllProjects((prev) => !prev)}
       className="text-blue-600 text-sm mt-4"
@@ -237,7 +280,7 @@ export default function ClientDetails() {
           <div className="bg-white rounded-xl shadow p-6">
             <h4 className="font-semibold mb-4">Invoices</h4>
             <div className="space-y-4">
-              {client.invoices.map((inv, i) => (
+              {filteredInvoices.map((inv, i) => (
                 <div
                   key={i}
                   className="flex justify-between items-center border-b pb-3 last:border-none"
@@ -258,6 +301,110 @@ export default function ClientDetails() {
           </div>
         </div>
       </div>
+
+      {isViewAllNotesOpen && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="bg-white w-full max-w-md rounded-xl shadow-lg">
+
+      {/* Header */}
+      <div className="flex items-center justify-between bg-teal-600 text-white px-4 py-3 rounded-t-xl">
+        <h3 className="font-semibold">Client Notes</h3>
+        <button onClick={() => setIsViewAllNotesOpen(false)}>✕</button>
+      </div>
+
+      {/* Notes List */}
+      <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+        {notes.map((note, index) => (
+        <div
+          key={index}
+          className="flex items-start justify-between border rounded-lg p-3"
+        >
+          <div className="flex gap-2">
+            <span className="w-2 h-2 bg-yellow-400 rounded-full mt-2"></span>
+            <p className="text-sm text-gray-600">{note}</p>
+          </div>
+          <button className="text-teal-500">×</button>
+        </div>
+      ))}
+
+      </div>
+      <button
+      onClick={() => setIsAddNoteOpen(true)}
+      className="w-full bg-teal-700 text-white py-2 rounded-lg mt-4"
+    >
+      Add New Notes
+    </button>
+
+    {/* Footer */}
+          <div className="p-4">
+            <button
+              onClick={() => setIsViewAllNotesOpen(false)}
+              className="w-full bg-teal-600 text-white py-2 rounded-lg"
+            >
+              Save and Exit
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {isAddNoteOpen && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="bg-white w-full max-w-md rounded-xl shadow-xl overflow-hidden">
+
+      {/* Header */}
+      <div className="flex items-center justify-between bg-teal-700 px-5 py-4">
+        <div className="flex items-center gap-2 text-white font-semibold">
+          <span className="text-lg">📝</span>
+          <span>Add Notes</span>
+        </div>
+        <button
+          onClick={() => setIsAddNoteOpen(false)}
+          className="text-white text-xl"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 space-y-4 text-sm">
+        <div className="flex items-start gap-2 border rounded-lg p-3">
+          <span className="w-2 h-2 bg-yellow-400 rounded-full mt-2"></span>
+          <textarea
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="Type here..."
+            rows={3}
+            className="w-full outline-none resize-none"
+          />
+        </div>
+
+        {/* Buttons */}
+        <div className="space-y-3 pt-2">
+          <button
+            onClick={() => {
+              if (!newNote.trim()) return;
+              setNotes((prev) => [...prev, newNote]);
+              setNewNote("");
+              setIsAddNoteOpen(false);
+            }}
+            className="w-full bg-teal-700 text-white py-2 rounded-lg"
+          >
+            Save Added
+          </button>
+
+          <button
+            onClick={() => setIsAddNoteOpen(false)}
+            className="w-full border border-teal-700 text-teal-700 py-2 rounded-lg"
+          >
+            Save and Exit
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+
 
       {/* 🔹 Edit Modal */}
       {isModalOpen && (
@@ -349,10 +496,12 @@ export default function ClientDetails() {
         {/* ================= Buttons ================= */}
         <div className="space-y-3 pt-3">
           <button
+            onClick={handleSaveClientInfo}
             className="w-full py-3 rounded-lg font-medium bg-teal-700 text-white"
           >
             Save Info
           </button>
+
 
           <button
             onClick={() => setIsModalOpen(false)}
@@ -365,7 +514,31 @@ export default function ClientDetails() {
       </div>
     </div>
   </div>
-)}
+  )}
+  {showSuccessModal && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="bg-white w-[90%] max-w-md rounded-2xl shadow-2xl p-8 text-center animate-scale-in">
+      
+      {/* Check Icon */}
+      <div className="w-20 h-20 mx-auto mb-5 rounded-full border-4 border-teal-600 flex items-center justify-center">
+        <span className="text-teal-600 text-4xl">✓</span>
+      </div>
+
+      {/* Text */}
+      <h2 className="text-teal-700 text-2xl font-semibold">Successfully</h2>
+      <p className="text-lg font-medium mt-1">Updates Client Details</p>
+
+      {/* OK Button */}
+      <button
+        onClick={() => setShowSuccessModal(false)}
+        className="mt-8 w-full bg-teal-700 hover:bg-teal-800 text-white py-3 rounded-xl text-lg font-medium transition"
+      >
+        OK
+      </button>
+    </div>
+  </div>
+  )}
+
 
       {/* 🔹 ADD PROJECT MODAL */}
       {isProjectModalOpen && (
@@ -597,6 +770,43 @@ export default function ClientDetails() {
     </div>
   </div>
 )}
+{showProjectSuccess && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="bg-white w-[90%] max-w-md rounded-2xl shadow-2xl p-8 text-center animate-scale-in">
+      
+      {/* Check Icon */}
+      <div className="w-20 h-20 mx-auto mb-6 rounded-full border-4 border-teal-700 flex items-center justify-center">
+        <span className="text-teal-700 text-4xl">✓</span>
+      </div>
+
+      {/* Text */}
+      <h2 className="text-teal-700 text-2xl font-semibold">
+        Successfully
+      </h2>
+      <p className="text-lg font-medium mt-1">
+        Created project
+      </p>
+
+      {/* Buttons */}
+      <div className="mt-8 space-y-4">
+        <button
+          onClick={() => setShowProjectSuccess(false)}
+          className="w-full bg-teal-700 hover:bg-teal-800 text-white py-3 rounded-xl text-lg font-medium transition"
+        >
+          Proceed To Quotation
+        </button>
+
+        <button
+          onClick={() => setShowProjectSuccess(false)}
+          className="w-full border-2 border-teal-700 text-teal-700 py-3 rounded-xl text-lg font-medium hover:bg-teal-50 transition"
+        >
+          Skip
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }
