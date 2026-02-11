@@ -328,15 +328,15 @@ export default function ClientDetails() {
       ))}
 
       </div>
-      <button
-      onClick={() => setIsAddNoteOpen(true)}
-      className="w-full bg-teal-700 text-white py-2 rounded-lg mt-4"
-    >
-      Add New Notes
-    </button>
 
     {/* Footer */}
-          <div className="p-4">
+          <div className="space-y-3 p-4">
+            <button
+              onClick={() => setIsAddNoteOpen(true)}
+              className="w-full bg-teal-700 text-white py-2 rounded-lg"
+            >
+              Add New Notes
+            </button>
             <button
               onClick={() => setIsViewAllNotesOpen(false)}
               className="w-full bg-teal-600 text-white py-2 rounded-lg"
