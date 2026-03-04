@@ -153,8 +153,8 @@ export default function Login({ onLoginSuccess }) {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-lg mb-1">Complete POS Integration</h3>
-                <p className="text-slate-400 text-sm">Seamless point of sale with inventory management</p>
+                <h3 className="font-semibold text-lg mb-1">Client Management</h3>
+                <p className="text-slate-400 text-sm">Comprehensive client tracking and relationship management</p>
               </div>
             </div>
             

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingCart, FileText, FileEdit, Receipt, Briefcase, Users, Award, BarChart3, Settings, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
+import { FileText, FileEdit, Receipt, Briefcase, Users, Award, BarChart3, Settings, ChevronLeft, ChevronRight, UserCircle, Tag } from 'lucide-react';
 
-export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobileMenuOpen }) {
+export default function Sidebar({ activeItem, onCollapseChange, isMobileMenuOpen, setIsMobileMenuOpen }) {
   const [hoveredItem, setHoveredItem] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
@@ -16,12 +16,12 @@ export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobil
   }, [isCollapsed, onCollapseChange]);
 
   const menuItems = [
-    { id: 'POS', label: 'POS', icon: ShoppingCart, path: '/pos' },
+    { id: 'Clients', label: 'Clients', icon: UserCircle, path: '/clients' },
     { id: 'Projects', label: 'Projects', icon: Briefcase, path: '/projects' },
     { id: 'Quotations', label: 'Quotations', icon: FileText, path: '/quotations' },
     { id: 'Proforma', label: 'Proforma', icon: FileEdit, path: '/proforma' },
     { id: 'Invoices', label: 'Invoices', icon: Receipt, path: '/invoices' },
-    { id: 'Clients', label: 'Clients', icon: UserCircle, path: '/clients' },
+    { id: 'Purchase', label: 'Purchase', icon: Tag, path: '/purchase' },
     { id: 'Employees', label: 'Employees', icon: Users, path: '/employees' },
     { id: 'Certificates', label: 'Certificates', icon: Award, path: '/certificates' },
     { id: 'Reports', label: 'Reports', icon: BarChart3, path: '/reports' },
@@ -53,9 +53,10 @@ export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobil
     setHoveredItem(null);
   };
 
-  // Determine if a menu item is active based on current route
-  const isItemActive = (itemPath) => {
-    return location.pathname === itemPath;
+  // Determine if a menu item is active based on activeItem prop from App.jsx
+  // This ensures consistency between App.jsx route logic and Sidebar highlighting
+  const isItemActive = (itemId) => {
+    return activeItem === itemId;
   };
 
   return (
@@ -71,14 +72,17 @@ export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobil
       {/* Sidebar */}
       <aside
         className={`
-          fixed top-14 sm:top-16 left-0 z-40
+          fixed left-0 z-40
           ${isCollapsed ? 'w-20' : 'w-72 sm:w-80 lg:w-72'}
           bg-slate-800 
-          h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)]
           shadow-xl
           transform transition-all duration-300 ease-in-out
           ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
+        style={{
+          top: 'var(--header-height, 3.5rem)',
+          height: 'calc(100vh - var(--header-height, 3.5rem))'
+        }}
       >
         {/* Desktop Collapse Toggle Button */}
         <button
@@ -97,7 +101,7 @@ export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobil
           <ul className="space-y-2">
             {menuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = isItemActive(item.path);
+              const isActive = isItemActive(item.id);
               const isHovered = hoveredItem === item.id;
 
               return (
@@ -162,6 +166,19 @@ export default function Sidebar({ onCollapseChange, isMobileMenuOpen, setIsMobil
           ></div>
         </div>
       )}
+
+      {/* CSS Variables for header height */}
+      <style>{`
+        :root {
+          --header-height: 3.5rem;
+        }
+        
+        @media (min-width: 640px) {
+          :root {
+            --header-height: 4rem;
+          }
+        }
+      `}</style>
     </>
   );
 }

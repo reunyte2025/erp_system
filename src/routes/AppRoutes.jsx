@@ -1,11 +1,18 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from '../pages/Login';
-import POS from '../pages/pos';
-import Quotations from '../pages/quotations';
-import Proforma from '../pages/proforma';
+import Quotations from '../pages/quotations/quotations';
+import QuotationsList from '../pages/quotations/quotationsList';
+import Proforma from '../pages/proforma/proforma';
+import ProformaList from '../pages/proforma/proformaList';
 import Invoices from '../pages/invoices/invoices';
+import InvoicesList from '../pages/invoices/invoicesList';
+import Purchase from '../pages/purchase/purchase';
+import PurchaseOrder from '../pages/purchase/purchaseOrder';
+import VendorProfile from '../pages/purchase/vendorProfile';
+import Payments from '../pages/purchase/payments'; // NEW IMPORT
 import Projects from '../pages/projects/projects';
 import Clients from '../pages/clients/clients';
+import ClientProfile from '../pages/clients/clientsProfile';
 import Employees from '../pages/employees';
 import Certificates from '../pages/certificates';
 import Reports from '../pages/reports';
@@ -14,26 +21,47 @@ import ProtectedRoute from '../routes/PrivateRoute';
 import AuthenticatedLayout from '../components/AuthenticatedLayout';
 
 /**
- * AppRoutes Component
+ * ============================================================================
+ * APP ROUTES CONFIGURATION
+ * ============================================================================
  * 
  * Centralized routing configuration for the entire application.
  * All route definitions are managed here for easy maintenance and scalability.
  * 
- * Route Structure:
- * - /login - Public login page
- * - / - Redirects to /pos
- * - /pos - Point of Sale (Create clients)
- * - /clients - Client management
- * - /projects - Project management
- * - /quotations - Quotation management
- * - /proforma - Proforma invoice management
- * - /invoices - Invoice management
- * - /employees - Employee management
- * - /certificates - Certificate management
- * - /reports - Reports and analytics
- * - /settings - Application settings
+ * ROUTE STRUCTURE:
+ * ============================================================================
  * 
- * All routes except /login are protected and require authentication.
+ * PUBLIC ROUTES:
+ * - /login               → Login page (redirects to /clients if authenticated)
+ * 
+ * PROTECTED ROUTES (require authentication):
+ * - /                    → Redirects to /clients (default landing page)
+ * - /clients             → Client management (list view)
+ * - /clients/:id         → Client profile (detail view)
+ * - /projects            → Project management
+ * - /quotations          → Quotations list view
+ * - /quotations/form     → Create new quotation
+ * - /quotations/:id      → View/edit specific quotation
+ * - /proforma            → Proforma list view
+ * - /proforma/form       → Create new proforma
+ * - /invoices            → Invoice management
+ * - /purchase            → Purchase management (vendor list)
+ * - /vendors/:id         → Vendor profile (detail view)
+ * - /vendors/:id/payments → Vendor payment history
+ * - /purchase-order      → Purchase Order management (Vendor & Project details)
+ * - /employees           → Employee management
+ * - /certificates        → Certificate management
+ * - /reports             → Reports and analytics
+ * - /settings            → Application settings
+ * - *                    → 404 catch-all (redirects to /clients)
+ * 
+ * IMPORTANT NOTES:
+ * ============================================================================
+ * - Route order matters! Specific routes must come before generic ones
+ * - All protected routes are wrapped with ProtectedRoute component
+ * - All authenticated pages use AuthenticatedLayout for consistent UI
+ * - Quotations uses nested routing for list, create, and edit views
+ * - Client profile route (/clients/:id) comes before /clients for proper matching
  */
 
 export default function AppRoutes({ 
@@ -45,7 +73,9 @@ export default function AppRoutes({
   isMobileSidebarOpen,
   setIsMobileSidebarOpen,
   isSidebarCollapsed,
-  setIsSidebarCollapsed
+  setIsSidebarCollapsed,
+  navigationConfig,
+  setNavigationConfig
 }) {
   
   // Common props for all authenticated pages
@@ -56,48 +86,60 @@ export default function AppRoutes({
     isMobileSidebarOpen,
     setIsMobileSidebarOpen,
     isSidebarCollapsed,
-    setIsSidebarCollapsed
+    setIsSidebarCollapsed,
+    navigationConfig,
+    setNavigationConfig
   };
 
   return (
     <Routes>
-      {/* Public Routes */}
+      {/* ====================================================================
+          PUBLIC ROUTES
+          ==================================================================== */}
+      
       <Route 
         path="/login" 
         element={
           isLoggedIn ? (
-            <Navigate to="/pos" replace />
+            <Navigate to="/clients" replace />
           ) : (
             <Login onLoginSuccess={onLoginSuccess} />
           )
         } 
       />
 
-      {/* Protected Routes - All require authentication */}
+      {/* ====================================================================
+          PROTECTED ROUTES - All require authentication
+          ==================================================================== */}
       
-      {/* Root redirect to POS */}
+      {/* Root redirect to Clients (Default Landing Page) */}
       <Route
         path="/"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
-            <Navigate to="/pos" replace />
+            <Navigate to="/clients" replace />
           </ProtectedRoute>
         }
       />
 
-      {/* POS - Point of Sale / Create Client */}
+      {/* ====================================================================
+          CLIENTS ROUTES
+          IMPORTANT: Order matters! Specific routes BEFORE generic ones
+          ==================================================================== */}
+      
+      {/* Client Profile Detail View - Must come before /clients */}
       <Route
-        path="/pos"
+        path="/clients/:id"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
-              <POS />
+              <ClientProfile />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
       />
 
-      {/* Clients Management */}
+      {/* Clients List Management - Must be last in clients group */}
       <Route
         path="/clients"
         element={
@@ -121,9 +163,14 @@ export default function AppRoutes({
         }
       />
 
-      {/* Quotations Management */}
+      {/* ====================================================================
+          QUOTATIONS ROUTES
+          IMPORTANT: Order matters! Specific routes BEFORE generic ones
+          ==================================================================== */}
+      
+      {/* Create New Quotation - Must come before /quotations/:id */}
       <Route
-        path="/quotations"
+        path="/quotations/form"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
@@ -133,9 +180,38 @@ export default function AppRoutes({
         }
       />
 
-      {/* Proforma Invoice Management */}
+      {/* View/Edit Specific Quotation by ID - Must come before /quotations */}
       <Route
-        path="/proforma"
+        path="/quotations/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <Quotations />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Quotations List View - Must be last in quotations group */}
+      <Route
+        path="/quotations"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <QuotationsList />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ====================================================================
+          PROFORMA ROUTES
+          IMPORTANT: Order matters! Specific routes BEFORE generic ones
+          ==================================================================== */}
+
+      {/* Create New Proforma - Must come before /proforma */}
+      <Route
+        path="/proforma/form"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
@@ -145,13 +221,95 @@ export default function AppRoutes({
         }
       />
 
-      {/* Invoices Management */}
+      {/* Proforma List View - Must be last in proforma group */}
+      <Route
+        path="/proforma"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <ProformaList />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ====================================================================
+          INVOICES ROUTES
+          IMPORTANT: Order matters! Specific routes BEFORE generic ones
+          ==================================================================== */}
+
+      {/* Generate Invoice page — opened after 3-step modal (must come before /invoices) */}
+      <Route
+        path="/invoices/generate"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <Invoices />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Invoices List View — sidebar "Invoices" tab lands here */}
       <Route
         path="/invoices"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
-              <Invoices />
+              <InvoicesList />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ====================================================================
+          PURCHASE ROUTES
+          IMPORTANT: Order matters! Specific routes BEFORE generic ones
+          ==================================================================== */}
+
+      {/* Purchase Management - Vendor List */}
+      <Route
+        path="/purchase"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <Purchase />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Vendor Payment History - Must come before /vendors/:id */}
+      <Route
+        path="/vendors/:vendorId/payments"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <Payments />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Vendor Profile Detail View - Must come before /purchase-order */}
+      <Route
+        path="/vendors/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <VendorProfile />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Purchase Order Management - Vendor & Project Details */}
+      <Route
+        path="/purchase-order"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <PurchaseOrder />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -205,12 +363,15 @@ export default function AppRoutes({
         }
       />
 
-      {/* 404 Catch-All - Redirect undefined routes to POS */}
+      {/* ====================================================================
+          404 CATCH-ALL
+          Redirect all undefined routes to Clients page
+          ==================================================================== */}
       <Route 
         path="*" 
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
-            <Navigate to="/pos" replace />
+            <Navigate to="/clients" replace />
           </ProtectedRoute>
         } 
       />

@@ -270,7 +270,7 @@ export const ProjectCard = ({ project }) => {
       </div>
 
       {/* Inline styles for ultra-smooth animation */}
-      <style jsx>{`
+      <style>{`
         .duration-600 {
           transition-duration: 600ms;
         }

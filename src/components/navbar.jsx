@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Search, Bell, ChevronDown, User, Settings, Lock, LogOut, Menu } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Search, Bell, ChevronDown, User, Settings, Lock, LogOut, Menu, ArrowLeft } from 'lucide-react';
 import { logout as authLogout } from '../services/authService';
 
 /**
@@ -12,12 +13,30 @@ import { logout as authLogout } from '../services/authService';
  * - Responsive design
  * - Role-based UI
  * - Secure logout
+ * - Universal back navigation button
+ * - Breadcrumb navigation support
  * 
  * @component
  */
-export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
+export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, breadcrumbs }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+
+  /**
+   * Universal back navigation handler
+   * Uses browser history to go back
+   */
+  const handleBack = () => {
+    // Always go back in history
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      // If no history, go to clients page
+      navigate('/clients');
+    }
+  };
 
   // Notifications data - In production, this would come from an API
   const notifications = [
@@ -122,13 +141,45 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar }) {
               </div>
             </div>
 
-            {/* Center Section - Page Title */}
+            {/* Center Section - Page Title or Breadcrumb */}
             <div className="flex-1 flex items-center justify-between px-3 sm:px-4 lg:px-6">
-              {/* Page Title - Responsive */}
-              <div className="flex-shrink-0 min-w-0">
-                <h2 className="text-sm sm:text-base lg:text-xl font-semibold text-gray-800 truncate">
-                  {pageTitle}
-                </h2>
+              {/* Page Title / Breadcrumb - Responsive */}
+              <div className="flex-shrink-0 min-w-0 flex items-center gap-2">
+                {/* Back Arrow Button - ALWAYS VISIBLE */}
+                <button
+                  onClick={handleBack}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                  aria-label="Go back"
+                  title="Go back"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+
+                {/* Breadcrumb Navigation */}
+                {breadcrumbs && breadcrumbs.length > 0 ? (
+                  <div className="flex items-center gap-2 min-w-0">
+                    {breadcrumbs.map((crumb, index) => (
+                      <div key={index} className="flex items-center gap-2 min-w-0">
+                        {index > 0 && (
+                          <span className="text-gray-400 flex-shrink-0">→</span>
+                        )}
+                        <span 
+                          className={`text-sm sm:text-base lg:text-xl font-semibold truncate ${
+                            index === breadcrumbs.length - 1 
+                              ? 'text-gray-800' 
+                              : 'text-gray-400'
+                          }`}
+                        >
+                          {crumb}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <h2 className="text-sm sm:text-base lg:text-xl font-semibold text-gray-800 truncate">
+                    {pageTitle}
+                  </h2>
+                )}
               </div>
 
               {/* Right side - Search & Actions */}
