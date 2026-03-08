@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Plus, User, ChevronDown, Trash2, Edit, FileText, Download, Send, X, Loader2, AlertCircle, CheckCircle, Building2, ChevronRight } from 'lucide-react';
-import { createQuotation, getComplianceByCategory, getSubComplianceCategories } from '../../services/quotation';
+import { createQuotation, updateQuotationFull, getComplianceByCategory, getSubComplianceCategories, generateQuotationPdf } from '../../services/quotation';
 import { getClients, getClientProjects } from '../../services/clients';
 import api from '../../services/api';
 
@@ -92,7 +92,7 @@ const SubComplianceDropdown = ({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
+        <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 z-[99999] overflow-hidden">
           {/* Search Input */}
           <div className="p-3 border-b border-gray-200 bg-gray-50">
             <div className="relative">
@@ -260,7 +260,9 @@ const ComplianceDropdown = ({
 // SUCCESS MODAL COMPONENT
 // ============================================================================
 
-const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber }) => {
+const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber, quotationId, isEditMode }) => {
+  const [pdfLoading, setPdfLoading] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -280,6 +282,18 @@ const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber }) => 
     const s = String(n);
     if (s.length >= 8) return `QT-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
     return `QT-2026-${String(n).padStart(5, '0')}`;
+  };
+
+  const handleDownload = async () => {
+    if (!quotationId) return;
+    try {
+      setPdfLoading(true);
+      await generateQuotationPdf(quotationId);
+    } catch (err) {
+      console.error('PDF download failed:', err.message);
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   return (
@@ -302,26 +316,43 @@ const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber }) => 
               <CheckCircle className="w-9 h-9 text-teal-600" />
             </div>
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-1">Quotation Created!</h3>
+          <h3 className="text-xl font-bold text-gray-900 mb-1">{isEditMode ? 'Quotation Updated!' : 'Quotation Created!'}</h3>
           {quotationNumber && (
             <p className="text-sm font-semibold text-teal-600 bg-teal-50 rounded-lg px-3 py-1.5 inline-block mb-4">
               {fmtQNum(quotationNumber)}
             </p>
           )}
-          <p className="text-sm text-gray-500 mb-6">Your quotation has been saved successfully.</p>
+          <p className="text-sm text-gray-500 mb-6">{isEditMode ? 'Your quotation has been updated successfully.' : 'Your quotation has been saved successfully.'}</p>
           <div className="space-y-2.5">
             <button
               onClick={onViewQuotation}
               className="w-full px-6 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium text-sm"
             >
-              Back to Quotations
+              {isEditMode ? 'View Quotation' : 'Back to Quotations'}
             </button>
-            <button
-              onClick={onClose}
-              className="w-full px-6 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
-            >
-              Create Another
-            </button>
+
+            {/* Download Quotation — only shown when ID is available */}
+            {quotationId && (
+              <button
+                onClick={handleDownload}
+                disabled={pdfLoading}
+                className="w-full px-6 py-2.5 bg-white text-teal-600 border border-teal-300 rounded-lg hover:bg-teal-50 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {pdfLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" />Generating PDF...</>
+                  : <><Download className="w-4 h-4" />Download Quotation</>
+                }
+              </button>
+            )}
+
+            {!isEditMode && (
+              <button
+                onClick={onClose}
+                className="w-full px-6 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+              >
+                Create Another
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -332,21 +363,11 @@ const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber }) => 
           to { opacity: 1; }
         }
         @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
         }
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out;
-        }
-        .animate-scaleIn {
-          animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
+        .animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+        .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
     </div>
   );
@@ -362,19 +383,20 @@ export default function Quotations({ onUpdateNavigation }) {
   const selectedClientFromState = location.state?.selectedClient;
   const selectedProjectFromState = location.state?.selectedProject ?? location.state?.project ?? null;
 
+  // ── Edit mode: quotation passed from ViewQuotationDetails ──────────────────
+  const editQuotation = location.state?.editQuotation ?? null;
+  const isEditMode    = !!editQuotation;
+
   useEffect(() => {
     if (onUpdateNavigation) {
       onUpdateNavigation({
-        breadcrumbs: ['Quotations', 'Generate Quotation']
+        breadcrumbs: isEditMode
+          ? ['Quotations', 'Update Quotation']
+          : ['Quotations', 'Generate Quotation'],
       });
     }
-    
-    return () => {
-      if (onUpdateNavigation) {
-        onUpdateNavigation(null);
-      }
-    };
-  }, [onUpdateNavigation]);
+    return () => { if (onUpdateNavigation) onUpdateNavigation(null); };
+  }, [onUpdateNavigation, isEditMode]);
 
   const DRAFT_KEY = 'quotation_draft';
 
@@ -451,9 +473,66 @@ export default function Quotations({ onUpdateNavigation }) {
     subCompliance: ''
   });
 
-  // Fetch Data on Mount — restore draft if available
+  // Fetch Data on Mount — restore draft OR pre-fill from edit mode
   useEffect(() => {
     fetchClients();
+
+    if (isEditMode && editQuotation) {
+      // ── Pre-fill from existing quotation ──────────────────────────────────
+      // quotation_number stays as-is (not regenerated)
+      if (editQuotation.quotation_number) setQuotationNumber(String(editQuotation.quotation_number));
+      if (editQuotation.sac_code)         setSacCode(editQuotation.sac_code);
+
+      // GST
+      const gst = parseFloat(editQuotation.gst_rate || 0);
+      setGstEnabled(gst > 0);
+      setGstRate(gst > 0 ? gst : 18);
+
+      // Discount — stored as percentage rate string
+      const disc = parseFloat(editQuotation.discount_rate || 0);
+      setDiscountType('Percentage');
+      setDiscountValue(disc);
+
+      // Client & project — passed as full objects from the details page
+      if (editQuotation._clientObj)  setSelectedClient(editQuotation._clientObj);
+      if (editQuotation._projectObj) setSelectedProject(editQuotation._projectObj);
+
+      // Rebuild sections from flat items array
+      if (editQuotation.items?.length) {
+        const COMPLIANCE_CATEGORY_NAMES = {
+          1: 'Construction Certificate',
+          2: 'Occupational Certificate',
+          3: 'Water Main',
+          4: 'STP',
+        };
+        const grouped = {};
+        editQuotation.items.forEach(item => {
+          const catId = item.compliance_category ?? 0;
+          if (!grouped[catId]) {
+            grouped[catId] = {
+              category_id:   catId,
+              category_name: COMPLIANCE_CATEGORY_NAMES[catId] || `Category ${catId}`,
+              items: [],
+            };
+          }
+          grouped[catId].items.push({
+            compliance_name:     item.description || '',
+            compliance_id:       item.compliance_id || null,
+            sub_compliance_id:   item.sub_compliance_category || null,
+            quantity:            item.quantity || 1,
+            miscellaneous_amount: item.miscellaneous_amount === '--' ? '' : (item.miscellaneous_amount || ''),
+            Professional_amount: parseFloat(item.Professional_amount || 0),
+            total_amount:        parseFloat(item.total_amount || 0),
+            // Keep original item id so update API can match it
+            _itemId:             item.id || null,
+          });
+        });
+        setSections(Object.values(grouped));
+      }
+      return; // skip draft restore in edit mode
+    }
+
+    // ── Normal create mode: restore draft if available ─────────────────────
     const draft = loadDraft();
     if (draft) {
       if (draft.sections?.length)      setSections(draft.sections);
@@ -631,12 +710,40 @@ export default function Quotations({ onUpdateNavigation }) {
   // CALCULATION FUNCTIONS
   // ============================================================================
 
-  const calcItemTotal = (item) => {
-    const prof = parseFloat(item.Professional_amount) || 0;
-    const misc = parseFloat(item.miscellaneous_amount) || 0;
-    return (prof + misc) * (parseFloat(item.quantity) || 1);
+  /**
+   * Determine whether miscellaneous_amount is a pure numeric charge.
+   *   Pure number  (e.g. "500", "1500.50", 500)  -> true  -> included in totals
+   *   Any text     (e.g. "Govt fees + stamp duty") -> false -> shown as label, not calculated
+   */
+  const isMiscNumeric = (value) => {
+    if (value === '' || value === null || value === undefined) return false;
+    const str = String(value).trim();
+    if (str === '') return false;
+    return !isNaN(str) && !isNaN(parseFloat(str));
   };
 
+  /**
+   * Calculate the total for a single item.
+   * Formula: (Professional_amount + miscellaneous_amount) x quantity
+   * Misc is only added to the numeric total when it is a pure number.
+   * When misc is descriptive text it is excluded from calculation and
+   * displayed as a note alongside the item total.
+   * Single source of truth — never use stored item.total_amount for math.
+   */
+  const calcItemTotal = (item) => {
+    const prof = parseFloat(item.Professional_amount) || 0;
+    const misc = isMiscNumeric(item.miscellaneous_amount)
+      ? parseFloat(item.miscellaneous_amount)
+      : 0;
+    const qty = parseInt(item.quantity, 10) || 1;
+    return Math.round((prof + misc) * qty * 100) / 100;
+  };
+
+  /**
+   * Sum of all item totals across all sections.
+   * Uses live calcItemTotal — NOT the stored item.total_amount — to ensure
+   * edits are always reflected correctly.
+   */
   const calculateSubTotal = () => {
     return sections.reduce((total, section) => {
       return total + section.items.reduce((sectionTotal, item) => {
@@ -645,26 +752,39 @@ export default function Quotations({ onUpdateNavigation }) {
     }, 0);
   };
 
+  /**
+   * Calculate discount amount.
+   * Supports Percentage or Fixed (flat) discount types.
+   */
   const calculateDiscount = () => {
     const subTotal = calculateSubTotal();
     if (discountType === 'Percentage') {
-      return (subTotal * parseFloat(discountValue || 0)) / 100;
+      return Math.round(((subTotal * parseFloat(discountValue || 0)) / 100) * 100) / 100;
     }
-    return parseFloat(discountValue || 0);
+    return Math.round(parseFloat(discountValue || 0) * 100) / 100;
   };
 
+  /**
+   * Calculate GST on (SubTotal - Discount).
+   * Returns 0 if GST is disabled.
+   */
   const calculateGST = () => {
     if (!gstEnabled) return 0;
-    const subTotal = calculateSubTotal();
-    const discount = calculateDiscount();
-    return ((subTotal - discount) * parseFloat(gstRate || 0)) / 100;
+    const subTotal  = calculateSubTotal();
+    const discount  = calculateDiscount();
+    const taxable   = subTotal - discount;
+    return Math.round(((taxable * parseFloat(gstRate || 0)) / 100) * 100) / 100;
   };
 
+  /**
+   * Final grand total: SubTotal - Discount + GST.
+   * Rounded to 2 decimal places to avoid floating-point drift.
+   */
   const calculateGrandTotal = () => {
     const subTotal = calculateSubTotal();
     const discount = calculateDiscount();
-    const gst = calculateGST();
-    return subTotal - discount + gst;
+    const gst      = calculateGST();
+    return Math.round((subTotal - discount + gst) * 100) / 100;
   };
 
   // ============================================================================
@@ -719,12 +839,17 @@ export default function Quotations({ onUpdateNavigation }) {
     if (!itemForm.compliance_name.trim()) return;
 
     const newItem = {
-      compliance_name: itemForm.compliance_name.trim(),
-      compliance_id: itemForm.compliance_id || null,
-      sub_compliance_id: itemForm.sub_compliance_id || null,
-      quantity: parseInt(itemForm.quantity, 10) || 1,
-      miscellaneous_amount: itemForm.miscellaneous_amount || '',
-      Professional_amount: parseFloat(itemForm.Professional_amount) || 0,
+      compliance_name:    itemForm.compliance_name.trim(),
+      compliance_id:      itemForm.compliance_id || null,
+      sub_compliance_id:  itemForm.sub_compliance_id || null,
+      quantity:           parseInt(itemForm.quantity, 10) || 1,
+      // Store raw string — isMiscNumeric() decides at calc-time whether to include in totals.
+      // Numeric value  ("500")           -> added to item total
+      // Descriptive text ("Govt. fees")  -> shown as label only, not calculated
+      miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
+      Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
+      // total_amount is stored for display convenience only.
+      // The authoritative value is always recalculated via calcItemTotal().
       total_amount: calcItemTotal(itemForm),
     };
 
@@ -787,17 +912,31 @@ export default function Quotations({ onUpdateNavigation }) {
     }
 
     if (editingSection !== null) {
+      // Editing an existing section — replace it in place
       const updatedSections = [...sections];
       updatedSections[editingSection] = sectionForm;
       setSections(updatedSections);
     } else {
-      setSections(prev => [...prev, sectionForm]);
+      // Check if a section with the same category_id already exists
+      const existingIndex = sections.findIndex(s => s.category_id === sectionForm.category_id);
+      if (existingIndex !== -1) {
+        // Merge new items into the existing section instead of creating a duplicate
+        const updatedSections = [...sections];
+        updatedSections[existingIndex] = {
+          ...updatedSections[existingIndex],
+          items: [...updatedSections[existingIndex].items, ...sectionForm.items],
+        };
+        setSections(updatedSections);
+      } else {
+        // Brand new category — append as a new section
+        setSections(prev => [...prev, sectionForm]);
+      }
     }
 
     setShowAddSection(false);
     setSectionForm({ category_id: null, category_name: '', items: [] });
     setEditingSection(null);
-      setEditingItemIndex(null);
+    setEditingItemIndex(null);
     setSelectedCategoryType(null);
     setCategoryCompliance([]);
     setComplianceDescriptions([]);
@@ -930,48 +1069,39 @@ export default function Quotations({ onUpdateNavigation }) {
         section.items.map((item) => {
           const description = String(item.compliance_name || '').trim();
           const quantity = parseInt(item.quantity, 10);
-          const miscellaneous_amount = item.miscellaneous_amount || '0';
+          const rawMisc = String(item.miscellaneous_amount ?? '').trim();
           const Professional_amount = parseFloat(item.Professional_amount) || 0;
           const compliance_category = section.category_id;
-          // Execution categories (3 & 4) have no sub-compliance — send null, not 0
           const isCertificate = [1, 2].includes(compliance_category);
-          // Execution (3 & 4): backend stores sub_compliance_category as 0, must send 0
-          // Certificates (1 & 2): send the actual sub_compliance integer ID
           const sub_compliance_category = isCertificate
             ? (item.sub_compliance_id ? parseInt(item.sub_compliance_id) : 0)
             : 0;
 
-          if (!description) {
-            throw new Error('Item description cannot be empty');
-          }
-          if (isNaN(quantity) || quantity <= 0) {
-            throw new Error(`Invalid quantity for item: ${description}`);
-          }
-          if (isNaN(Professional_amount) || Professional_amount <= 0) {
-            throw new Error(`Professional amount must be greater than 0 for: ${description}`);
-          }
+          if (!description) throw new Error('Item description cannot be empty');
+          if (isNaN(quantity) || quantity <= 0) throw new Error(`Invalid quantity for item: ${description}`);
+          if (isNaN(Professional_amount) || Professional_amount <= 0) throw new Error(`Professional amount must be greater than 0 for: ${description}`);
 
-          const misc_num = parseFloat(miscellaneous_amount) || 0;
-          const item_total = (Professional_amount + misc_num) * quantity;
+          const miscNumericValue = isMiscNumeric(rawMisc) ? parseFloat(rawMisc) : 0;
+          const item_total = parseFloat(((Professional_amount + miscNumericValue) * quantity).toFixed(2));
 
           return {
-            description: description,
-            quantity: quantity,
-            miscellaneous_amount: String(miscellaneous_amount),
-            Professional_amount: parseInt(Professional_amount),
-            total_amount: parseInt(item_total),
-            compliance_category: parseInt(compliance_category),
-            sub_compliance_category: sub_compliance_category
+            ...(isEditMode && item._itemId ? { id: item._itemId } : {}),
+            description,
+            quantity,
+            miscellaneous_amount:    rawMisc || '--',
+            Professional_amount:     parseFloat(Professional_amount.toFixed(2)),
+            total_amount:            parseFloat(item_total.toFixed(2)),
+            compliance_category:     parseInt(compliance_category),
+            sub_compliance_category,
           };
         })
       );
 
       // ========== CALCULATE TOTALS ==========
-      const subTotal = calculateSubTotal();
-      const gstAmt = calculateGST();
+      const subTotal  = calculateSubTotal();
+      const gstAmt    = calculateGST();
       const grandTotal = calculateGrandTotal();
 
-      // Convert discount to percentage string
       let discountRateStr = '0';
       if (parseFloat(discountValue) > 0) {
         if (discountType === 'Percentage') {
@@ -983,47 +1113,62 @@ export default function Quotations({ onUpdateNavigation }) {
         }
       }
 
-      // ========== VALIDATE IDS ==========
-      const quotationNum = Number(quotationNumber);
-      const clientId = Number(selectedClient.id);
+      const clientId  = Number(selectedClient.id);
       const projectId = Number(selectedProject.id);
 
-      if (isNaN(quotationNum) || quotationNum <= 0) {
-        throw new Error('Invalid quotation number');
-      }
-      if (isNaN(clientId) || clientId <= 0) {
-        throw new Error('Invalid client ID');
-      }
-      if (isNaN(projectId) || projectId <= 0) {
-        throw new Error('Invalid project ID');
+      if (isNaN(clientId)  || clientId  <= 0) throw new Error('Invalid client ID');
+      if (isNaN(projectId) || projectId <= 0) throw new Error('Invalid project ID');
+
+      // ========== EDIT MODE: UPDATE ==========
+      if (isEditMode) {
+        const updatePayload = {
+          id:               parseInt(editQuotation.id),
+          client:           clientId,
+          project:          projectId,
+          gst_rate:         String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
+          discount_rate:    discountRateStr,
+          sac_code:         sacCode.trim(),
+          total_amount:     parseFloat(subTotal.toFixed(2)),
+          total_gst_amount: parseFloat(gstAmt.toFixed(2)),
+          grand_total:      parseFloat(grandTotal.toFixed(2)),
+          items:            allItems,
+        };
+
+        serviceLogger.log('📤 UPDATE PAYLOAD:', JSON.stringify(updatePayload, null, 2));
+
+        const response = await updateQuotationFull(updatePayload);
+
+        if (response.status === 'success' || response.data?.status === 'success' || response.id) {
+          const updated = response.data || response;
+          setCreatedQuotation({
+            id:               updated.id || editQuotation.id,
+            quotation_number: updated.quotation_number || editQuotation.quotation_number,
+          });
+          setShowSuccessModal(true);
+        } else {
+          setError(response.message || response.data?.message || 'Failed to update quotation');
+        }
+        return;
       }
 
-      // ========== BUILD FINAL PAYLOAD WITH INTEGERS ==========
+      // ========== CREATE MODE ==========
+      const quotationNum = Number(quotationNumber);
+      if (isNaN(quotationNum) || quotationNum <= 0) throw new Error('Invalid quotation number');
+
       const quotationData = {
-      quotation_number: parseInt(quotationNum),
-      client: parseInt(clientId),  // ✅ Match field name
-      project: parseInt(projectId),  // ✅ Match field name
-      gst_rate: String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
-      discount_rate: discountRateStr,
-      sac_code: sacCode.trim(),
-      total_amount: parseInt(subTotal),
-      total_gst_amount: parseInt(gstAmt),
-      grand_total: parseInt(grandTotal),
-      items: allItems  // ✅ Already formatted correctly above
-    };
+        quotation_number:  parseInt(quotationNum),
+        client:            parseInt(clientId),
+        project:           parseInt(projectId),
+        gst_rate:          String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
+        discount_rate:     discountRateStr,
+        sac_code:          sacCode.trim(),
+        total_amount:      parseFloat(subTotal.toFixed(2)),
+        total_gst_amount:  parseFloat(gstAmt.toFixed(2)),
+        grand_total:       parseFloat(grandTotal.toFixed(2)),
+        items:             allItems,
+      };
 
-
-      console.log('================================================================================');
-      console.log('📤 FINAL QUOTATION PAYLOAD BEING SENT:');
-      console.log('================================================================================');
-      console.log(JSON.stringify(quotationData, null, 2));
-      console.log('Sub Total (float):', subTotal);
-      console.log('Sub Total (int):', parseInt(subTotal));
-      console.log('GST Amount (float):', gstAmt);
-      console.log('GST Amount (int):', parseInt(gstAmt));
-      console.log('Grand Total (float):', grandTotal);
-      console.log('Grand Total (int):', parseInt(grandTotal));
-      console.log('================================================================================');
+      console.log('📤 CREATE PAYLOAD:', JSON.stringify(quotationData, null, 2));
 
       const response = await createQuotation(quotationData);
 
@@ -1035,15 +1180,8 @@ export default function Quotations({ onUpdateNavigation }) {
         setError(response.message || response.data?.message || 'Failed to create quotation');
       }
     } catch (err) {
-      console.error('================================================================================');
-      console.error('❌ ERROR IN FORM SUBMISSION');
-      console.error('================================================================================');
-      console.error('Error:', err);
-      console.error('Error message:', err.message);
-      console.error('================================================================================');
-
-      let errorMsg = err.message || 'Failed to create quotation';
-      setError(errorMsg);
+      console.error('❌ SUBMIT ERROR:', err.message);
+      setError(err.message || (isEditMode ? 'Failed to update quotation' : 'Failed to create quotation'));
     } finally {
       setSubmitting(false);
     }
@@ -1268,22 +1406,21 @@ export default function Quotations({ onUpdateNavigation }) {
               
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-600 whitespace-nowrap">SAC Code</label>
+                  <label className="text-xs font-medium text-gray-600 whitespace-nowrap">
+                    SAC Code <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="text"
                     value={sacCode}
                     onChange={(e) => setSacCode(e.target.value)}
                     placeholder="e.g. 998313"
-                    className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    required
+                    className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors bg-white"
                   />
                 </div>
                 <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700">
                   <Edit className="w-4 h-4" />
                   Edit
-                </button>
-                <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Download className="w-4 h-4" />
-                  PDF
                 </button>
                 <button
                   onClick={handleSubmit}
@@ -1291,15 +1428,30 @@ export default function Quotations({ onUpdateNavigation }) {
                   className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />Generating...</>
+                    <><Loader2 className="w-4 h-4 animate-spin" />{isEditMode ? 'Updating...' : 'Generating...'}</>
                   ) : (
-                    <><FileText className="w-4 h-4" />Generate</>
+                    <><FileText className="w-4 h-4" />{isEditMode ? 'Update Quotation' : 'Generate Proforma'}</>
                   )}
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Edit Mode Banner */}
+        {isEditMode && (
+          <div className="mb-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Edit className="w-4 h-4 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">Editing Quotation</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                You are updating an existing quotation. All changes will overwrite the current data.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -1405,7 +1557,7 @@ export default function Quotations({ onUpdateNavigation }) {
                           </div>
                           <div className="flex items-center gap-4">
                             <span className="text-sm text-gray-600">
-                              Subtotal: <span className="font-semibold text-gray-900">Rs. {section.items.reduce((sum, item) => sum + parseFloat(item.total_amount || 0), 0).toLocaleString('en-IN')}</span>
+                              Subtotal: <span className="font-semibold text-gray-900">Rs. {section.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}</span>
                             </span>
                             <button 
                               onClick={() => handleEditSection(sectionIndex)}
@@ -1437,14 +1589,18 @@ export default function Quotations({ onUpdateNavigation }) {
                               </div>
                               <div className="col-span-2 text-center">
                                 <span className="text-sm text-gray-700">
-                                  {item.miscellaneous_amount ? `Rs. ${parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}` : '—'}
+                                  {(String(item.miscellaneous_amount ?? '').trim() !== '')
+                                    ? isMiscNumeric(item.miscellaneous_amount)
+                                      ? `Rs. ${parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}`
+                                      : <span className="italic text-amber-600 text-sm" title="Not included in total">{item.miscellaneous_amount}</span>
+                                    : '—'}
                                 </span>
                               </div>
                               <div className="col-span-2 text-center">
                                 <span className="text-sm text-gray-700">Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
                               </div>
                               <div className="col-span-2 text-right flex items-center justify-end gap-1.5">
-                                <span className="text-sm font-semibold text-gray-900">Rs. {parseFloat(item.total_amount || 0).toLocaleString('en-IN')}</span>
+                                <span className="text-sm font-semibold text-gray-900">Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
                                 <button
                                   onClick={() => handleEditItemFromTable(sectionIndex, itemIndex)}
                                   className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-600 p-1 hover:bg-blue-50 rounded transition-all"
@@ -1650,7 +1806,7 @@ export default function Quotations({ onUpdateNavigation }) {
                     </div>
 
                     {/* Add Item Form */}
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-visible">
                       {/* Form header */}
                       <div className={`px-4 py-3 border-b border-gray-100 flex items-center justify-between ${editingItemIndex !== null ? 'bg-amber-50' : 'bg-gray-50'}`}>
                         <div className="flex items-center gap-2">
@@ -1868,19 +2024,41 @@ export default function Quotations({ onUpdateNavigation }) {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Misc. (Rs.)</label>
-                            <input type="number" min="0" step="0.01" value={itemForm.miscellaneous_amount}
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                              Misc. (Rs.)
+                              {itemForm.miscellaneous_amount !== '' && (
+                                <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
+                                  {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
+                                </span>
+                              )}
+                            </label>
+                            <input
+                              type="text"
+                              value={itemForm.miscellaneous_amount}
                               onChange={e => setItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
-                              placeholder="0.00" className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                              placeholder="Amount or description"
+                              className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${
+                                itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount)
+                                  ? 'border-amber-300 focus:ring-amber-400 bg-amber-50'
+                                  : 'border-gray-300 focus:ring-teal-500 bg-white'
+                              }`}
+                            />
                           </div>
                         </div>
 
                         {/* Total preview + Add button */}
                         <div className="flex items-center gap-3">
-                          <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg">
+                          <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
                             <span className="text-sm text-teal-700 font-medium">Item Total:</span>
                             <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(itemForm).toLocaleString('en-IN')}</span>
-                            <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) × Qty</span>
+                            {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
+                              <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Misc shown as note
+                              </span>
+                            ) : (
+                              <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
+                            )}
                           </div>
                           <button onClick={handleAddItem}
                             disabled={!itemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !itemForm.sub_compliance_id)}
@@ -1910,8 +2088,12 @@ export default function Quotations({ onUpdateNavigation }) {
                                   )}
                                   <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                                   <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                                  {item.miscellaneous_amount ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span> : null}
-                                  <span className="text-xs font-semibold text-teal-700">Total: Rs. {parseFloat(item.total_amount || 0).toLocaleString('en-IN')}</span>
+                                  {(String(item.miscellaneous_amount ?? '').trim() !== '') ? (
+                                    isMiscNumeric(item.miscellaneous_amount)
+                                      ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
+                                      : <span className="text-xs text-amber-600 italic font-medium" title="Not included in total">Misc: {item.miscellaneous_amount}</span>
+                                  ) : null}
+                                  <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
@@ -1932,7 +2114,7 @@ export default function Quotations({ onUpdateNavigation }) {
                         {/* Items total */}
                         <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
                           <span className="text-sm font-bold text-gray-800">
-                            Section Total: Rs. {sectionForm.items.reduce((sum, item) => sum + parseFloat(item.total_amount || 0), 0).toLocaleString('en-IN')}
+                            Section Total: Rs. {sectionForm.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
                           </span>
                         </div>
                       </div>
@@ -2047,10 +2229,6 @@ export default function Quotations({ onUpdateNavigation }) {
                   <Download className="w-4 h-4" />
                   Save Draft
                 </button>
-                <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <FileText className="w-4 h-4" />
-                  PDF
-                </button>
                 <button className="px-4 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors flex items-center gap-2 text-sm font-medium">
                   <FileText className="w-4 h-4" />
                   Establish Agreement
@@ -2067,12 +2245,12 @@ export default function Quotations({ onUpdateNavigation }) {
                   {submitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating...
+                      {isEditMode ? 'Updating...' : 'Generating...'}
                     </>
                   ) : (
                     <>
                       <FileText className="w-4 h-4" />
-                      Generate Proforma
+                      {isEditMode ? 'Update Quotation' : 'Generate Proforma'}
                     </>
                   )}
                 </button>
@@ -2084,19 +2262,29 @@ export default function Quotations({ onUpdateNavigation }) {
       {/* Success Modal */}
       <SuccessModal
         isOpen={showSuccessModal}
+        isEditMode={isEditMode}
         quotationNumber={createdQuotation?.quotation_number}
+        quotationId={createdQuotation?.id}
         onClose={() => {
           setShowSuccessModal(false);
-          setSections([]);
-          setSelectedClient(null);
-          setSelectedProject(null);
-          setSacCode('');
-          setGstRate(18);
-          setDiscountValue(0);
-          clearDraft();
-          generateQuotationNumber();
+          if (!isEditMode) {
+            setSections([]);
+            setSelectedClient(null);
+            setSelectedProject(null);
+            setSacCode('');
+            setGstRate(18);
+            setDiscountValue(0);
+            clearDraft();
+            generateQuotationNumber();
+          }
         }}
-        onViewQuotation={handleBackToQuotations}
+        onViewQuotation={() => {
+          if (isEditMode && createdQuotation?.id) {
+            navigate(`/quotations/${createdQuotation.id}`);
+          } else {
+            navigate('/quotations');
+          }
+        }}
       />
 
       <style>{`

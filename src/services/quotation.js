@@ -25,9 +25,12 @@ const ENDPOINTS = {
   GET_BY_ID: '/quotations/get_quotation/',
   CREATE: '/quotations/create_quotation/',
   UPDATE: '/quotations/',
+  UPDATE_FULL: '/quotations/update_quotation/',
   DELETE: '/quotations/',
   SEARCH: '/quotations/search/',
   EXPORT: '/quotations/export/',
+  GENERATE_PDF: '/quotations/generate_pdf/',
+  SEND_EMAIL: '/notification/send_email/',
 };
 
 // ============================================================================
@@ -174,6 +177,9 @@ export const createQuotation = async (quotationData) => {
     }
 
     // ========== BUILD PAYLOAD - MATCH BACKEND EXACTLY ==========
+    // Backend uses IntegerField for monetary amounts — must send whole numbers.
+    // Use Math.round (not parseInt) so 1.8 → 2, not 1.
+    // The UI derives the precise decimal GST display from gst_rate + total_amount at read time.
     const payload = {
       quotation_number: parseInt(quotationData.quotation_number),
       client: parseInt(quotationData.client),
@@ -181,9 +187,9 @@ export const createQuotation = async (quotationData) => {
       gst_rate: String((parseFloat(quotationData.gst_rate) || 0).toFixed(2)),  // "18.00"
       discount_rate: String((parseFloat(quotationData.discount_rate) || 0).toFixed(2)),  // "0.00"
       sac_code: String(quotationData.sac_code || '').slice(0, 6),  // Max 6 chars
-      total_amount: parseInt(quotationData.total_amount),
-      total_gst_amount: parseInt(quotationData.total_gst_amount),
-      grand_total: parseInt(quotationData.grand_total),
+      total_amount:     Math.round(parseFloat(quotationData.total_amount)     || 0),
+      total_gst_amount: Math.round(parseFloat(quotationData.total_gst_amount) || 0),
+      grand_total:      Math.round(parseFloat(quotationData.grand_total)      || 0),
       items: quotationData.items.map(item => {
         // sub_compliance_category: 0 = execution (no sub-category), integer = certificate sub-category
         const subComplianceId = (item.sub_compliance_category !== null && item.sub_compliance_category !== undefined)
@@ -191,13 +197,13 @@ export const createQuotation = async (quotationData) => {
           : 0;
 
         return {
-          description: String(item.description).trim(),
-          quantity: parseInt(item.quantity),
-          miscellaneous_amount: String(item.miscellaneous_amount || '0'),
-          Professional_amount: parseInt(item.Professional_amount),  // Integer!
-          total_amount: parseInt(item.total_amount),  // Integer!
-          compliance_category: parseInt(item.compliance_category || 0),
-          sub_compliance_category: subComplianceId  // 0 for execution (cat 3&4), integer ID for certificates (cat 1&2)
+          description:             String(item.description).trim(),
+          quantity:                parseInt(item.quantity),
+          miscellaneous_amount:    (String(item.miscellaneous_amount || '').trim() || '--'),
+          Professional_amount:     Math.round(parseFloat(item.Professional_amount) || 0),
+          total_amount:            Math.round(parseFloat(item.total_amount)         || 0),
+          compliance_category:     parseInt(item.compliance_category || 0),
+          sub_compliance_category: subComplianceId,
         };
       })
     };
@@ -531,6 +537,191 @@ export const getAllCompliance = async () => {
 };
 
 // ============================================================================
+// GENERATE PDF
+// ============================================================================
+
+/**
+ * Generate and download a PDF for a quotation.
+ *
+ * API: POST /api/quotations/generate_pdf/?id=<id>
+ * Response: application/pdf binary  (Content-Disposition: attachment; filename="Quotation_#<id>.pdf")
+ *
+ * The function fetches the PDF as a blob and triggers a browser download.
+ *
+ * @param {number|string} id - The quotation's database ID (NOT the quotation_number)
+ * @param {string} [filename] - Optional override for the downloaded file name
+ * @returns {Promise<void>}
+ */
+export const generateQuotationPdf = async (id, filename) => {
+  try {
+    if (!id) throw new Error('Quotation ID is required to generate PDF');
+
+    serviceLogger.log(`[Quotations Service] Generating PDF for quotation ID: ${id}`);
+
+    // Use responseType: 'blob' so axios gives us raw binary instead of JSON
+    const response = await api.post(
+      ENDPOINTS.GENERATE_PDF,
+      {},                          // empty body — the API only needs the query param
+      {
+        params: { id },
+        responseType: 'blob',
+      }
+    );
+
+    // Derive filename from Content-Disposition header or use a safe default
+    const contentDisposition = response.headers['content-disposition'] || '';
+    const headerFilename = contentDisposition.match(/filename="?([^";\n]+)"?/)?.[1];
+    const downloadName = filename || headerFilename || `Quotation_${id}.pdf`;
+
+    // Create an object URL from the blob and programmatically click a link
+    const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = downloadName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Release the object URL memory after a short delay
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    serviceLogger.log(`[Quotations Service] PDF downloaded: ${downloadName}`);
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`[Quotations Service] generateQuotationPdf(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================================================
+// UPDATE QUOTATION (FULL — via /quotations/update_quotation/)
+// ============================================================================
+
+/**
+ * Update an existing quotation using the dedicated update endpoint.
+ * Sends the complete quotation payload including all items.
+ *
+ * @param {object} quotationData - Full quotation payload (must include id)
+ * @returns {Promise<object>} API response data
+ */
+export const updateQuotationFull = async (quotationData) => {
+  try {
+    if (!quotationData.id) throw new Error('Quotation ID is required for update');
+
+    serviceLogger.log(`[Quotations Service] Updating quotation ${quotationData.id} via full update endpoint`);
+
+    const payload = {
+      id:               parseInt(quotationData.id),
+      client:           parseInt(quotationData.client),
+      project:          parseInt(quotationData.project),
+      gst_rate:         String((parseFloat(quotationData.gst_rate) || 0).toFixed(2)),
+      discount_rate:    String((parseFloat(quotationData.discount_rate) || 0).toFixed(2)),
+      sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+      total_amount:     parseFloat((parseFloat(quotationData.total_amount) || 0).toFixed(2)),
+      total_gst_amount: parseFloat((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
+      grand_total:      parseFloat((parseFloat(quotationData.grand_total) || 0).toFixed(2)),
+      items: (quotationData.items || []).map(item => {
+        // Always send id: existing items need their integer id (UPDATE), new items need null (INSERT).
+        // Omitting the field entirely causes a 400 "This field is required" from DRF.
+        const rawId  = item.id != null ? parseInt(item.id) : null;
+        const itemId = rawId && rawId > 0 ? rawId : null;
+        return {
+          id:                      itemId,
+          description:             String(item.description).trim(),
+          quantity:                parseInt(item.quantity),
+          miscellaneous_amount:    String(item.miscellaneous_amount || '--').trim() || '--',
+          Professional_amount:     parseFloat((parseFloat(item.Professional_amount) || 0).toFixed(2)),
+          total_amount:            parseFloat((parseFloat(item.total_amount) || 0).toFixed(2)),
+          compliance_category:     parseInt(item.compliance_category || 0),
+          sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        };
+      }),
+    };
+
+    serviceLogger.log('[Quotations Service] updateQuotationFull payload:', JSON.stringify(payload, null, 2));
+
+    const response = await api.put(ENDPOINTS.UPDATE_FULL, payload);
+
+    serviceLogger.log(`[Quotations Service] Quotation ${quotationData.id} updated successfully`);
+    return response.data;
+
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`[Quotations Service] updateQuotationFull(${quotationData.id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================================================
+// SEND QUOTATION TO CLIENT VIA EMAIL
+// ============================================================================
+
+/**
+ * Send a quotation to a client via email with the PDF attached.
+ */
+export const sendQuotationToClient = async ({
+  quotationId,
+  quotationNumber,
+  issuedDate,
+  recipientEmail,
+  subject,
+  body,
+  extraAttachments = [],
+}) => {
+  try {
+    if (!quotationId)    throw new Error('Quotation ID is required');
+    if (!recipientEmail) throw new Error('Recipient email is required');
+
+    serviceLogger.log(`[Quotations Service] Sending quotation ${quotationId} to ${recipientEmail}`);
+
+    const pdfResponse = await api.post(
+      ENDPOINTS.GENERATE_PDF,
+      {},
+      { params: { id: quotationId }, responseType: 'blob' }
+    );
+    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+    const pdfFile = new File([pdfBlob], `${quotationNumber || `Quotation_${quotationId}`}.pdf`, {
+      type: 'application/pdf',
+    });
+
+    const MAX_BYTES = 25 * 1024 * 1024;
+    const allFiles = [pdfFile, ...extraAttachments];
+    const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+    if (totalSize > MAX_BYTES) {
+      throw new Error(
+        `Total attachment size (${(totalSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 25 MB limit.`
+      );
+    }
+
+    const autoSubject =
+      subject ||
+      `Quotation ${quotationNumber}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
+
+    const autoBody =
+      body ||
+      `Dear Client,\n\nPlease find attached your quotation ${quotationNumber}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
+
+    const formData = new FormData();
+    formData.append('subject',    autoSubject);
+    formData.append('recipients', recipientEmail);
+    formData.append('body',       autoBody);
+    allFiles.forEach((file) => formData.append('attachments', file));
+
+    const response = await api.post(ENDPOINTS.SEND_EMAIL, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    serviceLogger.log('[Quotations Service] Email sent successfully:', response.data);
+    return response.data;
+
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error('[Quotations Service] sendQuotationToClient failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -539,6 +730,7 @@ export default {
   getQuotationById,
   createQuotation,
   updateQuotation,
+  updateQuotationFull,
   deleteQuotation,
   searchQuotations,
   exportQuotations,
@@ -547,4 +739,6 @@ export default {
   getComplianceByCategory,
   getSubComplianceCategories,
   getAllCompliance,
+  generateQuotationPdf,
+  sendQuotationToClient,
 };
