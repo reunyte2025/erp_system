@@ -8,7 +8,8 @@
 
 const config = {
   // ✅ FIXED: Changed from localhost:3000 (frontend) to 127.0.0.1:8000 (Django backend)
-  apiUrl: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
+  // Don't change the window.__ENV__. as it needed for prod env
+  apiUrl: window.__ENV__.VITE_API_URL || "http://127.0.0.1:8000/api",
 };
 
 export default config;
