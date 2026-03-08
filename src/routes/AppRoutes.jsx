@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from '../pages/Login';
 import Quotations from '../pages/quotations/quotations';
 import QuotationsList from '../pages/quotations/quotationsList';
+import ViewQuotationDetails from '../pages/quotations/viewquotationdetails';  // ← NEW
 import Proforma from '../pages/proforma/proforma';
 import ProformaList from '../pages/proforma/proformaList';
 import Invoices from '../pages/invoices/invoices';
@@ -9,7 +10,7 @@ import InvoicesList from '../pages/invoices/invoicesList';
 import Purchase from '../pages/purchase/purchase';
 import PurchaseOrder from '../pages/purchase/purchaseOrder';
 import VendorProfile from '../pages/purchase/vendorProfile';
-import Payments from '../pages/purchase/payments'; // NEW IMPORT
+import Payments from '../pages/purchase/payments';
 import Projects from '../pages/projects/projects';
 import Clients from '../pages/clients/clients';
 import ClientProfile from '../pages/clients/clientsProfile';
@@ -24,50 +25,27 @@ import AuthenticatedLayout from '../components/AuthenticatedLayout';
  * ============================================================================
  * APP ROUTES CONFIGURATION
  * ============================================================================
- * 
- * Centralized routing configuration for the entire application.
- * All route definitions are managed here for easy maintenance and scalability.
- * 
- * ROUTE STRUCTURE:
- * ============================================================================
- * 
- * PUBLIC ROUTES:
- * - /login               → Login page (redirects to /clients if authenticated)
- * 
- * PROTECTED ROUTES (require authentication):
- * - /                    → Redirects to /clients (default landing page)
- * - /clients             → Client management (list view)
- * - /clients/:id         → Client profile (detail view)
- * - /projects            → Project management
- * - /quotations          → Quotations list view
- * - /quotations/form     → Create new quotation
- * - /quotations/:id      → View/edit specific quotation
- * - /proforma            → Proforma list view
- * - /proforma/form       → Create new proforma
- * - /invoices            → Invoice management
- * - /purchase            → Purchase management (vendor list)
- * - /vendors/:id         → Vendor profile (detail view)
- * - /vendors/:id/payments → Vendor payment history
- * - /purchase-order      → Purchase Order management (Vendor & Project details)
- * - /employees           → Employee management
- * - /certificates        → Certificate management
- * - /reports             → Reports and analytics
- * - /settings            → Application settings
- * - *                    → 404 catch-all (redirects to /clients)
- * 
- * IMPORTANT NOTES:
- * ============================================================================
- * - Route order matters! Specific routes must come before generic ones
- * - All protected routes are wrapped with ProtectedRoute component
- * - All authenticated pages use AuthenticatedLayout for consistent UI
- * - Quotations uses nested routing for list, create, and edit views
- * - Client profile route (/clients/:id) comes before /clients for proper matching
+ *
+ * ROUTE STRUCTURE (QUOTATIONS — order matters, specific before generic):
+ *
+ *  /quotations/form   → Quotations (create form)
+ *  /quotations/:id    → ViewQuotationDetails  ← UPDATED: dedicated detail page
+ *  /quotations        → QuotationsList
+ *
+ * All other routes are unchanged from the original AppRoutes.
+ *
+ * BREADCRUMB BEHAVIOUR for Quotation Details:
+ *  - AuthenticatedLayout reads navigationConfig.breadcrumbs
+ *  - ViewQuotationDetails calls onUpdateNavigation({ breadcrumbs: ['Quotations','Quotation Details'] })
+ *  - AuthenticatedLayout falls back to getAutoBreadcrumbs() which also returns
+ *    ['Quotations','Quotation Details'] for paths matching /quotations/:id — so
+ *    the breadcrumb is correct even on hard-refresh.
  */
 
-export default function AppRoutes({ 
-  isLoggedIn, 
-  userData, 
-  onLogout, 
+export default function AppRoutes({
+  isLoggedIn,
+  userData,
+  onLogout,
   onLoginSuccess,
   activeMenuItem,
   isMobileSidebarOpen,
@@ -75,9 +53,9 @@ export default function AppRoutes({
   isSidebarCollapsed,
   setIsSidebarCollapsed,
   navigationConfig,
-  setNavigationConfig
+  setNavigationConfig,
 }) {
-  
+
   // Common props for all authenticated pages
   const layoutProps = {
     userData,
@@ -88,31 +66,29 @@ export default function AppRoutes({
     isSidebarCollapsed,
     setIsSidebarCollapsed,
     navigationConfig,
-    setNavigationConfig
+    setNavigationConfig,
   };
 
   return (
     <Routes>
-      {/* ====================================================================
+
+      {/* ==================================================================
           PUBLIC ROUTES
-          ==================================================================== */}
-      
-      <Route 
-        path="/login" 
+          ================================================================== */}
+
+      <Route
+        path="/login"
         element={
-          isLoggedIn ? (
-            <Navigate to="/clients" replace />
-          ) : (
-            <Login onLoginSuccess={onLoginSuccess} />
-          )
-        } 
+          isLoggedIn
+            ? <Navigate to="/clients" replace />
+            : <Login onLoginSuccess={onLoginSuccess} />
+        }
       />
 
-      {/* ====================================================================
-          PROTECTED ROUTES - All require authentication
-          ==================================================================== */}
-      
-      {/* Root redirect to Clients (Default Landing Page) */}
+      {/* ==================================================================
+          ROOT — redirect to Clients
+          ================================================================== */}
+
       <Route
         path="/"
         element={
@@ -122,12 +98,11 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          CLIENTS ROUTES
-          IMPORTANT: Order matters! Specific routes BEFORE generic ones
-          ==================================================================== */}
-      
-      {/* Client Profile Detail View - Must come before /clients */}
+      {/* ==================================================================
+          CLIENTS
+          IMPORTANT: /clients/:id  before  /clients
+          ================================================================== */}
+
       <Route
         path="/clients/:id"
         element={
@@ -139,7 +114,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Clients List Management - Must be last in clients group */}
       <Route
         path="/clients"
         element={
@@ -151,7 +125,10 @@ export default function AppRoutes({
         }
       />
 
-      {/* Projects Management */}
+      {/* ==================================================================
+          PROJECTS
+          ================================================================== */}
+
       <Route
         path="/projects"
         element={
@@ -163,12 +140,15 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          QUOTATIONS ROUTES
-          IMPORTANT: Order matters! Specific routes BEFORE generic ones
-          ==================================================================== */}
-      
-      {/* Create New Quotation - Must come before /quotations/:id */}
+      {/* ==================================================================
+          QUOTATIONS
+          IMPORTANT: most-specific routes FIRST
+            1. /quotations/form  — create new quotation
+            2. /quotations/:id   — view quotation details  ← NEW dedicated page
+            3. /quotations       — list view
+          ================================================================== */}
+
+      {/* 1 — Create new quotation form */}
       <Route
         path="/quotations/form"
         element={
@@ -180,19 +160,19 @@ export default function AppRoutes({
         }
       />
 
-      {/* View/Edit Specific Quotation by ID - Must come before /quotations */}
+      {/* 2 — View quotation details (dedicated page — replaces the old modal) */}
       <Route
         path="/quotations/:id"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
-              <Quotations />
+              <ViewQuotationDetails />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
       />
 
-      {/* Quotations List View - Must be last in quotations group */}
+      {/* 3 — Quotations list */}
       <Route
         path="/quotations"
         element={
@@ -204,12 +184,11 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          PROFORMA ROUTES
-          IMPORTANT: Order matters! Specific routes BEFORE generic ones
-          ==================================================================== */}
+      {/* ==================================================================
+          PROFORMA
+          IMPORTANT: /proforma/form  before  /proforma
+          ================================================================== */}
 
-      {/* Create New Proforma - Must come before /proforma */}
       <Route
         path="/proforma/form"
         element={
@@ -221,7 +200,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Proforma List View - Must be last in proforma group */}
       <Route
         path="/proforma"
         element={
@@ -233,12 +211,11 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          INVOICES ROUTES
-          IMPORTANT: Order matters! Specific routes BEFORE generic ones
-          ==================================================================== */}
+      {/* ==================================================================
+          INVOICES
+          IMPORTANT: /invoices/generate  before  /invoices
+          ================================================================== */}
 
-      {/* Generate Invoice page — opened after 3-step modal (must come before /invoices) */}
       <Route
         path="/invoices/generate"
         element={
@@ -250,7 +227,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Invoices List View — sidebar "Invoices" tab lands here */}
       <Route
         path="/invoices"
         element={
@@ -262,12 +238,11 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          PURCHASE ROUTES
-          IMPORTANT: Order matters! Specific routes BEFORE generic ones
-          ==================================================================== */}
+      {/* ==================================================================
+          PURCHASE
+          IMPORTANT: /vendors/:vendorId/payments  before  /vendors/:id
+          ================================================================== */}
 
-      {/* Purchase Management - Vendor List */}
       <Route
         path="/purchase"
         element={
@@ -279,7 +254,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Vendor Payment History - Must come before /vendors/:id */}
       <Route
         path="/vendors/:vendorId/payments"
         element={
@@ -291,7 +265,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Vendor Profile Detail View - Must come before /purchase-order */}
       <Route
         path="/vendors/:id"
         element={
@@ -303,7 +276,6 @@ export default function AppRoutes({
         }
       />
 
-      {/* Purchase Order Management - Vendor & Project Details */}
       <Route
         path="/purchase-order"
         element={
@@ -315,7 +287,10 @@ export default function AppRoutes({
         }
       />
 
-      {/* Employees Management */}
+      {/* ==================================================================
+          EMPLOYEES
+          ================================================================== */}
+
       <Route
         path="/employees"
         element={
@@ -327,7 +302,10 @@ export default function AppRoutes({
         }
       />
 
-      {/* Certificates Management */}
+      {/* ==================================================================
+          CERTIFICATES
+          ================================================================== */}
+
       <Route
         path="/certificates"
         element={
@@ -339,7 +317,10 @@ export default function AppRoutes({
         }
       />
 
-      {/* Reports and Analytics */}
+      {/* ==================================================================
+          REPORTS
+          ================================================================== */}
+
       <Route
         path="/reports"
         element={
@@ -351,7 +332,10 @@ export default function AppRoutes({
         }
       />
 
-      {/* Application Settings */}
+      {/* ==================================================================
+          SETTINGS
+          ================================================================== */}
+
       <Route
         path="/settings"
         element={
@@ -363,18 +347,19 @@ export default function AppRoutes({
         }
       />
 
-      {/* ====================================================================
-          404 CATCH-ALL
-          Redirect all undefined routes to Clients page
-          ==================================================================== */}
-      <Route 
-        path="*" 
+      {/* ==================================================================
+          404 CATCH-ALL → Clients
+          ================================================================== */}
+
+      <Route
+        path="*"
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <Navigate to="/clients" replace />
           </ProtectedRoute>
-        } 
+        }
       />
+
     </Routes>
   );
 }

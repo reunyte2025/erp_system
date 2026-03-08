@@ -137,7 +137,14 @@ const getStatusBadge = (status) => {
  */
 const formatCurrency = (amount) => {
   if (!amount && amount !== 0) return 'Rs. 0';
-  return `Rs. ${Number(amount).toLocaleString('en-IN')}`;
+  const num = parseFloat(amount);
+  if (isNaN(num)) return 'Rs. 0';
+  // Show decimals only when the value actually has them (e.g. 7.2 → "7.20", 40 → "40")
+  const hasDecimal = num % 1 !== 0;
+  return `Rs. ${num.toLocaleString('en-IN', {
+    minimumFractionDigits: hasDecimal ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
 /**
@@ -183,28 +190,30 @@ const formatTimestamp = (dateString) => {
 };
 
 /**
- * Get project/client name from client_name field (backend provides this)
+ * Get project name from row data.
+ * Priority: enriched project_name (set by fetchQuotations) → project object → fallback
  */
 const getProjectName = (row) => {
-  // Backend provides client_name which is the project/company name
-  if (row.client_name) {
-    return row.client_name.length > 25 ? row.client_name.substring(0, 25) + '...' : row.client_name;
+  // First priority: enriched project_name attached by fetchQuotations in quotationsList
+  if (row.project_name && !row.project_name.startsWith('Project #')) {
+    return row.project_name.length > 25 ? row.project_name.substring(0, 25) + '...' : row.project_name;
   }
-  
-  // Fallback to project object if available
+
+  // Fallback: project object if API returned it nested
   if (row.project && typeof row.project === 'object') {
     const name = row.project.name || row.project.title || `Project #${row.project.id}`;
     return name.length > 25 ? name.substring(0, 25) + '...' : name;
   }
-  
+
+  // Fallback: enriched project_name even if it's a "Project #N" placeholder
   if (row.project_name) {
     return row.project_name.length > 25 ? row.project_name.substring(0, 25) + '...' : row.project_name;
   }
-  
+
   if (row.project && typeof row.project === 'number') {
     return `Project #${row.project}`;
   }
-  
+
   return 'N/A';
 };
 
@@ -291,9 +300,9 @@ const columns = [
     key: 'notes',
     label: 'Notes',
     render: (row) => (
-      <div className="max-w-xs" title={row.notes || 'No notes'}>
+      <div className="max-w-xs" title={row.notes || '—'}>
         <span className="text-gray-700 text-sm">
-          {row.notes ? truncateText(row.notes, 30) : 'abcdef'}
+          {row.notes ? truncateText(row.notes, 30) : '—'}
         </span>
       </div>
     ),
@@ -305,11 +314,30 @@ const columns = [
   {
     key: 'grand_total',
     label: 'Total Outstanding',
-    render: (row) => (
-      <span className="text-gray-900 font-medium text-sm">
-        {formatCurrency(row.grand_total || row.total_amount || 0)}
-      </span>
-    ),
+    render: (row) => {
+      // grand_total in DB is a rounded integer (backend IntegerField).
+      // Recalculate precise value from gst_rate + total_amount so decimals show correctly.
+      const subtotal      = parseFloat(row.total_amount  || 0);
+      const gstRate       = parseFloat(row.gst_rate      || 0);
+      const discountRate  = parseFloat(row.discount_rate || 0);
+
+      let precise;
+      if (gstRate > 0 || discountRate > 0) {
+        const discountAmt = (subtotal * discountRate) / 100;
+        const taxable     = subtotal - discountAmt;
+        const gstAmt      = (taxable * gstRate) / 100;
+        precise = parseFloat((taxable + gstAmt).toFixed(2));
+      } else {
+        // No GST/discount — fall back to stored grand_total
+        precise = parseFloat(row.grand_total || row.total_amount || 0);
+      }
+
+      return (
+        <span className="text-gray-900 font-medium text-sm">
+          {formatCurrency(precise)}
+        </span>
+      );
+    },
   },
 
   // ============================================================================
