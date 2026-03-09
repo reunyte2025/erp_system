@@ -28,6 +28,7 @@ const DynamicList = ({
   searchTerm = '',
   showFilter = false,
   statsCards = null,
+  actionHandlers = {},
 }) => {
   if (!config) {
     return (
@@ -97,6 +98,7 @@ const DynamicList = ({
           onSort={onSort}
           sortBy={sortBy}
           sortOrder={sortOrder}
+          actionHandlers={actionHandlers}
         />
       );
     }

@@ -42,13 +42,15 @@ const ListTable = ({
   onSort,
   sortBy = '',
   sortOrder = 'asc',
+  actionHandlers = {},
 }) => {
   const getNestedValue = (obj, path) =>
     path.split('.').reduce((cur, key) => cur?.[key], obj);
 
   const renderCell = (column, row, index) => {
     if (column.render && typeof column.render === 'function') {
-      return column.render(row, index);
+      // Pass actionHandlers as 3rd argument so action columns can use them
+      return column.render(row, index, actionHandlers);
     }
     if (column.accessor) {
       const value = getNestedValue(row, column.accessor);

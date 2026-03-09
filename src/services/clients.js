@@ -35,6 +35,7 @@ const ENDPOINTS = {
   CREATE:    '/clients/create_client/',
   UPDATE:    '/clients/update_client/',   // PUT /clients/update_client/
   DELETE:    '/clients/delete_client/',   // DELETE /clients/delete_client/?id=
+  UNDO:      '/clients/undo_client/',     // PATCH /clients/undo_client/?id=
   SEARCH:    '/clients/search/',
   EXPORT:    '/clients/export/',
   TOGGLE_STAR: '/clients/change_star_client_status/', // PUT ?id=&is_star=
@@ -309,6 +310,34 @@ export const deleteClient = async (id) => {
 };
 
 // ============================================================================
+// UNDO / RESTORE CLIENT  — PATCH /clients/undo_client/?id=
+// Restores a deactive client (status 3) back to active (status 2)
+// ============================================================================
+
+export const undoClient = async (id) => {
+  try {
+    if (!id) throw new Error('Client ID is required');
+
+    console.log(`[Clients Service] Restoring client ${id}...`);
+
+    // PATCH with id as query param — no request body needed
+    const response = await api.patch(ENDPOINTS.UNDO, null, {
+      params: { id },
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    console.log(`[Clients Service] ✅ Client ${id} restored successfully (HTTP ${response.status})`);
+    return response.data;
+
+  } catch (error) {
+    console.error(`[Clients Service] ❌ undoClient(${id}) FAILED:`, error);
+    console.error(`[Clients Service] ❌ undoClient HTTP status:`, error.response?.status);
+    console.error(`[Clients Service] ❌ undoClient response body:`, JSON.stringify(error.response?.data, null, 2));
+    throw error;
+  }
+};
+
+// ============================================================================
 // SEARCH CLIENTS
 // ============================================================================
 
@@ -554,6 +583,7 @@ export default {
   createClient,
   updateClient,
   deleteClient,
+  undoClient,
   searchClients,
   exportClients,
   bulkDeleteClients,
