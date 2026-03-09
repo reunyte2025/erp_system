@@ -237,6 +237,7 @@ const columns = [
   {
     key: 'quotation_number',
     label: 'Quotation Number',
+    sortField: 'quotation_number',   // ← API sort_by value
     render: (row) => {
       const status = row.status_display || row.status;
       const iconColor = getStatusIconColor(status);
@@ -314,6 +315,7 @@ const columns = [
   {
     key: 'grand_total',
     label: 'Total Outstanding',
+    sortField: 'grand_total',        // ← API sort_by value
     render: (row) => {
       // grand_total in DB is a rounded integer (backend IntegerField).
       // Recalculate precise value from gst_rate + total_amount so decimals show correctly.
@@ -346,6 +348,7 @@ const columns = [
   {
     key: 'created_at',
     label: 'Date',
+    sortField: 'created_at',         // ← API sort_by value
     render: (row) => (
       <span className="text-gray-700 text-sm">
         {formatDate(row.created_at || row.date)}
@@ -359,6 +362,7 @@ const columns = [
   {
     key: 'status',
     label: 'Status',
+    sortField: 'status',             // ← API sort_by value
     render: (row) => {
       const status = row.status_display || row.status;
       const statusConfig = getStatusBadge(status);

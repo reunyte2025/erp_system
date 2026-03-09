@@ -146,21 +146,18 @@ const ErrorDisplay = ({ error, onRetry, onGoBack }) => (
 // ============================================================================
 
 const StatCard = ({ icon, count, label, subLabel, bgColor, iconBg }) => (
-  <div className={`${bgColor} rounded-xl p-4 relative border-2 ${bgColor.includes('teal') ? 'border-teal-400' : 'border-pink-400'}`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3">
-        <div className={`${iconBg} rounded-lg p-2`}>
-          {icon}
-        </div>
-        <div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-0.5">{count}</h3>
-          <p className="text-gray-700 font-medium text-sm">{label}</p>
-          {subLabel && <p className="text-gray-600 text-xs mt-1">{subLabel}</p>}
-        </div>
+  <div className={`${bgColor} rounded-xl p-5`}
+    style={{ boxShadow: '0 4px 14px rgba(0,0,0,0.12)' }}
+  >
+    <div className="flex items-start gap-3">
+      <div className={`${iconBg} rounded-xl p-2.5 flex-shrink-0`}>
+        {icon}
       </div>
-      <button className="text-gray-600 hover:text-gray-800">
-        <MoreVertical className="w-5 h-5" />
-      </button>
+      <div>
+        <h3 className="text-3xl font-bold text-white mb-0.5">{count}</h3>
+        <p className="text-white/90 font-semibold text-sm">{label}</p>
+        {subLabel && <p className="text-white/65 text-xs mt-1">{subLabel}</p>}
+      </div>
     </div>
   </div>
 );
@@ -174,7 +171,7 @@ const PaginationBar = ({ currentPage, totalPages, totalItems, pageSize, onPrev, 
   const to = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+    <div className="flex items-center justify-between mt-4 pt-4 border-t-2 border-gray-200">
       {/* Item count label */}
       <span className="text-xs text-gray-400 font-medium">
         {totalItems === 0 ? 'No items' : `${from}–${to} of ${totalItems}`}
@@ -202,7 +199,7 @@ const PaginationBar = ({ currentPage, totalPages, totalItems, pageSize, onPrev, 
               key={page}
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-150 ${
                 page === currentPage
-                  ? 'bg-teal-500 text-white shadow-sm shadow-teal-200'
+                  ? 'bg-teal-600 text-white shadow-sm shadow-teal-200'
                   : 'bg-gray-100 text-gray-400'
               }`}
             >
@@ -217,7 +214,7 @@ const PaginationBar = ({ currentPage, totalPages, totalItems, pageSize, onPrev, 
           className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
             currentPage === totalPages
               ? 'text-gray-300 cursor-not-allowed'
-              : 'text-teal-600 hover:bg-teal-50 active:bg-teal-100'
+              : 'text-teal-600 hover:bg-teal-100 active:bg-teal-200'
           }`}
         >
           Next
@@ -699,65 +696,76 @@ export default function ClientProfile() {
           </div>
           
           {/* Client Information Card */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">Client Information</h2>
+          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1 h-5 bg-teal-600 rounded-full"></div>
+              <h2 className="text-lg font-bold text-gray-800">Client Information</h2>
+            </div>
 
-            <div className="space-y-4">
+            <div className="space-y-0 divide-y divide-gray-100">
               {/* Email */}
-              <div className="flex items-start gap-3">
-                <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Email</p>
-                  <p className="text-sm text-gray-800 font-medium break-all">{email}</p>
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                  <Mail className="w-4 h-4 text-teal-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Email</p>
+                  <p className="text-sm text-gray-800 font-semibold break-all">{email}</p>
                 </div>
               </div>
 
               {/* Phone */}
-              <div className="flex items-start gap-3">
-                <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                  <Phone className="w-4 h-4 text-teal-600" />
+                </div>
                 <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Phone Number</p>
-                  <p className="text-sm text-gray-800 font-medium">{phone}</p>
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Phone Number</p>
+                  <p className="text-sm text-gray-800 font-semibold">{phone}</p>
                 </div>
               </div>
 
               {/* Address */}
-              <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div className="flex items-start gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <MapPin className="w-4 h-4 text-teal-600" />
+                </div>
                 <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Address</p>
-                  <p className="text-sm text-gray-800 font-medium">{fullAddress}</p>
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Address</p>
+                  <p className="text-sm text-gray-800 font-semibold">{fullAddress}</p>
                 </div>
               </div>
 
               {/* GST Number */}
-              <div className="flex items-start gap-3">
-                <Building2 className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-4 h-4 text-teal-600" />
+                </div>
                 <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">GST Number</p>
-                  <p className="text-sm text-gray-800 font-medium">{gstNumber}</p>
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">GST Number</p>
+                  <p className="text-sm text-gray-800 font-semibold">{gstNumber}</p>
                 </div>
               </div>
             </div>
 
-            {/* Action Buttons - below SAC Code */}
-            <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t-2 border-gray-200">
               <button
                 onClick={() => window.location.href = `mailto:${email}`}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
               >
                 <Mail className="w-4 h-4" />
                 Send Email
               </button>
               <button
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition-colors"
               >
                 <BarChart2 className="w-4 h-4" />
                 Analytics
               </button>
               <button
                 onClick={handleEditClient}
-                className="p-2 border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
+                className="p-2 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
                 title="Edit Client"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -768,15 +776,24 @@ export default function ClientProfile() {
             </div>
           </div>
 
-          {/* Notes Card — now first (swapped) */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
+          {/* Notes Card */}
+          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
+            {/* Header */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-800">Notes</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-gray-800">Notes</h2>
+                {notes.length > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-200 text-teal-700 text-xs font-bold">
+                    {notes.length}
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => { setAddNoteError(""); setIsAddNoteOpen(true); }}
-                className="text-teal-600 hover:text-teal-700 text-sm font-medium"
+                className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors"
               >
-                + Add
+                <Plus className="w-3 h-3" />
+                Add
               </button>
             </div>
 
@@ -788,18 +805,26 @@ export default function ClientProfile() {
               <p className="text-sm text-red-500 text-center py-4">{notesError}</p>
             ) : notes.length > 0 ? (
               <>
-                <div className="space-y-2">
-                  {notes.slice(0, 2).map((note) => (
-                    <div key={note.id} className="flex items-start gap-2 p-3 bg-gray-50 rounded-lg group">
-                      <p className="text-sm text-gray-700 line-clamp-2 flex-1">{note.note}</p>
+                <div className="space-y-2.5">
+                  {notes.slice(0, 2).map((note, idx) => (
+                    <div
+                      key={note.id}
+                      className="group relative flex items-start gap-3 p-3.5 rounded-xl border border-gray-200 hover:border-teal-300 hover:bg-teal-100/30 transition-all duration-150"
+                      style={{ borderLeft: '3px solid #0d9488' }}
+                    >
+                      {/* Index badge */}
+                      <div className="w-5 h-5 rounded-full bg-teal-200 text-teal-700 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+                        {idx + 1}
+                      </div>
+                      <p className="text-sm text-gray-700 leading-relaxed line-clamp-2 flex-1">{note.note}</p>
                       <button
                         onClick={() => handleDeleteNote(note.id)}
                         disabled={deletingNoteId === note.id}
-                        className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100"
-                        title="Remove note"
+                        className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-150 flex-shrink-0"
+                        title="Delete note"
                       >
                         {deletingNoteId === note.id
-                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
                           : <X className="w-3.5 h-3.5" />
                         }
                       </button>
@@ -809,28 +834,43 @@ export default function ClientProfile() {
                 {notes.length > 2 && (
                   <button
                     onClick={() => setIsViewAllNotesOpen(true)}
-                    className="w-full mt-3 text-teal-600 hover:text-teal-700 text-sm font-medium"
+                    className="w-full mt-3 py-2 text-teal-600 hover:text-teal-700 hover:bg-teal-100 rounded-lg text-sm font-semibold transition-colors border border-teal-200"
                   >
-                    View All {notes.length} Notes
+                    View All {notes.length} Notes →
                   </button>
                 )}
               </>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">
-                No notes available
-              </p>
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                  <FileText className="w-6 h-6 text-gray-300" />
+                </div>
+                <p className="text-sm font-medium text-gray-500">No notes yet</p>
+                <p className="text-xs text-gray-400 mt-1">Click Add to write the first note</p>
+              </div>
             )}
           </div>
 
-          {/* Attachments Card — now second (swapped) */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
+          {/* Attachments Card */}
+          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
+            {/* Header */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-800">Attachments</h2>
-              <button className="text-teal-600 hover:text-teal-700 text-sm font-medium">
-                + Add
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-5 bg-teal-600 rounded-full"></div>
+                <h2 className="text-lg font-bold text-gray-800">Attachments</h2>
+                {filteredAttachments.length > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-600 text-white text-xs font-bold">
+                    {attachments.length}
+                  </span>
+                )}
+              </div>
+              <button className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors">
+                <Plus className="w-3 h-3" />
+                Add
               </button>
             </div>
 
+            {/* Search */}
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
@@ -838,34 +878,61 @@ export default function ClientProfile() {
                 placeholder="Search attachments..."
                 value={attachmentSearchTerm}
                 onChange={(e) => setAttachmentSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm transition-all"
+                className="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 text-sm transition-all"
               />
             </div>
 
-            <div className="space-y-2">
-              {filteredAttachments.map((attachment, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm text-gray-700 font-medium">
-                      {attachment}
-                    </span>
-                  </div>
-                  <button className="text-gray-400 hover:text-gray-600">
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+            {/* File type color helper */}
+            {(() => {
+              const getFileStyle = (name) => {
+                const ext = name.toLowerCase();
+                if (ext.includes('pdf'))    return { bg: 'bg-red-100',    icon: 'text-red-600',    label: 'PDF' };
+                if (ext.includes('pan'))    return { bg: 'bg-blue-100',   icon: 'text-blue-600',   label: 'DOC' };
+                if (ext.includes('gst'))    return { bg: 'bg-green-100',  icon: 'text-green-600',  label: 'GST' };
+                if (ext.includes('aadh'))   return { bg: 'bg-orange-100', icon: 'text-orange-600', label: 'ID' };
+                return                             { bg: 'bg-gray-100',   icon: 'text-gray-500',   label: 'FILE' };
+              };
 
-            {filteredAttachments.length === 0 && (
-              <p className="text-sm text-gray-500 text-center py-4">
-                No attachments found
-              </p>
-            )}
+              return (
+                <div className="space-y-2">
+                  {filteredAttachments.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                        <FileText className="w-6 h-6 text-gray-300" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-500">No attachments found</p>
+                      <p className="text-xs text-gray-400 mt-1">Upload documents for this client</p>
+                    </div>
+                  ) : (
+                    filteredAttachments.map((attachment, index) => {
+                      const style = getFileStyle(attachment);
+                      return (
+                        <div
+                          key={index}
+                          className="group flex items-center gap-3 p-3 rounded-xl border-2 border-gray-100 hover:border-teal-300 hover:bg-teal-50/20 transition-all duration-150 cursor-pointer"
+                        >
+                          {/* File type badge */}
+                          <div className={`w-10 h-10 rounded-xl ${style.bg} flex items-center justify-center flex-shrink-0`}>
+                            <FileText className={`w-5 h-5 ${style.icon}`} />
+                          </div>
+
+                          {/* File info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 font-semibold truncate">{attachment}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{style.label} Document</p>
+                          </div>
+
+                          {/* Actions */}
+                          <button className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all duration-150 flex-shrink-0">
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -901,7 +968,7 @@ export default function ClientProfile() {
 
           {/* Search Input - smooth expand/collapse */}
           <div className={showSearch ? "search-panel-open" : "search-panel-closed"}>
-            <div className="bg-white rounded-xl shadow-sm p-4">
+            <div className="bg-white rounded-xl border-2 border-gray-300 p-4">
               <div className="relative">
                 <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                 <input
@@ -909,7 +976,7 @@ export default function ClientProfile() {
                   placeholder="Search projects, invoices..."
                   value={projectSearchTerm}
                   onChange={(e) => setProjectSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 transition-all"
                 />
                 {projectSearchTerm && (
                   <button
@@ -926,29 +993,29 @@ export default function ClientProfile() {
           {/* Stats Cards Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <StatCard
-              icon={<FileText className="w-5 h-5 text-teal-700" />}
+              icon={<FileText className="w-5 h-5 text-white" />}
               count={invoicesLoading ? '...' : invoicesCount}
               label="Total Invoices"
               subLabel={invoicesCount === 0 ? 'No invoices yet' : `${invoicesCount} invoice${invoicesCount !== 1 ? 's' : ''}`}
-              bgColor="bg-teal-50"
-              iconBg="bg-teal-100"
+              bgColor="bg-teal-600"
+              iconBg="bg-white/20"
             />
             <StatCard
-              icon={<Building2 className="w-5 h-5 text-pink-700" />}
+              icon={<Building2 className="w-5 h-5 text-white" />}
               count={projectsLoading ? '...' : projectsCount}
               label="Total Projects"
               subLabel={projectsCount === 0 ? 'No projects yet' : `${projectsCount} project${projectsCount !== 1 ? 's' : ''}`}
-              bgColor="bg-pink-50"
-              iconBg="bg-pink-100"
+              bgColor="bg-pink-500"
+              iconBg="bg-white/20"
             />
           </div>
 
           {/* Projects Section */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">Projects</h2>
+          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
+            <div className="flex items-center gap-2 mb-4"><div className="w-1 h-5 bg-teal-600 rounded-full"></div><h2 className="text-lg font-bold text-gray-800">Projects</h2></div>
 
             {/* Table Header */}
-            <div className="grid grid-cols-2 gap-4 pb-3 mb-3 border-b border-gray-200">
+            <div className="grid grid-cols-2 gap-4 pb-3 mb-3 border-b-2 border-gray-300">
               <div className="text-sm font-medium text-gray-600">Project Name</div>
               <div className="text-sm font-medium text-gray-600 text-right">Status</div>
             </div>
@@ -1026,11 +1093,11 @@ export default function ClientProfile() {
           </div>
 
           {/* Invoices Section */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">Invoice</h2>
+          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
+            <div className="flex items-center gap-2 mb-4"><div className="w-1 h-5 bg-teal-600 rounded-full"></div><h2 className="text-lg font-bold text-gray-800">Invoice</h2></div>
 
             {/* Table Header */}
-            <div className="grid grid-cols-2 gap-4 pb-3 mb-3 border-b border-gray-200">
+            <div className="grid grid-cols-2 gap-4 pb-3 mb-3 border-b-2 border-gray-300">
               <div className="text-sm font-medium text-gray-600">Invoice</div>
               <div className="text-sm font-medium text-gray-600 text-right">Status</div>
             </div>
@@ -1165,7 +1232,7 @@ export default function ClientProfile() {
                   disabled={isAddingNote}
                   maxLength={500}
                   rows={5}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none text-sm text-gray-700 placeholder-gray-400 disabled:bg-gray-50 transition-all"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent resize-none text-sm text-gray-700 placeholder-gray-400 disabled:bg-gray-50 transition-all"
                 />
                 <span className="absolute bottom-3 right-3 text-xs text-gray-300 select-none">
                   {newNote.length}/500
@@ -1272,7 +1339,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('first_name', e.target.value)}
                             placeholder="John"
                             disabled={isSaving}
-                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1288,7 +1355,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('last_name', e.target.value)}
                             placeholder="Doe"
                             disabled={isSaving}
-                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1309,7 +1376,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('phone_number', e.target.value)}
                             placeholder="+91 98765 43210"
                             disabled={isSaving}
-                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1323,7 +1390,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('email', e.target.value)}
                             placeholder="john@example.com"
                             disabled={isSaving}
-                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1344,7 +1411,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('address', e.target.value)}
                             placeholder="123 Main Street"
                             disabled={isSaving}
-                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1357,7 +1424,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('city', e.target.value)}
                             placeholder="Mumbai"
                             disabled={isSaving}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                         <div>
@@ -1368,7 +1435,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('state', e.target.value)}
                             placeholder="MH"
                             disabled={isSaving}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                         <div>
@@ -1379,7 +1446,7 @@ export default function ClientProfile() {
                             onChange={(e) => handleEditFormChange('pincode', e.target.value)}
                             placeholder="400001"
                             disabled={isSaving}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                           />
                         </div>
                       </div>
@@ -1399,7 +1466,7 @@ export default function ClientProfile() {
                           onChange={(e) => handleEditFormChange('gst_number', e.target.value)}
                           placeholder="22AAAAA0000A1Z5"
                           disabled={isSaving}
-                          className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
+                          className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
                         />
                       </div>
                     </div>
@@ -1410,7 +1477,7 @@ export default function ClientProfile() {
               </div>
 
               {/* Footer */}
-              <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 bg-white rounded-b-2xl">
+              <div className="flex-shrink-0 px-5 py-4 border-t-2 border-gray-200 bg-white rounded-b-2xl">
                 <div className="flex items-center gap-2.5">
                   <button
                     type="button"
@@ -1467,15 +1534,15 @@ export default function ClientProfile() {
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-scaleIn"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Teal Header */}
+            {/* Header */}
             <div className="flex-shrink-0 bg-teal-600 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-white" />
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center border border-white/30">
+                  <FileText className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-white font-semibold text-base leading-tight">All Notes</h3>
-                  <p className="text-teal-100 text-xs mt-0.5">
+                  <h3 className="text-white font-bold text-base leading-tight">All Notes</h3>
+                  <p className="text-white/80 text-xs mt-0.5 font-medium">
                     {notes.length} {notes.length === 1 ? 'note' : 'notes'} for this client
                   </p>
                 </div>
@@ -1483,14 +1550,14 @@ export default function ClientProfile() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setIsViewAllNotesOpen(false); setAddNoteError(""); setIsAddNoteOpen(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-lg text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white text-teal-700 rounded-lg text-xs font-bold transition-colors hover:bg-teal-50 border border-white/50"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add Note
                 </button>
                 <button
                   onClick={() => setIsViewAllNotesOpen(false)}
-                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/25 flex items-center justify-center text-white transition-colors"
+                  className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/30 border border-white/30 flex items-center justify-center text-white transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1498,25 +1565,26 @@ export default function ClientProfile() {
             </div>
 
             {/* Scrollable Notes List */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
               {notes.length > 0 ? (
                 <div className="space-y-3">
                   {notes.map((note, idx) => (
                     <div
                       key={note.id}
-                      className="flex items-start gap-3 p-4 bg-gray-50 hover:bg-teal-50/40 rounded-xl border border-gray-100 hover:border-teal-100 transition-all duration-150"
+                      className="flex items-start gap-3 p-4 bg-white rounded-xl border-2 border-gray-200 hover:border-teal-400 transition-all duration-150"
+                      style={{ borderLeft: '4px solid #0d9488' }}
                     >
                       {/* Note number badge */}
-                      <div className="w-6 h-6 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+                      <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
                         {idx + 1}
                       </div>
-                      <p className="text-sm text-gray-700 leading-relaxed flex-1">{note.note}</p>
-                      {/* Delete button — always visible, turns red on hover */}
+                      <p className="text-sm text-gray-800 leading-relaxed flex-1 font-medium">{note.note}</p>
+                      {/* Delete button */}
                       <button
                         onClick={() => handleDeleteNote(note.id)}
                         disabled={deletingNoteId === note.id}
                         title="Delete note"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-150 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition-all duration-150 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {deletingNoteId === note.id
                           ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
@@ -1528,10 +1596,10 @@ export default function ClientProfile() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-                    <FileText className="w-7 h-7 text-gray-300" />
+                  <div className="w-14 h-14 rounded-2xl bg-gray-200 flex items-center justify-center mb-3">
+                    <FileText className="w-7 h-7 text-gray-400" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">No notes yet</p>
+                  <p className="text-sm font-semibold text-gray-600">No notes yet</p>
                   <p className="text-xs text-gray-400 mt-1">Click "Add Note" to write the first one</p>
                 </div>
               )}
