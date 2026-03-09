@@ -27,10 +27,6 @@ const formatFullName = (firstName, lastName) => {
   return fullName.length > 20 ? fullName.substring(0, 20) + '...' : fullName;
 };
 
-const formatUserName = (firstName) => {
-  return `Mr. ${firstName || 'N/A'}`;
-};
-
 // ============================================================================
 // COLUMN DEFINITIONS
 // ============================================================================
@@ -68,21 +64,6 @@ const columns = [
           </div>
         </div>
       </div>
-    ),
-  },
-
-  // ============================================================================
-  // USER NAME COLUMN
-  // ============================================================================
-  {
-    key: 'user_name',
-    label: 'User Name',
-    width: '130px',
-    headerAlign: 'center',
-    render: (row) => (
-      <span className="text-gray-700">
-        {formatUserName(row.first_name)}
-      </span>
     ),
   },
 
@@ -180,16 +161,6 @@ const columns = [
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-100 text-orange-600 text-xs font-semibold whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
               Draft
-            </span>
-          </div>
-        );
-      }
-      if (row.start_client === true) {
-        return (
-          <div className="flex justify-center">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-lime-100 text-lime-700 text-xs font-semibold whitespace-nowrap">
-              <span className="w-2 h-2 rounded-full bg-lime-500 flex-shrink-0" />
-              Star Client
             </span>
           </div>
         );

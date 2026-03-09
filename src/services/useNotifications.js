@@ -42,8 +42,14 @@ export function useNotifications() {
       const response = await api.get('/notifications/get_all_notifications/');
       if (!isMounted.current) return;
 
-      const data =
-        response.data?.data ?? (Array.isArray(response.data) ? response.data : []);
+      const raw = response.data?.data;
+      const data = Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.results)
+        ? raw.results
+        : Array.isArray(response.data)
+        ? response.data
+        : [];
       setNotifications(data);
     } catch (err) {
       if (!isMounted.current) return;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Plus, User, ChevronDown, Trash2, Edit, FileText, Download, Send, X, Loader2, AlertCircle, CheckCircle, Building2, ChevronRight } from 'lucide-react';
 import { createQuotation, updateQuotationFull, getComplianceByCategory, getSubComplianceCategories, generateQuotationPdf } from '../../services/quotation';
@@ -41,48 +41,42 @@ const SubComplianceDropdown = ({
   value, 
   onChange, 
   categoryId,
-  searchTerm, 
-  onSearchChange,
   placeholder = "Select Sub-Compliance",
-  loading = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = React.useRef(null);
 
+  // Close on outside click — using ref so no stale closures
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (!e.target.closest('.sub-compliance-dropdown')) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false);
+        setSearch('');
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Get sub-categories available for this compliance category
-  const getAvailableSubCategories = () => {
-    // For categories 1 & 2 (Certificates): show all sub-categories
-    if ([1, 2].includes(categoryId)) {
-      return [
-        SUB_COMPLIANCE_CATEGORIES[1],
-        SUB_COMPLIANCE_CATEGORIES[2],
-        SUB_COMPLIANCE_CATEGORIES[3],
-        SUB_COMPLIANCE_CATEGORIES[4]
-      ];
-    }
-    // For categories 3 & 4 (Execution): no sub-categories
-    return [];
-  };
+  // Reset search when closed
+  useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
 
-  const filteredList = getAvailableSubCategories().filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const allSubCategories = [1, 2].includes(categoryId)
+    ? [SUB_COMPLIANCE_CATEGORIES[1], SUB_COMPLIANCE_CATEGORIES[2], SUB_COMPLIANCE_CATEGORIES[3], SUB_COMPLIANCE_CATEGORIES[4]]
+    : [];
+
+  const filteredList = allSubCategories.filter(item =>
+    item.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const selectedItem = getAvailableSubCategories().find(item => item.id === value);
+  const selectedItem = allSubCategories.find(item => item.id === value);
 
   return (
-    <div className="sub-compliance-dropdown relative w-full">
+    <div ref={containerRef} className="relative w-full">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
       >
         <span className={selectedItem ? 'text-gray-900' : 'text-gray-500'}>
@@ -93,36 +87,31 @@ const SubComplianceDropdown = ({
 
       {isOpen && (
         <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 z-[99999] overflow-hidden">
-          {/* Search Input */}
           <div className="p-3 border-b border-gray-200 bg-gray-50">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => onSearchChange(e.target.value)}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
-                onClick={(e) => e.stopPropagation()}
+                autoFocus
               />
             </div>
           </div>
-
-          {/* List */}
           <div className="max-h-48 overflow-y-auto">
-            {loading ? (
-              <div className="px-4 py-4 text-center text-gray-500 text-sm">
-                <Loader2 className="w-4 h-4 text-teal-500 animate-spin mx-auto mb-2" />
-                Loading...
-              </div>
-            ) : filteredList.length > 0 ? (
+            {filteredList.length > 0 ? (
               filteredList.map((item) => (
                 <button
                   key={item.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     onChange(item.id);
                     setIsOpen(false);
-                    onSearchChange('');
+                    setSearch('');
                   }}
                   className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 text-sm ${
                     value === item.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''
@@ -162,32 +151,36 @@ const ComplianceDropdown = ({
   onChange, 
   complianceList, 
   loading, 
-  searchTerm, 
-  onSearchChange,
   placeholder = "Select Compliance"
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = React.useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (!e.target.closest('.compliance-dropdown')) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false);
+        setSearch('');
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
+
   const filteredList = complianceList.filter(item =>
-    (item.name || item.compliance_name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (item.name || item.compliance_name || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const selectedItem = complianceList.find(item => item.id === value);
 
   return (
-    <div className="compliance-dropdown relative w-full">
+    <div ref={containerRef} className="relative w-full">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
       >
         <span className={selectedItem ? 'text-gray-900' : 'text-gray-500'}>
@@ -204,14 +197,14 @@ const ComplianceDropdown = ({
               <input
                 type="text"
                 placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => onSearchChange(e.target.value)}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
-                onClick={(e) => e.stopPropagation()}
+                autoFocus
               />
             </div>
           </div>
-
           <div className="max-h-48 overflow-y-auto">
             {loading ? (
               <div className="px-4 py-4 text-center text-gray-500 text-sm">
@@ -222,10 +215,12 @@ const ComplianceDropdown = ({
               filteredList.map((item) => (
                 <button
                   key={item.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     onChange(item.id, item);
                     setIsOpen(false);
-                    onSearchChange('');
+                    setSearch('');
                   }}
                   className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 text-sm ${
                     value === item.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''
@@ -435,7 +430,6 @@ export default function Quotations({ onUpdateNavigation }) {
   const [showAddSection, setShowAddSection] = useState(false);
   const [showSectionDropdown, setShowSectionDropdown] = useState(false);
   const [editingSection, setEditingSection] = useState(null);
-  const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -446,32 +440,38 @@ export default function Quotations({ onUpdateNavigation }) {
   const [_categoryCompliance, setCategoryCompliance] = useState([]);
   const [_categoryComplianceLoading, setCategoryComplianceLoading] = useState(false);
 
+  // ── Per-category items map ────────────────────────────────────────────────
+  // Structure: { [categoryId]: { items: [], category_name: '' } }
+  // This is the SINGLE SOURCE OF TRUTH for items in the modal.
+  // When user switches category tabs, items added under CC stay under CC,
+  // items added under OC stay under OC — they never bleed across.
+  const [categoryItemsMap, setCategoryItemsMap] = useState({});
+
+  // Active category tab shown in the modal
+  const [activeCategoryId, setActiveCategoryId] = useState(null);
+
   // Compliance descriptions fetched by category + sub_category
+  // Keyed by `${categoryId}_${subCategoryId}` so switching tabs preserves cache
+  const [descriptionsCacheRef] = useState({ current: {} });
   const [complianceDescriptions, setComplianceDescriptions] = useState([]);
   const [complianceDescLoading, setComplianceDescLoading] = useState(false);
   const [descriptionMode, setDescriptionMode] = useState("dropdown");
   const [descriptionSearch, setDescriptionSearch] = useState("");
   const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
 
+  // sectionForm is only used for EDIT-SECTION mode (editing a section from the table)
   const [sectionForm, setSectionForm] = useState({
     category_id: null,
     category_name: '',
     items: []
   });
 
-  const [itemForm, setItemForm] = useState({
-    compliance_name: '',
-    compliance_id: null,
-    sub_compliance_id: null,
-    quantity: 1,
-    miscellaneous_amount: '',
-    Professional_amount: 0,
-  });
+  // itemForm is PER-CATEGORY — keyed by categoryId
+  // Structure: { [categoryId]: { compliance_name, compliance_id, sub_compliance_id, quantity, miscellaneous_amount, Professional_amount } }
+  const [itemFormMap, setItemFormMap] = useState({});
 
-  const [itemFormSearchTerms, setItemFormSearchTerms] = useState({
-    compliance: '',
-    subCompliance: ''
-  });
+  // editingItemIndex is PER-CATEGORY: { [categoryId]: number | null }
+  const [editingItemIndexMap, setEditingItemIndexMap] = useState({});
 
   // Fetch Data on Mount — restore draft OR pre-fill from edit mode
   useEffect(() => {
@@ -575,6 +575,48 @@ export default function Quotations({ onUpdateNavigation }) {
     setQuotationNumber(quotationNum.toString());
   };
 
+  // ── Per-category helpers ──────────────────────────────────────────────────
+  const BLANK_ITEM_FORM = { compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 };
+
+  const getActiveItemForm = () => itemFormMap[activeCategoryId] || { ...BLANK_ITEM_FORM };
+  const setActiveItemForm = (updater) => {
+    setItemFormMap(prev => {
+      const current = prev[activeCategoryId] || { ...BLANK_ITEM_FORM };
+      const next = typeof updater === 'function' ? updater(current) : updater;
+      return { ...prev, [activeCategoryId]: next };
+    });
+  };
+
+  const getActiveItems = () => (categoryItemsMap[activeCategoryId]?.items || []);
+  const getActiveEditingIndex = () => editingItemIndexMap[activeCategoryId] ?? null;
+
+  const setActiveItems = (updater) => {
+    setCategoryItemsMap(prev => {
+      const current = prev[activeCategoryId] || { items: [], category_name: COMPLIANCE_CATEGORIES[activeCategoryId]?.shortName || '' };
+      const nextItems = typeof updater === 'function' ? updater(current.items) : updater;
+      return { ...prev, [activeCategoryId]: { ...current, items: nextItems } };
+    });
+  };
+
+  const setActiveEditingIndex = (idx) => {
+    setEditingItemIndexMap(prev => ({ ...prev, [activeCategoryId]: idx }));
+  };
+
+  // ── Description uniqueness helpers ────────────────────────────────────────
+  // Returns the set of description strings already used in a given sub_compliance_id
+  // across ALL categories currently in the modal, so duplicates are blocked globally.
+  const getUsedDescriptionsForSub = (subComplianceId) => {
+    const used = new Set();
+    Object.values(categoryItemsMap).forEach(catData => {
+      (catData.items || []).forEach(item => {
+        if (item.sub_compliance_id === subComplianceId && item.compliance_name) {
+          used.add(item.compliance_name);
+        }
+      });
+    });
+    return used;
+  };
+
   const fetchClients = async () => {
     try {
       const response = await getClients({ page: 1, page_size: 100 });
@@ -634,8 +676,16 @@ export default function Quotations({ onUpdateNavigation }) {
   };
 
   // Fetch compliance descriptions based on category + sub_category
+  // Results are cached in descriptionsCacheRef so switching tabs doesn't re-fetch
   const fetchComplianceDescriptions = async (categoryId, subCategoryId) => {
     if (!categoryId) return;
+    const cacheKey = `${categoryId}_${subCategoryId ?? 'none'}`;
+    if (descriptionsCacheRef.current[cacheKey]) {
+      const cached = descriptionsCacheRef.current[cacheKey];
+      setComplianceDescriptions(cached);
+      setDescriptionMode(cached.length > 0 ? 'dropdown' : 'manual');
+      return;
+    }
     setComplianceDescLoading(true);
     setComplianceDescriptions([]);
     setDescriptionMode("dropdown");
@@ -644,15 +694,17 @@ export default function Quotations({ onUpdateNavigation }) {
       if (subCategoryId) params.sub_category = subCategoryId;
       const response = await api.get("/compliance/get_compliance_by_category/", { params });
       if (response?.data?.status === "success" && response?.data?.data?.results) {
-        setComplianceDescriptions(response.data.data.results);
-        if (response.data.data.results.length === 0) {
-          setDescriptionMode("manual");
-        }
+        const results = response.data.data.results;
+        descriptionsCacheRef.current[cacheKey] = results;
+        setComplianceDescriptions(results);
+        setDescriptionMode(results.length > 0 ? 'dropdown' : 'manual');
       } else {
+        descriptionsCacheRef.current[cacheKey] = [];
         setComplianceDescriptions([]);
         setDescriptionMode("manual");
       }
     } catch (err) {
+      descriptionsCacheRef.current[cacheKey] = [];
       setComplianceDescriptions([]);
       setDescriptionMode("manual");
     } finally {
@@ -796,23 +848,39 @@ export default function Quotations({ onUpdateNavigation }) {
     
     const categoryIds = COMPLIANCE_GROUPS[type];
     const firstCategoryId = categoryIds[0];
-    
-    setSectionForm({
-      category_id: firstCategoryId,
-      category_name: COMPLIANCE_CATEGORIES[firstCategoryId].shortName,
-      items: []
+
+    // Initialize an empty items bucket for each category in this group
+    setCategoryItemsMap(prev => {
+      const next = { ...prev };
+      categoryIds.forEach(id => {
+        if (!next[id]) {
+          next[id] = { items: [], category_name: COMPLIANCE_CATEGORIES[id].shortName };
+        }
+      });
+      return next;
     });
 
-    // Reset item form and descriptions
-    setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
+    setActiveCategoryId(firstCategoryId);
+
+    // Reset item forms and editing indexes for all categories in group
+    setItemFormMap(prev => {
+      const next = { ...prev };
+      categoryIds.forEach(id => { next[id] = { ...BLANK_ITEM_FORM }; });
+      return next;
+    });
+    setEditingItemIndexMap(prev => {
+      const next = { ...prev };
+      categoryIds.forEach(id => { next[id] = null; });
+      return next;
+    });
+
+    // Reset description state
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
-    
-    fetchComplianceByCategory(firstCategoryId);
 
-    // For execution type, fetch descriptions immediately (no sub-category needed)
+    fetchComplianceByCategory(firstCategoryId);
     if (type === 'execution') {
       fetchComplianceDescriptions(firstCategoryId, null);
     }
@@ -836,136 +904,168 @@ export default function Quotations({ onUpdateNavigation }) {
   };
 
   const handleAddItem = () => {
+    const itemForm = getActiveItemForm();
     if (!itemForm.compliance_name.trim()) return;
 
     const newItem = {
-      compliance_name:    itemForm.compliance_name.trim(),
-      compliance_id:      itemForm.compliance_id || null,
-      sub_compliance_id:  itemForm.sub_compliance_id || null,
-      quantity:           parseInt(itemForm.quantity, 10) || 1,
-      // Store raw string — isMiscNumeric() decides at calc-time whether to include in totals.
-      // Numeric value  ("500")           -> added to item total
-      // Descriptive text ("Govt. fees")  -> shown as label only, not calculated
+      compliance_name:      itemForm.compliance_name.trim(),
+      compliance_id:        itemForm.compliance_id || null,
+      sub_compliance_id:    itemForm.sub_compliance_id || null,
+      quantity:             parseInt(itemForm.quantity, 10) || 1,
       miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
       Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
-      // total_amount is stored for display convenience only.
-      // The authoritative value is always recalculated via calcItemTotal().
-      total_amount: calcItemTotal(itemForm),
+      total_amount:         calcItemTotal(itemForm),
     };
 
-    if (editingItemIndex !== null) {
-      // Update existing item
-      setSectionForm(prev => ({
-        ...prev,
-        items: prev.items.map((item, i) => i === editingItemIndex ? newItem : item)
-      }));
-      setEditingItemIndex(null);
+    const editingIndex = getActiveEditingIndex();
+    if (editingIndex !== null) {
+      setActiveItems(prev => prev.map((item, i) => i === editingIndex ? newItem : item));
+      setActiveEditingIndex(null);
     } else {
-      setSectionForm(prev => ({ ...prev, items: [...prev.items, newItem] }));
+      setActiveItems(prev => [...prev, newItem]);
     }
 
-    // Preserve sub_compliance_id so user can keep adding items in same sub-category
-    setItemForm({
-      compliance_name: '',
-      compliance_id: null,
-      sub_compliance_id: itemForm.sub_compliance_id, // ← keep selected sub-category
-      quantity: 1,
-      miscellaneous_amount: '',
-      Professional_amount: 0,
-    });
-    setItemFormSearchTerms(prev => ({ ...prev, compliance: '' }));
-    // Keep descriptions loaded — don't reset them
+    // Preserve sub_compliance_id so user can keep adding under same sub-category
+    setActiveItemForm(prev => ({
+      ...BLANK_ITEM_FORM,
+      sub_compliance_id: prev.sub_compliance_id,
+    }));
+    setDescriptionSearch('');
+    setShowDescriptionDropdown(false);
   };
 
   const handleEditItem = (index) => {
-    const item = sectionForm.items[index];
-    setItemForm({
-      compliance_name: item.compliance_name,
-      compliance_id: item.compliance_id || null,
-      sub_compliance_id: item.sub_compliance_id || null,
-      quantity: item.quantity || 1,
+    const items = getActiveItems();
+    const item = items[index];
+    setActiveItemForm({
+      compliance_name:      item.compliance_name,
+      compliance_id:        item.compliance_id || null,
+      sub_compliance_id:    item.sub_compliance_id || null,
+      quantity:             item.quantity || 1,
       miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount: item.Professional_amount || 0,
+      Professional_amount:  item.Professional_amount || 0,
     });
-    setEditingItemIndex(index);
-    // Re-fetch descriptions for this item's sub-category if applicable
+    setActiveEditingIndex(index);
+    // Re-fetch descriptions for this item's sub-category
     if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
-      fetchComplianceDescriptions(sectionForm.category_id, item.sub_compliance_id);
+      fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
     }
   };
 
   const handleRemoveItem = (index) => {
-    if (editingItemIndex === index) {
-      // Cancel edit if we remove the item being edited
-      setEditingItemIndex(null);
-      setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
+    const editingIndex = getActiveEditingIndex();
+    if (editingIndex === index) {
+      setActiveEditingIndex(null);
+      setActiveItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
     }
-    setSectionForm(prev => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index)
-    }));
+    setActiveItems(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleAddSection = () => {
-    if (!sectionForm.category_id || sectionForm.items.length === 0) {
-      return;
-    }
+    // Check there is at least one item across all categories
+    const totalItems = Object.values(categoryItemsMap).reduce((sum, cat) => sum + (cat.items?.length || 0), 0);
+    if (totalItems === 0) return;
 
     if (editingSection !== null) {
-      // Editing an existing section — replace it in place
+      // Edit mode — we are editing a single existing section (opened from table).
+      // Items the user added/edited in the modal are stored in categoryItemsMap
+      // (via setActiveItems / handleAddItem). We must merge those into sectionForm
+      // so the updated items are actually saved back to the section.
+      const editedCategoryId = sectionForm.category_id;
+      const updatedItemsFromMap = categoryItemsMap[editedCategoryId]?.items;
+      const mergedSection = {
+        ...sectionForm,
+        items: updatedItemsFromMap !== undefined ? updatedItemsFromMap : sectionForm.items,
+      };
       const updatedSections = [...sections];
-      updatedSections[editingSection] = sectionForm;
+      updatedSections[editingSection] = mergedSection;
       setSections(updatedSections);
     } else {
-      // Check if a section with the same category_id already exists
-      const existingIndex = sections.findIndex(s => s.category_id === sectionForm.category_id);
-      if (existingIndex !== -1) {
-        // Merge new items into the existing section instead of creating a duplicate
-        const updatedSections = [...sections];
-        updatedSections[existingIndex] = {
-          ...updatedSections[existingIndex],
-          items: [...updatedSections[existingIndex].items, ...sectionForm.items],
-        };
-        setSections(updatedSections);
-      } else {
-        // Brand new category — append as a new section
-        setSections(prev => [...prev, sectionForm]);
-      }
+      // New compliance — iterate ALL categories in the map and merge into sections
+      setSections(prev => {
+        let next = [...prev];
+        Object.entries(categoryItemsMap).forEach(([catIdStr, catData]) => {
+          const catId = parseInt(catIdStr, 10);
+          const newItems = catData.items || [];
+          if (newItems.length === 0) return; // skip empty categories
+
+          const existingIndex = next.findIndex(s => s.category_id === catId);
+          if (existingIndex !== -1) {
+            // Merge into existing section
+            next[existingIndex] = {
+              ...next[existingIndex],
+              items: [...next[existingIndex].items, ...newItems],
+            };
+          } else {
+            // New section
+            next = [...next, {
+              category_id:   catId,
+              category_name: COMPLIANCE_CATEGORIES[catId]?.shortName || catData.category_name || `Category ${catId}`,
+              items:         newItems,
+            }];
+          }
+        });
+        return next;
+      });
     }
 
+    // Reset all modal state
     setShowAddSection(false);
     setSectionForm({ category_id: null, category_name: '', items: [] });
+    setCategoryItemsMap({});
+    setActiveCategoryId(null);
+    setItemFormMap({});
+    setEditingItemIndexMap({});
     setEditingSection(null);
-    setEditingItemIndex(null);
-    setSelectedCategoryType(null);
     setCategoryCompliance([]);
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setSelectedCategoryType(null);
   };
 
   const handleEditSection = (index) => {
+    const section = sections[index];
     setEditingSection(index);
-    setSectionForm(sections[index]);
+    setSectionForm({ ...section });
+
+    // In edit-section mode, pre-populate categoryItemsMap with the section's
+    // existing items so they are preserved when the user saves.
+    const categoryId = section.category_id;
+    setCategoryItemsMap({
+      [categoryId]: { items: [...section.items], category_name: section.category_name }
+    });
+    setActiveCategoryId(categoryId);
+    setItemFormMap({ [categoryId]: { ...BLANK_ITEM_FORM } });
+    setEditingItemIndexMap({ [categoryId]: null });
     
-    const categoryId = sections[index].category_id;
     const typeFound = Object.entries(COMPLIANCE_GROUPS).find(([_, ids]) => 
       ids.includes(categoryId)
     )?.[0];
     setSelectedCategoryType(typeFound);
     fetchComplianceByCategory(categoryId);
+
+    setComplianceDescriptions([]);
+    setDescriptionMode('dropdown');
+    setDescriptionSearch('');
+    setShowDescriptionDropdown(false);
     
     setShowAddSection(true);
   };
 
   const handleEditItemFromTable = (sectionIndex, itemIndex) => {
-    // Open the modal with that section loaded
     const section = sections[sectionIndex];
     setEditingSection(sectionIndex);
     setSectionForm({ ...section });
-
+    // Pre-populate categoryItemsMap with existing items so they are preserved on save
     const categoryId = section.category_id;
+    setCategoryItemsMap({
+      [categoryId]: { items: [...section.items], category_name: section.category_name }
+    });
+    setActiveCategoryId(categoryId);
+    setEditingItemIndexMap({ [categoryId]: null }); // we use sectionForm path
+
     const typeFound = Object.entries(COMPLIANCE_GROUPS).find(([_, ids]) =>
       ids.includes(categoryId)
     )?.[0];
@@ -974,23 +1074,24 @@ export default function Quotations({ onUpdateNavigation }) {
 
     // Pre-populate item form with the item being edited
     const item = section.items[itemIndex];
-    setItemForm({
-      compliance_name: item.compliance_name,
-      compliance_id: item.compliance_id || null,
-      sub_compliance_id: item.sub_compliance_id || null,
-      quantity: item.quantity,
+    setItemFormMap({ [categoryId]: {
+      compliance_name:      item.compliance_name,
+      compliance_id:        item.compliance_id || null,
+      sub_compliance_id:    item.sub_compliance_id || null,
+      quantity:             item.quantity,
       miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount: item.Professional_amount || 0,
-    });
-    setEditingItemIndex(itemIndex);
+      Professional_amount:  item.Professional_amount || 0,
+    }});
+    setEditingItemIndexMap({ [categoryId]: itemIndex });
 
-    // Fetch descriptions so the dropdown is populated
     if (item.sub_compliance_id) {
       fetchComplianceDescriptions(categoryId, item.sub_compliance_id);
     } else if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
       fetchComplianceDescriptions(categoryId, null);
     }
 
+    setDescriptionSearch('');
+    setShowDescriptionDropdown(false);
     setShowAddSection(true);
   };
 
@@ -1020,21 +1121,35 @@ export default function Quotations({ onUpdateNavigation }) {
   };
 
   const handleCategoryChange = (categoryId) => {
-    setSectionForm(prev => ({
-      ...prev,
-      category_id: categoryId,
-      category_name: COMPLIANCE_CATEGORIES[categoryId].shortName
-    }));
+    // Just switch the active tab — items in other categories are preserved
+    setActiveCategoryId(categoryId);
+
+    // Ensure this category has a slot in the map
+    setCategoryItemsMap(prev => {
+      if (prev[categoryId]) return prev;
+      return { ...prev, [categoryId]: { items: [], category_name: COMPLIANCE_CATEGORIES[categoryId]?.shortName || '' } };
+    });
+
+    // Reset description UI for the new tab
+    setComplianceDescriptions([]);
+    setDescriptionMode('dropdown');
+    setDescriptionSearch('');
+    setShowDescriptionDropdown(false);
+
+    // Fetch compliance list for this category
     fetchComplianceByCategory(categoryId);
-    // For execution type (no sub-category), fetch descriptions by category only
+
+    // For execution categories, fetch descriptions immediately (no sub-category)
     if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
+      setActiveItemForm(prev => ({ ...BLANK_ITEM_FORM }));
       fetchComplianceDescriptions(categoryId, null);
     } else {
-      // For certificates, reset — descriptions will load after sub-category is picked
-      setComplianceDescriptions([]);
-      setDescriptionMode('dropdown');
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
+      // For certificates, descriptions load when sub-category is picked
+      // Restore previously selected sub_compliance_id's descriptions if any
+      const existingForm = itemFormMap[categoryId];
+      if (existingForm?.sub_compliance_id) {
+        fetchComplianceDescriptions(categoryId, existingForm.sub_compliance_id);
+      }
     }
   };
 
@@ -1134,7 +1249,7 @@ export default function Quotations({ onUpdateNavigation }) {
           items:            allItems,
         };
 
-        serviceLogger.log('📤 UPDATE PAYLOAD:', JSON.stringify(updatePayload, null, 2));
+        logger.log('📤 UPDATE PAYLOAD:', JSON.stringify(updatePayload, null, 2));
 
         const response = await updateQuotationFull(updatePayload);
 
@@ -1209,6 +1324,130 @@ export default function Quotations({ onUpdateNavigation }) {
       setClientProjects([]);
     }
   }, [selectedClient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ============================================================================
+  // MODAL COMPUTED VARIABLES (avoids IIFE-in-JSX parse errors)
+  // ============================================================================
+
+  const isEditSectionMode = editingSection !== null;
+
+  const modalItemForm = isEditSectionMode
+    ? (itemFormMap[activeCategoryId] || BLANK_ITEM_FORM)
+    : getActiveItemForm();
+
+  const modalEditingItemIndex = isEditSectionMode
+    ? (editingItemIndexMap[activeCategoryId] ?? null)
+    : getActiveEditingIndex();
+
+  const modalActiveItems = isEditSectionMode ? (categoryItemsMap[activeCategoryId]?.items || []) : getActiveItems();
+
+  // Used descriptions for uniqueness enforcement
+  const modalUsedDescriptions = (() => {
+    const used = new Set();
+    modalActiveItems.forEach((item, i) => {
+      if (i === modalEditingItemIndex) return;
+      if (item.sub_compliance_id === modalItemForm.sub_compliance_id && item.compliance_name) {
+        used.add(item.compliance_name);
+      }
+    });
+    if (!isEditSectionMode) {
+      const globalUsed = getUsedDescriptionsForSub(modalItemForm.sub_compliance_id);
+      globalUsed.forEach(d => used.add(d));
+      if (modalEditingItemIndex !== null && modalActiveItems[modalEditingItemIndex]?.compliance_name) {
+        used.delete(modalActiveItems[modalEditingItemIndex].compliance_name);
+      }
+    }
+    return used;
+  })();
+
+  const modalSetItemForm = isEditSectionMode
+    ? (updater) => setItemFormMap(prev => {
+        const current = prev[activeCategoryId] || BLANK_ITEM_FORM;
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        return { ...prev, [activeCategoryId]: next };
+      })
+    : setActiveItemForm;
+
+  const modalSetEditingIdx = isEditSectionMode
+    ? (idx) => setEditingItemIndexMap(prev => ({ ...prev, [activeCategoryId]: idx }))
+    : setActiveEditingIndex;
+
+  const modalAddItem = isEditSectionMode
+    ? () => {
+        const itemForm = modalItemForm;
+        if (!itemForm.compliance_name.trim()) return;
+        const newItem = {
+          compliance_name:      itemForm.compliance_name.trim(),
+          compliance_id:        itemForm.compliance_id || null,
+          sub_compliance_id:    itemForm.sub_compliance_id || null,
+          quantity:             parseInt(itemForm.quantity, 10) || 1,
+          miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
+          Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
+          total_amount:         calcItemTotal(itemForm),
+        };
+        if (modalEditingItemIndex !== null) {
+          setActiveItems(prev => prev.map((it, i) => i === modalEditingItemIndex ? newItem : it));
+          modalSetEditingIdx(null);
+        } else {
+          setActiveItems(prev => [...prev, newItem]);
+        }
+        modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+        setDescriptionSearch('');
+        setShowDescriptionDropdown(false);
+      }
+    : handleAddItem;
+
+  const modalEditItem = isEditSectionMode
+    ? (index) => {
+        const item = categoryItemsMap[activeCategoryId]?.items?.[index];
+        if (!item) return;
+        modalSetItemForm({
+          compliance_name:      item.compliance_name,
+          compliance_id:        item.compliance_id || null,
+          sub_compliance_id:    item.sub_compliance_id || null,
+          quantity:             item.quantity || 1,
+          miscellaneous_amount: item.miscellaneous_amount || '',
+          Professional_amount:  item.Professional_amount || 0,
+        });
+        modalSetEditingIdx(index);
+        if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
+          fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
+        }
+      }
+    : handleEditItem;
+
+  const modalRemoveItem = isEditSectionMode
+    ? (index) => {
+        if (modalEditingItemIndex === index) {
+          modalSetEditingIdx(null);
+          modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+        }
+        setActiveItems(prev => prev.filter((_, i) => i !== index));
+      }
+    : handleRemoveItem;
+
+  const modalTotalItems = isEditSectionMode
+    ? (categoryItemsMap[activeCategoryId]?.items?.length || 0)
+    : Object.values(categoryItemsMap).reduce((sum, cat) => sum + (cat.items?.length || 0), 0);
+
+  const modalSaveDisabled = isEditSectionMode
+    ? (categoryItemsMap[activeCategoryId]?.items?.length || 0) === 0
+    : Object.values(categoryItemsMap).every(cat => (cat.items?.length || 0) === 0);
+
+  const closeModal = () => {
+    setShowAddSection(false);
+    setSectionForm({ category_id: null, category_name: '', items: [] });
+    setCategoryItemsMap({});
+    setActiveCategoryId(null);
+    setItemFormMap({});
+    setEditingItemIndexMap({});
+    setEditingSection(null);
+    setSelectedCategoryType(null);
+    setComplianceDescriptions([]);
+    setDescriptionMode('dropdown');
+    setDescriptionSearch('');
+    setShowDescriptionDropdown(false);
+  };
 
   // ============================================================================
   // RENDER - MAIN RETURN
@@ -1418,10 +1657,6 @@ export default function Quotations({ onUpdateNavigation }) {
                     className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors bg-white"
                   />
                 </div>
-                <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Edit className="w-4 h-4" />
-                  Edit
-                </button>
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || sections.length === 0 || !selectedClient || !selectedProject}
@@ -1430,7 +1665,7 @@ export default function Quotations({ onUpdateNavigation }) {
                   {submitting ? (
                     <><Loader2 className="w-4 h-4 animate-spin" />{isEditMode ? 'Updating...' : 'Generating...'}</>
                   ) : (
-                    <><FileText className="w-4 h-4" />{isEditMode ? 'Update Quotation' : 'Generate Proforma'}</>
+                    <><FileText className="w-4 h-4" />{isEditMode ? 'Update Quotation' : 'Generate Quotation'}</>
                   )}
                 </button>
               </div>
@@ -1674,24 +1909,18 @@ export default function Quotations({ onUpdateNavigation }) {
                       <span className="text-sm text-gray-600">🎁 Discount</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <label className="text-sm text-gray-600">Type</label>
-                      <select
-                        value={discountType}
-                        onChange={(e) => setDiscountType(e.target.value)}
-                        className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
-                      >
-                                                <option>Percentage</option>
-                        <option>Fixed</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-gray-600">Value</label>
+                      <label className="text-sm text-gray-600">Rate (%)</label>
                       <input
                         type="number"
-                        value={discountValue}
+                        value={discountValue === 0 ? '' : discountValue}
                         onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                        placeholder="0"
                         className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-right"
                       />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Amount</span>
+                      <span className="text-sm font-semibold text-gray-900">Rs. {calculateDiscount().toLocaleString('en-IN')}</span>
                     </div>
                   </div>
 
@@ -1735,7 +1964,7 @@ export default function Quotations({ onUpdateNavigation }) {
             <div
               className="absolute inset-0 bg-black/50"
               style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-              onClick={() => { setShowAddSection(false); setSectionForm({ category_id: null, category_name: '', items: [] }); setEditingSection(null); setEditingItemIndex(null); }}
+              onClick={closeModal}
             />
 
             <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
@@ -1768,7 +1997,7 @@ export default function Quotations({ onUpdateNavigation }) {
                       </div>
                     </div>
                     <button
-                      onClick={() => { setShowAddSection(false); setSectionForm({ category_id: null, category_name: '', items: [] }); setEditingSection(null); setEditingItemIndex(null); }}
+                      onClick={closeModal}
                       className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
                     >
                       <X size={16} className="text-white" />
@@ -1785,21 +2014,39 @@ export default function Quotations({ onUpdateNavigation }) {
                       <div className="grid grid-cols-2 gap-2">
                         {selectedCategoryType === 'certificates' ? (
                           <>
-                            {[{id:1,label:'Construction Certificate'},{id:2,label:'Occupational Certificate'}].map(cat => (
-                              <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                                className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                                {cat.label}
-                              </button>
-                            ))}
+                            {[{id:1,label:'Construction Certificate'},{id:2,label:'Occupational Certificate'}].map(cat => {
+                              const itemCount = editingSection !== null
+                                ? (categoryItemsMap[cat.id]?.items?.length || 0)
+                                : (categoryItemsMap[cat.id]?.items?.length || 0);
+                              return (
+                                <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
+                                  className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors relative ${activeCategoryId === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
+                                  {cat.label}
+                                  {itemCount > 0 && (
+                                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                                      {itemCount}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </>
                         ) : selectedCategoryType === 'execution' ? (
                           <>
-                            {[{id:3,label:'Water Main'},{id:4,label:'STP'}].map(cat => (
-                              <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                                className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                                {cat.label}
-                              </button>
-                            ))}
+                            {[{id:3,label:'Water Main'},{id:4,label:'STP'}].map(cat => {
+                              const itemCount = categoryItemsMap[cat.id]?.items?.length || 0;
+                              return (
+                                <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
+                                  className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors relative ${activeCategoryId === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
+                                  {cat.label}
+                                  {itemCount > 0 && (
+                                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                                      {itemCount}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </>
                         ) : null}
                       </div>
@@ -1807,15 +2054,14 @@ export default function Quotations({ onUpdateNavigation }) {
 
                     {/* Add Item Form */}
                     <div className="bg-white rounded-xl border border-gray-200 overflow-visible">
-                      {/* Form header */}
-                      <div className={`px-4 py-3 border-b border-gray-100 flex items-center justify-between ${editingItemIndex !== null ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                      <div className={`px-4 py-3 border-b border-gray-100 flex items-center justify-between ${modalEditingItemIndex !== null ? 'bg-amber-50' : 'bg-gray-50'}`}>
                         <div className="flex items-center gap-2">
-                          {editingItemIndex !== null ? (
+                          {modalEditingItemIndex !== null ? (
                             <>
                               <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
                                 <Edit className="w-3 h-3 text-white" />
                               </div>
-                              <span className="text-sm font-semibold text-amber-800">Editing Item #{editingItemIndex + 1}</span>
+                              <span className="text-sm font-semibold text-amber-800">Editing Item #{modalEditingItemIndex + 1}</span>
                             </>
                           ) : (
                             <>
@@ -1826,11 +2072,11 @@ export default function Quotations({ onUpdateNavigation }) {
                             </>
                           )}
                         </div>
-                        {editingItemIndex !== null && (
+                        {modalEditingItemIndex !== null && (
                           <button
                             onClick={() => {
-                              setEditingItemIndex(null);
-                              setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
+                              modalSetEditingIdx(null);
+                              modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
                             }}
                             className="text-xs text-amber-600 hover:text-amber-800 font-medium"
                           >
@@ -1840,29 +2086,25 @@ export default function Quotations({ onUpdateNavigation }) {
                       </div>
 
                       <div className="p-4 space-y-3">
-                        {/* Sub-compliance — certificates only. Stays selected after adding items */}
                         {selectedCategoryType === 'certificates' && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                               Sub-Compliance Category <span className="text-red-400">*</span>
                             </label>
                             <SubComplianceDropdown
-                              value={itemForm.sub_compliance_id}
+                              value={modalItemForm.sub_compliance_id}
                               onChange={(id) => {
-                                setItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
+                                modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
                                 setDescriptionSearch('');
                                 setShowDescriptionDropdown(false);
-                                fetchComplianceDescriptions(sectionForm.category_id, id);
+                                fetchComplianceDescriptions(activeCategoryId, id);
                               }}
-                              categoryId={sectionForm.category_id}
-                              searchTerm={itemFormSearchTerms.subCompliance}
-                              onSearchChange={(term) => setItemFormSearchTerms({ ...itemFormSearchTerms, subCompliance: term })}
+                              categoryId={activeCategoryId}
                               placeholder="Select sub-compliance category"
                             />
                           </div>
                         )}
 
-                        {/* Description */}
                         <div className="relative" style={{ paddingBottom: showDescriptionDropdown ? '320px' : '0', transition: 'padding-bottom 0.15s ease' }}>
                           <div className="flex items-center justify-between mb-1.5">
                             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -1870,7 +2112,10 @@ export default function Quotations({ onUpdateNavigation }) {
                             </label>
                             {complianceDescriptions.length > 0 && (
                               <button type="button"
-                                onClick={() => { setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown'); setItemForm(prev => ({ ...prev, compliance_name: '' })); }}
+                                onClick={() => {
+                                  setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown');
+                                  modalSetItemForm(prev => ({ ...prev, compliance_name: '' }));
+                                }}
                                 className="text-xs text-teal-600 hover:text-teal-700 font-medium"
                               >
                                 {descriptionMode === 'dropdown' ? '+ Type manually' : '← Pick from list'}
@@ -1898,18 +2143,16 @@ export default function Quotations({ onUpdateNavigation }) {
                                 }}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
                               >
-                                <span className={itemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
-                                  {itemForm.compliance_name
-                                    ? (itemForm.compliance_name.length > 65
-                                        ? itemForm.compliance_name.substring(0, 65) + '...'
-                                        : itemForm.compliance_name)
+                                <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
+                                  {modalItemForm.compliance_name
+                                    ? (modalItemForm.compliance_name.length > 65 ? modalItemForm.compliance_name.substring(0, 65) + '...' : modalItemForm.compliance_name)
                                     : 'Select a description'}
                                 </span>
                                 <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
                               </button>
 
                               {showDescriptionDropdown && (
-                                <div 
+                                <div
                                   className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden"
                                   style={{ zIndex: 99999 }}
                                   onMouseDown={(e) => e.preventDefault()}
@@ -1923,36 +2166,23 @@ export default function Quotations({ onUpdateNavigation }) {
                                         value={descriptionSearch}
                                         onChange={(e) => setDescriptionSearch(e.target.value)}
                                         onClick={(e) => e.stopPropagation()}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-teal-400 text-sm bg-white shadow-sm"
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 text-sm bg-white"
                                         autoFocus
                                       />
                                     </div>
                                     <div className="flex items-center justify-between mt-2 px-0.5">
                                       <span className="text-xs text-gray-400">
-                                        {descriptionSearch
-                                          ? `${complianceDescriptions.filter(d => d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())).length} of ${complianceDescriptions.length} results`
-                                          : `${complianceDescriptions.length} descriptions`}
+                                        {complianceDescriptions.filter(d => !modalUsedDescriptions.has(d.compliance_description) && d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())).length} results
                                       </span>
                                       <span className="text-xs text-teal-500 font-medium">Click to select</span>
                                     </div>
                                   </div>
                                   <div className="max-h-64 overflow-y-auto p-2 space-y-1.5">
-                                    {(() => {
-                                      const filtered = complianceDescriptions.filter(d =>
-                                        d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())
-                                      );
-                                      if (filtered.length === 0) return (
-                                        <div className="px-4 py-10 text-center">
-                                          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                                            <FileText className="w-6 h-6 text-gray-300" />
-                                          </div>
-                                          <p className="text-sm font-medium text-gray-500">No descriptions found</p>
-                                          <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
-                                        </div>
-                                      );
-                                      return filtered.map((desc, idx) => {
-                                        const isSelected = itemForm.compliance_name === desc.compliance_description;
-                                        const words = desc.compliance_description?.split(' ') || [];
+                                    {complianceDescriptions
+                                      .filter(d => !modalUsedDescriptions.has(d.compliance_description) && d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase()))
+                                      .map((desc, idx) => {
+                                        const isSelected = modalItemForm.compliance_name === desc.compliance_description;
+                                        const words = (desc.compliance_description || '').split(' ');
                                         const preview = words.slice(0, 4).join(' ');
                                         const rest = words.slice(4).join(' ');
                                         return (
@@ -1960,20 +2190,14 @@ export default function Quotations({ onUpdateNavigation }) {
                                             key={desc.id}
                                             type="button"
                                             onClick={() => {
-                                              setItemForm(prev => ({ ...prev, compliance_name: desc.compliance_description }));
+                                              modalSetItemForm(prev => ({ ...prev, compliance_name: desc.compliance_description }));
                                               setShowDescriptionDropdown(false);
                                               setDescriptionSearch('');
                                             }}
-                                            className={`w-full text-left rounded-lg border transition-all duration-150 group ${
-                                              isSelected
-                                                ? 'border-teal-400 bg-teal-50 shadow-sm'
-                                                : 'border-gray-100 bg-white hover:border-teal-200 hover:bg-teal-50/30'
-                                            }`}
+                                            className={`w-full text-left rounded-lg border transition-all duration-150 group ${isSelected ? 'border-teal-400 bg-teal-50 shadow-sm' : 'border-gray-100 bg-white hover:border-teal-200 hover:bg-teal-50/30'}`}
                                           >
                                             <div className="flex items-start gap-3 px-3 py-2.5">
-                                              <div className={`flex-shrink-0 min-w-[1.5rem] h-6 rounded-md flex items-center justify-center text-xs font-bold mt-0.5 ${
-                                                isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-100 group-hover:text-teal-600'
-                                              }`}>
+                                              <div className={`flex-shrink-0 min-w-[1.5rem] h-6 rounded-md flex items-center justify-center text-xs font-bold mt-0.5 ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-100 group-hover:text-teal-600'}`}>
                                                 {idx + 1}
                                               </div>
                                               <div className="flex-1 min-w-0">
@@ -1992,33 +2216,44 @@ export default function Quotations({ onUpdateNavigation }) {
                                             </div>
                                           </button>
                                         );
-                                      });
-                                    })()}
+                                      })}
+                                    {complianceDescriptions.filter(d => !modalUsedDescriptions.has(d.compliance_description)).length === 0 && (
+                                      <div className="px-4 py-10 text-center">
+                                        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                          <FileText className="w-6 h-6 text-gray-300" />
+                                        </div>
+                                        <p className="text-sm font-medium text-gray-500">All descriptions already used</p>
+                                        <p className="text-xs text-gray-400 mt-1">Switch sub-compliance or type manually</p>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <textarea value={itemForm.compliance_name} onChange={e => setItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
+                            <textarea
+                              value={modalItemForm.compliance_name}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
                               placeholder={complianceDescriptions.length === 0 && !complianceDescLoading ? 'No presets — type your own description' : 'Enter service description'}
-                              rows="2" className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none" />
+                              rows="2"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none"
+                            />
                           )}
                         </div>
 
-                        {/* Qty + Amounts row */}
                         <div className="grid grid-cols-3 gap-3">
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                            <input type="number" min="1" value={itemForm.quantity}
-                              onChange={e => setItemForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                            <input type="number" min="1" value={modalItemForm.quantity}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
                               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
                             <input
                               type="number" min="0" step="0.01"
-                              value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                              onChange={e => setItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                              value={modalItemForm.Professional_amount === 0 ? '' : modalItemForm.Professional_amount}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
                               placeholder="0.00"
                               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
@@ -2026,32 +2261,27 @@ export default function Quotations({ onUpdateNavigation }) {
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                               Misc. (Rs.)
-                              {itemForm.miscellaneous_amount !== '' && (
-                                <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
-                                  {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
+                              {modalItemForm.miscellaneous_amount !== '' && (
+                                <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
+                                  {isMiscNumeric(modalItemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
                                 </span>
                               )}
                             </label>
                             <input
                               type="text"
-                              value={itemForm.miscellaneous_amount}
-                              onChange={e => setItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
+                              value={modalItemForm.miscellaneous_amount}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
                               placeholder="Amount or description"
-                              className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${
-                                itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount)
-                                  ? 'border-amber-300 focus:ring-amber-400 bg-amber-50'
-                                  : 'border-gray-300 focus:ring-teal-500 bg-white'
-                              }`}
+                              className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`}
                             />
                           </div>
                         </div>
 
-                        {/* Total preview + Add button */}
                         <div className="flex items-center gap-3">
                           <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
                             <span className="text-sm text-teal-700 font-medium">Item Total:</span>
-                            <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(itemForm).toLocaleString('en-IN')}</span>
-                            {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
+                            <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(modalItemForm).toLocaleString('en-IN')}</span>
+                            {modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? (
                               <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 Misc shown as note
@@ -2060,25 +2290,28 @@ export default function Quotations({ onUpdateNavigation }) {
                               <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
                             )}
                           </div>
-                          <button onClick={handleAddItem}
-                            disabled={!itemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !itemForm.sub_compliance_id)}
-                            className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
-                            {editingItemIndex !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
+                          <button
+                            onClick={modalAddItem}
+                            disabled={!modalItemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !modalItemForm.sub_compliance_id) || !(parseFloat(modalItemForm.Professional_amount) > 0)}
+                            className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${modalEditingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                          >
+                            {modalEditingItemIndex !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
                           </button>
                         </div>
                       </div>
                     </div>
 
-                    {/* Items List */}
-                    {sectionForm.items.length > 0 && (
+                    {modalActiveItems.length > 0 && (
                       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-gray-700">Added Items</span>
-                          <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">{sectionForm.items.length} items</span>
+                          <span className="text-sm font-semibold text-gray-700">
+                            {COMPLIANCE_CATEGORIES[activeCategoryId]?.shortName || 'Added'} Items
+                          </span>
+                          <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">{modalActiveItems.length} items</span>
                         </div>
                         <div className="divide-y divide-gray-100">
-                          {sectionForm.items.map((item, index) => (
-                            <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${editingItemIndex === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
+                          {modalActiveItems.map((item, index) => (
+                            <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${modalEditingItemIndex === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
                               <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-gray-500">{index + 1}</div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
@@ -2088,21 +2321,21 @@ export default function Quotations({ onUpdateNavigation }) {
                                   )}
                                   <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                                   <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                                  {(String(item.miscellaneous_amount ?? '').trim() !== '') ? (
+                                  {String(item.miscellaneous_amount ?? '').trim() !== '' && (
                                     isMiscNumeric(item.miscellaneous_amount)
                                       ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
                                       : <span className="text-xs text-amber-600 italic font-medium" title="Not included in total">Misc: {item.miscellaneous_amount}</span>
-                                  ) : null}
+                                  )}
                                   <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
-                                <button onClick={() => handleEditItem(index)}
-                                  className={`p-1.5 rounded-lg transition-colors ${editingItemIndex === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`}
+                                <button onClick={() => modalEditItem(index)}
+                                  className={`p-1.5 rounded-lg transition-colors ${modalEditingItemIndex === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`}
                                   title="Edit item">
                                   <Edit className="w-3.5 h-3.5" />
                                 </button>
-                                <button onClick={() => handleRemoveItem(index)}
+                                <button onClick={() => modalRemoveItem(index)}
                                   className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
                                   title="Remove item">
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -2111,12 +2344,34 @@ export default function Quotations({ onUpdateNavigation }) {
                             </div>
                           ))}
                         </div>
-                        {/* Items total */}
                         <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
                           <span className="text-sm font-bold text-gray-800">
-                            Section Total: Rs. {sectionForm.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
+                            Section Total: Rs. {modalActiveItems.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
                           </span>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Summary of other categories when multiple have items */}
+                    {!editingSection && selectedCategoryType === 'certificates' && (categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length > 0) && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                        <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-xs font-bold">{categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length}</span>
+                        </div>
+                        <p className="text-sm text-indigo-700 font-medium">
+                          {COMPLIANCE_CATEGORIES[activeCategoryId === 1 ? 2 : 1]?.shortName} also has {categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length} item{categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length > 1 ? 's' : ''} — will be saved to its own section.
+                        </p>
+                      </div>
+                    )}
+
+                    {!editingSection && selectedCategoryType === 'execution' && (categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length > 0) && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                        <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-xs font-bold">{categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length}</span>
+                        </div>
+                        <p className="text-sm text-indigo-700 font-medium">
+                          {COMPLIANCE_CATEGORIES[activeCategoryId === 3 ? 4 : 3]?.shortName} also has {categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length} item{categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length > 1 ? 's' : ''} — will be saved to its own section.
+                        </p>
                       </div>
                     )}
 
@@ -2125,16 +2380,17 @@ export default function Quotations({ onUpdateNavigation }) {
                 {/* Footer */}
                 <div className="border-t border-gray-200 px-5 py-4 bg-white flex items-center justify-between gap-3 flex-shrink-0" style={{ borderRadius: '0 0 20px 20px' }}>
                   <span className="text-xs text-gray-400">
-                    {sectionForm.items.length === 0 ? 'Add at least one item to continue' : `${sectionForm.items.length} item${sectionForm.items.length > 1 ? 's' : ''} ready`}
+                    {modalTotalItems === 0 ? 'Add at least one item to continue' : `${modalTotalItems} item${modalTotalItems > 1 ? 's' : ''} ready`}
                   </span>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => { setShowAddSection(false); setSectionForm({ category_id: null, category_name: '', items: [] }); setEditingSection(null); setEditingItemIndex(null); }}
+                      onClick={closeModal}
                       className="px-5 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-600"
                     >
                       Cancel
                     </button>
-                    <button onClick={handleAddSection} disabled={sectionForm.items.length === 0}
+                    <button onClick={handleAddSection}
+                      disabled={modalSaveDisabled}
                       className="px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
                       {editingSection !== null ? 'Update Compliance' : 'Save Compliance'}
                     </button>
@@ -2225,10 +2481,6 @@ export default function Quotations({ onUpdateNavigation }) {
               </div>
 
               <div className="flex items-center gap-3">
-                <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Download className="w-4 h-4" />
-                  Save Draft
-                </button>
                 <button className="px-4 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors flex items-center gap-2 text-sm font-medium">
                   <FileText className="w-4 h-4" />
                   Establish Agreement
@@ -2250,7 +2502,7 @@ export default function Quotations({ onUpdateNavigation }) {
                   ) : (
                     <>
                       <FileText className="w-4 h-4" />
-                      {isEditMode ? 'Update Quotation' : 'Generate Proforma'}
+                      {isEditMode ? 'Update Quotation' : 'Generate Quotation'}
                     </>
                   )}
                 </button>

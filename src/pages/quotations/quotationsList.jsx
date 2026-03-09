@@ -501,13 +501,19 @@ export default function QuotationsList() {
   const [createdQuotation,       setCreatedQuotation]       = useState(null);
   const [stats,                  setStats]                  = useState({ total: 0, draft: 0, review: 0, completed: 0 });
 
+  // ── Sorting state ─────────────────────────────────────────────────────────
+  // sortBy: the API field name (e.g. 'created_at', 'status', 'grand_total')
+  // sortOrder: 'asc' | 'desc'
+  const [sortBy,    setSortBy]    = useState(quotationConfig.defaultSort?.field     || 'created_at');
+  const [sortOrder, setSortOrder] = useState(quotationConfig.defaultSort?.direction || 'desc');
+
   // Request deduplication
   const requestInProgress = useRef(false);
   const lastFetchParams   = useRef(null);
 
   // ── Fetch quotations ────────────────────────────────────────────────────────
   const fetchQuotations = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, sortBy, sortOrder });
 
     if (lastFetchParams.current === fetchKey && !error) {
       logger.log('⏭️  Skipping duplicate request');
@@ -524,7 +530,14 @@ export default function QuotationsList() {
     setError('');
 
     try {
-      const response = await getQuotations({ page: currentPage, page_size: pageSize, search: searchTerm });
+      // Always send sort_by + sort_order so the backend sorts all pages correctly
+      const response = await getQuotations({
+        page:       currentPage,
+        page_size:  pageSize,
+        search:     searchTerm,
+        sort_by:    sortBy,
+        sort_order: sortOrder,
+      });
 
       if (response.status === 'success' && response.data) {
         const apiData          = response.data;
@@ -550,14 +563,23 @@ export default function QuotationsList() {
         setTotalPages(apiData.total_pages   || 1);
         setTotalCount(apiData.total_count   || 0);
 
+        // Compute draft count from ALL quotations (fetch with large page_size so we get everything)
+        // Under Review and Completed are not yet implemented → always 0
         try {
-          const statsResponse = await getQuotationStats();
-          if (statsResponse.status === 'success' && statsResponse.data) {
-            setStats(statsResponse.data);
-          }
+          const allRes = await getQuotations({ page: 1, page_size: 9999, sort_by: 'created_at', sort_order: 'desc' });
+          const allItems = allRes?.data?.results || [];
+          const draftCount = allItems.filter(q => {
+            const s = String(q.status || q.status_display || '').toLowerCase();
+            return s === 'draft' || s === '1';
+          }).length;
+          setStats({
+            total:     apiData.total_count || allItems.length || 0,
+            draft:     draftCount,
+            review:    0,
+            completed: 0,
+          });
         } catch {
-          const t = apiData.total_count || quotationResults.length;
-          setStats({ total: t, draft: Math.floor(t * 0.30), review: Math.floor(t * 0.25), completed: Math.floor(t * 0.45) });
+          setStats({ total: apiData.total_count || 0, draft: 0, review: 0, completed: 0 });
         }
       } else {
         setQuotations([]);
@@ -572,7 +594,7 @@ export default function QuotationsList() {
       requestInProgress.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, searchTerm]);
+  }, [currentPage, pageSize, searchTerm, sortBy, sortOrder]);
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
 
@@ -588,7 +610,23 @@ export default function QuotationsList() {
   const handleSearch       = (value) => { setSearchTerm(value); setCurrentPage(1); };
   const handlePageChange   = (page)  => setCurrentPage(page);
   const handleFilterToggle = ()      => setShowFilter((prev) => !prev);
-  const handleRetry        = ()      => fetchQuotations();
+  const handleRetry        = ()      => { lastFetchParams.current = null; fetchQuotations(); };
+
+  /**
+   * Sort handler — called from DynamicList (ListTable) when a sortable column
+   * header is clicked. Toggles direction for the same field; resets page to 1.
+   * sortBy/sortOrder are in the dep array so this always has fresh values.
+   */
+  const handleSort = useCallback((field) => {
+    if (field === sortBy) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+    setCurrentPage(1);
+    lastFetchParams.current = null;
+  }, [sortBy, sortOrder]);
 
   /**
    * Navigate to the dedicated ViewQuotationDetails page
@@ -613,10 +651,10 @@ export default function QuotationsList() {
   // ── Stats cards ─────────────────────────────────────────────────────────────
   const renderStatsCards = () => (
     <>
-      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.total     || 0} label="Total Quotations" subLabel={`${stats.total     || 0} total quotations`} bgColor="bg-teal-500"   />
-      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.draft     || 0} label="Draft Quotations" subLabel={`${stats.draft     || 0} draft quotations`} bgColor="bg-red-500"    />
-      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.review    || 0} label="Under Review"     subLabel={`${stats.review    || 0} pending review`}   bgColor="bg-yellow-500" />
-      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.completed || 0} label="Completed"        subLabel={`${stats.completed || 0} completed`}        bgColor="bg-green-500"  />
+      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.total     || 0} label="Total Quotations" subLabel={`${stats.total || 0} total quotations`} bgColor="bg-teal-500"   />
+      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.draft     || 0} label="Draft Quotations" bgColor="bg-red-500"    />
+      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.review    || 0} label="Under Review"     bgColor="bg-yellow-500" />
+      <StatCard icon={<FileText className="w-5 h-5" />} count={stats.completed || 0} label="Completed"        bgColor="bg-green-500"  />
     </>
   );
 
@@ -638,6 +676,9 @@ export default function QuotationsList() {
         onFilterToggle={handleFilterToggle}
         onRowClick={handleRowClick}
         onRetry={handleRetry}
+        onSort={handleSort}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}

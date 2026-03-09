@@ -1048,7 +1048,6 @@ export default function Clients() {
         icon={<Users className="w-5 h-5" />}
         count={stats.newlyAdded || 0}
         label="Newly Added"
-        subLabel={`${stats.newlyAdded || 0} newly added`}
         bgColor="bg-green-500"
         textColor="text-green-500"
       />
