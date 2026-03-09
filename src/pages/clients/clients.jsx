@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, User, Phone, Mail, FileText, MapPin, Building2, Hash, Loader2, AlertCircle, CheckCircle, X, Calendar, Filter as FilterIcon, BookOpen } from 'lucide-react';
-import { getClients, createClient } from '../../services/clients';
-import clientConfig from './client.config';
+import { getClients, createClient, deleteClient, undoClient } from '../../services/clients';
+import clientConfig, { getColumns } from './client.config';
+import { useRole } from '../../components/RoleContext';
 import DynamicList from '../../components/DynamicList/DynamicList';
 
 /**
@@ -346,6 +347,119 @@ const SuccessModal = ({ isOpen, onClose, onProceed, isDraft = false }) => {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// INPUT FIELD COMPONENT
+// ============================================================================
+
+// ============================================================================
+// CONFIRM DELETE MODAL
+// ============================================================================
+
+const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, clientName, isLoading }) => {
+  useEffect(() => {
+    if (isOpen) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = 'unset';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999]" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={!isLoading ? onClose : undefined}
+      />
+      <div className="relative z-10 flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-1">Delete Client?</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            <span className="font-semibold text-gray-700">{clientName}</span> will be marked as deactive.
+            You can restore them later using Undo.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200
+                         text-gray-600 hover:bg-gray-50 transition-all
+                         disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white
+                         hover:bg-red-600 active:bg-red-700 transition-all
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Deleting...
+                </>
+              ) : 'Yes, Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// ACTION TOAST
+// ============================================================================
+
+const ActionToast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed bottom-6 left-1/2 z-[99999] animate-slideUp"
+      style={{ transform: 'translateX(-50%)' }}
+    >
+      <div
+        className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold
+          ${type === 'success' ? 'bg-teal-600' : 'bg-red-500'}`}
+        style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+      >
+        {type === 'success' ? (
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        )}
+        <span>{message}</span>
+        <button onClick={onClose} className="ml-1 opacity-70 hover:opacity-100 transition-opacity">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
     </div>
   );
@@ -768,6 +882,10 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
 
 export default function Clients() {
   const navigate = useNavigate();
+  const { isAdmin } = useRole();
+
+  // Columns are filtered by role — Admin sees Actions column, others do not
+  const columns = getColumns(isAdmin);
   
   const [clients, setClients] = useState([]);
   const [stats, setStats] = useState({ total: 0, draft: 0, star: 0, newlyAdded: 0 });
@@ -801,6 +919,14 @@ export default function Clients() {
     location: '',
     gstNumber: ''
   });
+
+  // ── Delete / Undo state ────────────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [clientToDelete, setClientToDelete]   = useState(null);
+  const [isDeleting, setIsDeleting]           = useState(false);
+  const [isUndoing, setIsUndoing]             = useState(false);
+  const [toast, setToast]                     = useState(null); // { message, type }
+  // ──────────────────────────────────────────────────────────────────────────
   
   const requestInProgress = useRef(false);
   const lastFetchParams = useRef(null);
@@ -998,6 +1124,8 @@ export default function Clients() {
    */
   const handleRowClick = (client) => {
     logger.log('Client clicked:', client);
+    // Deactive clients (status 3) — block navigation entirely
+    if (client.status === 3) return;
     if (client.status === 1) {
       setDraftClientToEdit(client);
       setShowCreateModal(true);
@@ -1013,6 +1141,46 @@ export default function Clients() {
   const handleRetry = () => {
     fetchClients();
   };
+
+  // ── Delete Client ──────────────────────────────────────────────────────────
+  const handleDeleteClient = (client) => {
+    setClientToDelete(client);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!clientToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteClient(clientToDelete.id);
+      setShowDeleteModal(false);
+      setClientToDelete(null);
+      lastFetchParams.current = null;
+      fetchClients();
+      setToast({ message: 'Client deleted successfully', type: 'success' });
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to delete client', type: 'error' });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // ── Undo (Restore) Client — PATCH /clients/undo_client/?id= ───────────────
+  const handleUndoClient = async (client) => {
+    if (isUndoing) return;
+    setIsUndoing(true);
+    try {
+      await undoClient(client.id);
+      lastFetchParams.current = null;
+      fetchClients();
+      setToast({ message: 'Client restored successfully', type: 'success' });
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to restore client', type: 'error' });
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
 
   // ========================================================================
   // RENDER STATS CARDS
@@ -1061,7 +1229,7 @@ export default function Clients() {
   return (
     <>
       <DynamicList
-        config={clientConfig}
+        config={{ ...clientConfig, columns }}
         data={clients}
         loading={loading}
         error={error}
@@ -1081,6 +1249,7 @@ export default function Clients() {
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
+        actionHandlers={isAdmin ? { onDeleteClient: handleDeleteClient, onUndoClient: handleUndoClient } : undefined}
       />
 
       <CreateClientModal
@@ -1104,6 +1273,24 @@ export default function Clients() {
         currentFilters={activeFilters}
       />
 
+      {/* ── Confirm Delete Modal (Admin only — gated in ActionsMenu) ── */}
+      <ConfirmDeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => { if (!isDeleting) { setShowDeleteModal(false); setClientToDelete(null); } }}
+        onConfirm={handleConfirmDelete}
+        clientName={clientToDelete ? `${clientToDelete.first_name || ''} ${clientToDelete.last_name || ''}`.trim() : ''}
+        isLoading={isDeleting}
+      />
+
+      {/* ── Action Toast ── */}
+      {toast && (
+        <ActionToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       <style>{`
         body.modal-open {
           overflow: hidden !important;
@@ -1124,38 +1311,24 @@ export default function Clients() {
         }
 
         @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+          from { opacity: 0; transform: scale(0.95); }
+          to   { opacity: 1; transform: scale(1); }
         }
 
         @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-10px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
 
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out;
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
-        .animate-scaleIn {
-          animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        .animate-slideDown {
-          animation: slideDown 0.3s ease-out;
-        }
+        .animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
+        .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-slideDown { animation: slideDown 0.3s ease-out; }
+        .animate-slideUp   { animation: slideUp   0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
     </>
   );

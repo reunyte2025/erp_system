@@ -2,6 +2,7 @@ import { cloneElement } from 'react';
 import { useLocation } from 'react-router-dom';
 import Navbar from './navbar';
 import Sidebar from './sidebar';
+import RoleContext from './RoleContext';
 
 /**
  * AuthenticatedLayout Component
@@ -132,8 +133,13 @@ export default function AuthenticatedLayout({
   // Use custom breadcrumbs if provided, otherwise auto-generate
   const breadcrumbs = navigationConfig?.breadcrumbs || getAutoBreadcrumbs();
 
+  // ── Role-based access ──────────────────────────────────────────────────────
+  const userRole = userData?.role?.name || 'User';
+  const isAdmin  = userRole === 'Admin';
+  // ──────────────────────────────────────────────────────────────────────────
+
   return (
-    <>
+    <RoleContext.Provider value={{ userRole, isAdmin }}>
       <Navbar 
         user={userData} 
         onLogout={onLogout} 
@@ -163,6 +169,6 @@ export default function AuthenticatedLayout({
           }
         </main>
       </div>
-    </>
+    </RoleContext.Provider>
   );
 }
