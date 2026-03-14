@@ -26,7 +26,8 @@ const getStatusIconColor = (status) => {
   const colors = {
     'draft': 'text-blue-500',
     'pending': 'text-yellow-600',
-    'sent': 'text-blue-500',
+    'sent': 'text-green-600',
+    'accepted': 'text-green-600',   // status_display from API when proforma generated
     'approved': 'text-green-600',
     'rejected': 'text-red-600',
     'in_progress': 'text-yellow-600',
@@ -34,7 +35,7 @@ const getStatusIconColor = (status) => {
     'failed': 'text-red-600',
     '1': 'text-blue-500',      // Draft
     '2': 'text-yellow-600',    // Pending
-    '3': 'text-blue-500',      // Sent
+    '3': 'text-green-600',     // Proforma Generated
     '4': 'text-green-600',     // Approved
     '5': 'text-red-600',       // Rejected
   };
@@ -62,10 +63,16 @@ const getStatusBadge = (status) => {
       icon: '⏱️'
     },
     'sent': {
-      text: 'Sent',
-      bgColor: 'bg-blue-100',
-      textColor: 'text-blue-700',
-      icon: '📤'
+      text: 'Proforma Generated',
+      bgColor: 'bg-green-100',
+      textColor: 'text-green-700',
+      icon: '✅'
+    },
+    'accepted': {
+      text: 'Proforma Generated',
+      bgColor: 'bg-green-100',
+      textColor: 'text-green-700',
+      icon: '✅'
     },
     'approved': {
       text: 'Completed',
@@ -110,10 +117,10 @@ const getStatusBadge = (status) => {
       icon: '⏱️'
     },
     '3': {
-      text: 'Sent',
-      bgColor: 'bg-blue-100',
-      textColor: 'text-blue-700',
-      icon: '📤'
+      text: 'Proforma Generated',
+      bgColor: 'bg-green-100',
+      textColor: 'text-green-700',
+      icon: '✅'
     },
     '4': {
       text: 'Completed',

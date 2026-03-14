@@ -661,8 +661,6 @@ export default function ProformaList() {
   const [showFilter, setShowFilter] = useState(false);
   const [showSelectModal, setShowSelectModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedProformaId, setSelectedProformaId] = useState(null);
   const [createdProforma, setCreatedProforma] = useState(null);
   const [stats, setStats] = useState({ total: 0, draft: 0, under_review: 0, verified: 0 });
 
@@ -721,15 +719,13 @@ export default function ProformaList() {
   const handleFilterToggle = () => setShowFilter(prev => !prev);
 
   const handleRowClick = (proforma) => {
-    setSelectedProformaId(proforma.id);
-    setShowDetailModal(true);
+    navigate(`/proforma/${proforma.id}`);
   };
 
   const handleViewProforma = () => {
     setShowSuccessModal(false);
-    if (createdProforma) {
-      setSelectedProformaId(createdProforma.id);
-      setShowDetailModal(true);
+    if (createdProforma?.id) {
+      navigate(`/proforma/${createdProforma.id}`);
     }
   };
 
@@ -762,12 +758,6 @@ export default function ProformaList() {
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
-      />
-
-      <ProformaDetailModal
-        isOpen={showDetailModal}
-        onClose={() => { setShowDetailModal(false); setSelectedProformaId(null); }}
-        proformaId={selectedProformaId}
       />
 
       <SelectClientQuotationModal

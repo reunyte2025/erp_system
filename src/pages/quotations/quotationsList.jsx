@@ -511,6 +511,12 @@ export default function QuotationsList() {
   const requestInProgress = useRef(false);
   const lastFetchParams   = useRef(null);
 
+  // Bust the cache every time this page mounts (e.g. navigating back from
+  // a quotation detail page) so the list always re-fetches fresh data.
+  useEffect(() => {
+    lastFetchParams.current = null;
+  }, []);
+
   // ── Fetch quotations ────────────────────────────────────────────────────────
   const fetchQuotations = useCallback(async () => {
     const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, sortBy, sortOrder });
