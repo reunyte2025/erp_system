@@ -7,14 +7,19 @@ import api from './api';
  * Full-featured notification system using your existing api.js.
  * Bearer token is auto-attached by the api.js interceptor.
  *
- * Features:
- * - Fetch all notifications on mount (login)
- * - Poll every 30 seconds for new ones
- * - removeNotification(id)  → DELETE /api/notifications/remove_notification/?id=
- * - clearAllNotifications() → DELETE all one by one (API only supports single id)
- * - Stop polling on 401 / logout / unmount
- * - Smart notification text from metadata + event_type
- * - Navigation target derived from entity_type + entity_id
+ * API Endpoints:
+ * - GET  /api/usernotification/get_all_notifications/   → fetch all
+ * - PUT  /api/usernotification/read_notification/?id=   → mark single as read
+ * - DELETE /api/usernotification/remove_notification/?id= → remove single
+ *
+ * Response shape from backend:
+ * {
+ *   status: "success",
+ *   data: {
+ *     notification: [...],
+ *     unread_count: 25
+ *   }
+ * }
  */
 
 const POLL_INTERVAL = 30000;
@@ -39,17 +44,23 @@ export function useNotifications() {
       setLoading(true);
       setError(null);
 
-      const response = await api.get('/notifications/get_all_notifications/');
+      const response = await api.get('/usernotification/get_all_notifications/');
       if (!isMounted.current) return;
 
+      // FIX: Backend returns { status, data: { notification: [...], unread_count: N } }
+      // We must read response.data.data.notification
       const raw = response.data?.data;
-      const data = Array.isArray(raw)
-        ? raw
+
+      const data = Array.isArray(raw?.notification)
+        ? raw.notification                         // ✅ correct path
+        : Array.isArray(raw)
+        ? raw                                      // flat array fallback
         : Array.isArray(raw?.results)
-        ? raw.results
+        ? raw.results                              // paginated fallback
         : Array.isArray(response.data)
-        ? response.data
+        ? response.data                            // bare array fallback
         : [];
+
       setNotifications(data);
     } catch (err) {
       if (!isMounted.current) return;
@@ -76,17 +87,72 @@ export function useNotifications() {
     };
   }, [fetchNotifications]);
 
+  // ─── MARK SINGLE AS READ ──────────────────────────────────────────────────
+  /**
+   * Marks a notification as read on the backend.
+   * API: PUT /api/usernotification/read_notification/?id=<id>
+   * Optimistic: update UI immediately, revert on failure.
+   */
+  const markAsRead = useCallback(async (id) => {
+    // Optimistic update
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+    );
+    try {
+      await api.put('/usernotification/read_notification/', null, {
+        params: { id },
+      });
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err.message);
+      // Revert on failure
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_read: false } : n))
+      );
+    }
+  }, []);
+
+  // ─── MARK ALL AS READ ─────────────────────────────────────────────────────
+  /**
+   * Marks ALL unread notifications as read — calls PUT for each one in parallel.
+   */
+  const markAllRead = useCallback(async () => {
+    const unreadIds = notifications
+      .filter((n) => !n.is_read)
+      .map((n) => n.id);
+
+    if (unreadIds.length === 0) return;
+
+    // Optimistic update
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+
+    try {
+      await Promise.all(
+        unreadIds.map((id) =>
+          api.put('/usernotification/read_notification/', null, {
+            params: { id },
+          })
+        )
+      );
+    } catch (err) {
+      console.error('Failed to mark all as read:', err.message);
+      // Revert on failure — refetch from server
+      fetchNotifications();
+    }
+  }, [notifications, fetchNotifications]);
+
   // ─── REMOVE SINGLE ────────────────────────────────────────────────────────
   /**
-   * Delete a single notification by id.
-   * API: DELETE /api/notifications/remove_notification/?id=<id>
-   * Optimistic update — removes from UI immediately, reverts on failure.
+   * Permanently deletes a single notification.
+   * API: DELETE /api/usernotification/remove_notification/?id=<id>
+   * Optimistic: remove from UI immediately, refetch on failure.
    */
   const removeNotification = useCallback(async (id) => {
     // Optimistic removal
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
-      await api.delete('/notifications/remove_notification/', { params: { id } });
+      await api.delete('/usernotification/remove_notification/', {
+        params: { id },
+      });
     } catch (err) {
       console.error('Failed to remove notification:', err.message);
       // Revert on failure — refetch from server
@@ -96,8 +162,7 @@ export function useNotifications() {
 
   // ─── CLEAR ALL ────────────────────────────────────────────────────────────
   /**
-   * Delete ALL notifications.
-   * Since the API only supports deleting by single id, we fire them in parallel.
+   * Permanently deletes ALL notifications one by one (API only supports single id).
    * Optimistic — clears UI immediately, refetches if any fail.
    */
   const clearAllNotifications = useCallback(async () => {
@@ -110,7 +175,9 @@ export function useNotifications() {
     try {
       await Promise.all(
         ids.map((id) =>
-          api.delete('/notifications/remove_notification/', { params: { id } })
+          api.delete('/usernotification/remove_notification/', {
+            params: { id },
+          })
         )
       );
     } catch (err) {
@@ -119,99 +186,115 @@ export function useNotifications() {
     }
   }, [notifications, fetchNotifications]);
 
-  // ─── MARK AS READ (local state only) ─────────────────────────────────────
-  const markAsRead = useCallback((id) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-    );
-  }, []);
-
-  const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-  }, []);
-
   // ─── HELPERS ──────────────────────────────────────────────────────────────
+
   /**
-   * Build a human-readable notification message.
+   * Build a human-readable notification message from event_type + metadata.
    *
-   * The API sends:
-   *   event_type: "client_created"
-   *   entity_type: "Client"
-   *   metadata: { client_name: "Notification Testing 02" }
-   *
-   * We use this to produce: "New client added: Notification Testing 02"
+   * Handles all event types seen in production:
+   *   PROFORMA_APPROVED, PROFORMA_SUBMITTED, PROFORMA_REJECTED
+   *   client_created, client_updated, client_deleted
+   *   invoice_created, invoice_updated, payment_received
+   *   project_created
    */
   const getNotificationText = (notification) => {
     const { event_type, entity_type, metadata } = notification;
-    const meta = typeof metadata === 'object' ? metadata : {};
+    const meta = typeof metadata === 'object' && metadata !== null ? metadata : {};
+
+    const et = (event_type || '').toUpperCase();
+
+    // ── Proforma events ────────────────────────────────────────────────────
+    if (et === 'PROFORMA_APPROVED') {
+      const num = meta.proforma_number || '';
+      const by  = meta.by || '';
+      return num
+        ? `Proforma #${num} approved${by ? ` by ${by}` : ''}`
+        : 'Proforma was approved';
+    }
+    if (et === 'PROFORMA_SUBMITTED') {
+      const num = meta.proforma_number || '';
+      const by  = meta.by || '';
+      return num
+        ? `Proforma #${num} submitted${by ? ` by ${by}` : ''}`
+        : 'Proforma was submitted';
+    }
+    if (et === 'PROFORMA_REJECTED') {
+      const num = meta.proforma_number || '';
+      const by  = meta.by || '';
+      return num
+        ? `Proforma #${num} rejected${by ? ` by ${by}` : ''}`
+        : 'Proforma was rejected';
+    }
 
     // ── Client events ──────────────────────────────────────────────────────
-    if (event_type === 'client_created') {
+    if (et === 'CLIENT_CREATED') {
       const name = meta.client_name || meta.name || '';
       return name ? `New client added: ${name}` : 'New client was added';
     }
-    if (event_type === 'client_updated') {
+    if (et === 'CLIENT_UPDATED') {
       const name = meta.client_name || meta.name || '';
       return name ? `Client updated: ${name}` : 'A client was updated';
     }
-    if (event_type === 'client_deleted') {
+    if (et === 'CLIENT_DELETED') {
       const name = meta.client_name || meta.name || '';
       return name ? `Client removed: ${name}` : 'A client was deleted';
     }
 
     // ── Invoice events ─────────────────────────────────────────────────────
-    if (event_type === 'invoice_created') {
+    if (et === 'INVOICE_CREATED') {
       const ref = meta.invoice_number || meta.reference || '';
       return ref ? `New invoice created: ${ref}` : 'New invoice created';
     }
-    if (event_type === 'invoice_updated') return 'Invoice was updated';
-    if (event_type === 'payment_received') {
+    if (et === 'INVOICE_UPDATED') return 'Invoice was updated';
+    if (et === 'PAYMENT_RECEIVED') {
       const amt = meta.amount || '';
       return amt ? `Payment received: ₹${amt}` : 'Payment received';
     }
 
     // ── Project events ─────────────────────────────────────────────────────
-    if (event_type === 'project_created') {
+    if (et === 'PROJECT_CREATED') {
       const name = meta.project_name || meta.name || '';
       return name ? `New project: ${name}` : 'New project created';
     }
 
     // ── Generic fallback ───────────────────────────────────────────────────
-    if (meta.client_name) return `${entity_type}: ${meta.client_name}`;
-    if (event_type) return event_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    if (meta.client_name) return `${entity_type || 'Update'}: ${meta.client_name}`;
+    if (event_type) {
+      return event_type
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
     return 'New notification';
   };
 
   /**
-   * Get an icon type string based on event_type (used in navbar for colored icons).
-   * Returns: 'client' | 'invoice' | 'project' | 'payment' | 'default'
+   * Get category string for icon/colour selection.
+   * Returns: 'proforma' | 'client' | 'invoice' | 'project' | 'payment' | 'default'
    */
   const getNotificationCategory = (notification) => {
-    const et = notification.event_type || '';
-    if (et.startsWith('client')) return 'client';
-    if (et.startsWith('invoice')) return 'invoice';
-    if (et.startsWith('project')) return 'project';
-    if (et.includes('payment')) return 'payment';
+    const et = (notification.event_type || '').toUpperCase();
+    if (et.includes('PROFORMA'))  return 'proforma';
+    if (et.includes('CLIENT'))    return 'client';
+    if (et.includes('INVOICE'))   return 'invoice';
+    if (et.includes('PROJECT'))   return 'project';
+    if (et.includes('PAYMENT'))   return 'payment';
     return 'default';
   };
 
   /**
    * Get the navigation path when a notification is clicked.
-   *
-   * entity_type: "Client", entity_id: 48  →  /clients/48
-   * entity_type: "Invoice", entity_id: 5  →  /invoices/5
-   * entity_type: "Project", entity_id: 3  →  /projects/3
    */
   const getNavigationPath = (notification) => {
     const { entity_type, entity_id } = notification;
     if (!entity_id) return null;
 
     const typeMap = {
-      Client:  `/clients/${entity_id}`,
-      Invoice: `/invoices/${entity_id}`,
-      Project: `/projects/${entity_id}`,
-      Proforma:`/proforma/${entity_id}`,
-      Purchase:`/purchase/${entity_id}`,
+      Client:   `/clients/${entity_id}`,
+      Invoice:  `/invoices/${entity_id}`,
+      Project:  `/projects/${entity_id}`,
+      Proforma: `/proforma/${entity_id}`,
+      Purchase: `/purchase/${entity_id}`,
     };
 
     return typeMap[entity_type] || null;

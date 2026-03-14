@@ -10,40 +10,37 @@ import { FileEdit } from 'lucide-react';
 // HELPER FUNCTIONS
 // ============================================================================
 
+// Icon colors — backend: 1=Draft 2=Sent(pending) 3=Approved 4=Rejected 5=Expired
 const getStatusIconColor = (status) => {
-  const s = String(status || '').toLowerCase();
+  const s = String(status || '');
+  const sl = s.toLowerCase();
   const colors = {
-    'draft': 'text-blue-500',
-    'pending': 'text-yellow-600',
-    'in_progress': 'text-yellow-600',
-    'verified': 'text-green-600',
-    'failed': 'text-red-600',
-    'under_review': 'text-yellow-600',
-    '1': 'text-blue-500',
-    '2': 'text-yellow-600',
-    '3': 'text-yellow-600',
-    '4': 'text-green-600',
-    '5': 'text-red-600',
+    '1': 'text-slate-500',   'draft':    'text-slate-500',
+    '2': 'text-amber-500',   'sent':     'text-amber-500',
+    '3': 'text-green-600',   'approved': 'text-green-600',
+    '4': 'text-red-500',     'rejected': 'text-red-500',
+    '5': 'text-gray-400',    'expired':  'text-gray-400',
   };
-  return colors[s] || 'text-gray-600';
+  return colors[s] || colors[sl] || 'text-gray-500';
 };
 
+// Status badges — backend: 1=Draft 2=Sent 3=Approved 4=Rejected 5=Expired
 const getStatusBadge = (status) => {
-  const s = String(status || '').toLowerCase();
-  const statusConfigs = {
-    'draft': { text: 'Draft', bgColor: 'bg-blue-100', textColor: 'text-blue-700', icon: '📄' },
-    'pending': { text: 'Pending', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: '⏱️' },
-    'in_progress': { text: 'In Progress', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: '⏱️' },
-    'under_review': { text: 'Under Review', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: '⏱️' },
-    'verified': { text: 'Verified', bgColor: 'bg-green-100', textColor: 'text-green-700', icon: '✓' },
-    'failed': { text: 'Failed', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: '✕' },
-    '1': { text: 'Draft', bgColor: 'bg-blue-100', textColor: 'text-blue-700', icon: '📄' },
-    '2': { text: 'Pending', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: '⏱️' },
-    '3': { text: 'In Progress', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: '⏱️' },
-    '4': { text: 'Verified', bgColor: 'bg-green-100', textColor: 'text-green-700', icon: '✓' },
-    '5': { text: 'Failed', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: '✕' },
+  const s  = String(status || '');
+  const sl = s.toLowerCase();
+  const map = {
+    '1': { text: 'Draft',              bgColor: 'bg-slate-100',  textColor: 'text-slate-600',  icon: '📄' },
+    '2': { text: 'Sent for Approval',  bgColor: 'bg-amber-100',  textColor: 'text-amber-700',  icon: '⏳' },
+    '3': { text: 'Approved',           bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: '✅' },
+    '4': { text: 'Rejected',           bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: '❌' },
+    '5': { text: 'Expired',            bgColor: 'bg-gray-100',   textColor: 'text-gray-500',   icon: '🕒' },
+    'draft':    { text: 'Draft',              bgColor: 'bg-slate-100',  textColor: 'text-slate-600',  icon: '📄' },
+    'sent':     { text: 'Sent for Approval',  bgColor: 'bg-amber-100',  textColor: 'text-amber-700',  icon: '⏳' },
+    'approved': { text: 'Approved',           bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: '✅' },
+    'rejected': { text: 'Rejected',           bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: '❌' },
+    'expired':  { text: 'Expired',            bgColor: 'bg-gray-100',   textColor: 'text-gray-500',   icon: '🕒' },
   };
-  return statusConfigs[s] || statusConfigs['draft'];
+  return map[s] || map[sl] || map['1'];
 };
 
 const formatCurrency = (amount) => {

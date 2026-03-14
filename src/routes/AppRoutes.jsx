@@ -5,6 +5,7 @@ import QuotationsList from '../pages/quotations/quotationsList';
 import ViewQuotationDetails from '../pages/quotations/viewquotationdetails';  // ← NEW
 import Proforma from '../pages/proforma/proforma';
 import ProformaList from '../pages/proforma/proformaList';
+import ViewProformaDetails from '../pages/proforma/viewproformadetails';
 import Invoices from '../pages/invoices/invoices';
 import InvoicesList from '../pages/invoices/invoicesList';
 import Purchase from '../pages/purchase/purchase';
@@ -195,6 +196,18 @@ export default function AppRoutes({
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
               <Proforma />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Proforma detail page */}
+      <Route
+        path="/proforma/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <ViewProformaDetails />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }

@@ -14,6 +14,7 @@ import {
 } from '../../services/quotation';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
+import { createProforma } from '../../services/proforma';
 import api from '../../services/api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -48,18 +49,20 @@ const COMPLIANCE_GROUPS = {
 };
 
 const STATUS_CONFIG = {
-  '1':         { label: 'Draft',     Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':         { label: 'Pending',   Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':         { label: 'Sent',      Icon: Send,        color: '#2563eb', bg: '#eff6ff', border: '#93c5fd' },
-  '4':         { label: 'Completed', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '5':         { label: 'Failed',    Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'draft':     { label: 'Draft',     Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'pending':   { label: 'Pending',   Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'sent':      { label: 'Sent',      Icon: Send,        color: '#2563eb', bg: '#eff6ff', border: '#93c5fd' },
-  'completed': { label: 'Completed', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'approved':  { label: 'Completed', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'failed':    { label: 'Failed',    Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'rejected':  { label: 'Failed',    Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  '1':                   { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  '2':                   { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  '3':                   { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  '4':                   { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  '5':                   { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'draft':               { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'pending':             { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'sent':                { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'accepted':            { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'proforma_generated':  { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'completed':           { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'approved':            { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'failed':              { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'rejected':            { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -510,9 +513,11 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [createdByName, setCreatedByName] = useState('');
   const [loading,       setLoading]       = useState(true);
   const [fetchError,    setFetchError]    = useState('');
-  const [pdfLoading,    setPdfLoading]    = useState(false);
-  const [visible,       setVisible]       = useState(false);
-  const [sendModal,     setSendModal]     = useState(false);
+  const [pdfLoading,      setPdfLoading]      = useState(false);
+  const [proformaLoading, setProformaLoading] = useState(false);
+  const [proformaModal,   setProformaModal]   = useState({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' });
+  const [visible,         setVisible]         = useState(false);
+  const [sendModal,       setSendModal]       = useState(false);
 
   useEffect(() => {
     onUpdateNavigation?.({ breadcrumbs: ['Quotations', 'Quotation Details'] });
@@ -782,6 +787,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
   const enterEditMode = () => {
     if (!quotation) return;
+    // Block editing once proforma is generated (backend sets status = 3 / sent)
+    if (String(quotation.status) === '3' || String(quotation.status_display || '').toLowerCase() === 'sent') return;
     setEditSacCode(quotation.sac_code || '');
     setEditGstRate(parseFloat(quotation.gst_rate || 0));
     setEditDiscRate(parseFloat(quotation.discount_rate || 0));
@@ -952,6 +959,71 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     finally { setPdfLoading(false); }
   };
 
+  const handleGenerateProforma = async () => {
+    if (proformaLoading) return;
+    setProformaLoading(true);
+    try {
+      const response = await api.post('/proformas/create_proforma/', {
+        quotation: Number(id),
+      });
+      const data = response.data;
+      const proformaId  = data?.id || data?.data?.id;
+      const proformaNum = data?.proforma_number || data?.data?.proforma_number || '';
+      const fmtNum = (n) => {
+        if (!n) return '';
+        if (String(n).startsWith('PF-')) return String(n);
+        const s = String(n);
+        if (s.length >= 8) return `PF-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
+        return `PF-2026-${String(n).padStart(5, '0')}`;
+      };
+      setProformaModal({ open: true, proformaId: proformaId || null, proformaNum: fmtNum(proformaNum), alreadyExists: false });
+
+      // Re-fetch the quotation directly from the backend so we get the exact
+      // updated status (no guessing — backend sets it authoritatively).
+      try {
+        const refreshed = await getQuotationById(id);
+        if (refreshed.status === 'success' && refreshed.data) {
+          setQuotation(refreshed.data);
+        } else {
+          // Fallback: set status optimistically if re-fetch structure differs
+          setQuotation(prev => prev ? { ...prev, status: '3', status_display: 'sent' } : prev);
+        }
+      } catch {
+        // Fallback if re-fetch fails
+        setQuotation(prev => prev ? { ...prev, status: '3', status_display: 'sent' } : prev);
+      }
+    } catch (e) {
+      console.error('Proforma generation failed:', e);
+      const errMsg = e?.response?.data?.errors || e?.response?.data?.message || e?.response?.data?.detail || '';
+      const isAlreadyExists =
+        String(errMsg).toLowerCase().includes('already exists') ||
+        String(errMsg).toLowerCase().includes('already generated') ||
+        e?.response?.status === 400;
+      if (isAlreadyExists) {
+        // Try to fetch the existing proforma for this quotation so we can link to it
+        let existingId = null;
+        let existingNum = '';
+        try {
+          const res = await api.get('/proformas/get_all_proformas/', { params: { quotation: Number(id), page: 1, page_size: 1 } });
+          const existing = res.data?.data?.results?.[0] || res.data?.results?.[0] || null;
+          if (existing) {
+            existingId  = existing.id;
+            const n = existing.proforma_number || '';
+            existingNum = String(n).startsWith('PF-') ? String(n)
+              : n && String(n).length >= 8
+                ? `PF-${String(n).substring(0,4)}-${String(n).substring(4).padStart(5,'0')}`
+                : n ? `PF-2026-${String(n).padStart(5,'0')}` : '';
+          }
+        } catch { /* silently ignore — View Proforma button just won't appear */ }
+        setProformaModal({ open: true, proformaId: existingId, proformaNum: existingNum, alreadyExists: true });
+      } else {
+        setProformaModal({ open: true, proformaId: null, proformaNum: '', alreadyExists: true, genericError: errMsg || 'Failed to generate proforma.' });
+      }
+    } finally {
+      setProformaLoading(false);
+    }
+  };
+
   if (loading) return <LoadingView />;
   if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/quotations')} />;
   if (!quotation) return <ErrorView message="Quotation not available." onRetry={fetchData} onBack={() => navigate('/quotations')} />;
@@ -1082,6 +1154,10 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         .vqd-dl-btn:disabled{opacity:.6;cursor:not-allowed}
         .vqd-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(217,119,6,.25)}
         .vqd-btn-edit:hover{background:linear-gradient(135deg,#d97706,#b45309);box-shadow:0 4px 12px rgba(217,119,6,.35)}
+        .vqd-btn-proforma{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#059669,#0891b2);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 10px rgba(8,145,178,.35)}
+        .vqd-btn-proforma:hover{background:linear-gradient(135deg,#047857,#0e7490);box-shadow:0 4px 16px rgba(8,145,178,.50);transform:translateY(-1px)}
+        .vqd-btn-proforma:active{transform:translateY(0)}
+        .vqd-btn-proforma:disabled{opacity:.6;cursor:not-allowed;transform:none}
         .vqd-btn-save{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
         .vqd-btn-save:hover{background:linear-gradient(135deg,#0d6460,#0b7a72)}
         .vqd-btn-save:disabled{opacity:.6;cursor:not-allowed}
@@ -1145,8 +1221,20 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               </>
             ) : (
               <>
-                <button className="vqd-btn-edit" onClick={enterEditMode}>
-                  <Edit2 size={14} /> Update Quotation
+                {/* Update Quotation — locked once proforma is generated (backend status = 3 / sent) */}
+                {String(quotation.status) !== '3' && String(quotation.status_display || '').toLowerCase() !== 'sent' ? (
+                  <button className="vqd-btn-edit" onClick={enterEditMode}>
+                    <Edit2 size={14} /> Update Quotation
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#ecfdf5', border: '1.5px solid #6ee7b7', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#059669' }}>
+                    <CheckCircle size={13} /> Proforma Generated
+                  </div>
+                )}
+                <button className="vqd-btn-proforma" onClick={handleGenerateProforma} disabled={proformaLoading}>
+                  {proformaLoading
+                    ? <><Loader2 size={14} className="vqd-spin" /> Generating…</>
+                    : <><FileText size={14} /> Generate Proforma</>}
                 </button>
                 <button className="vqd-btn-o" onClick={() => setSendModal(true)}>
                   <Mail size={14} /> Send to Client
@@ -1920,6 +2008,109 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           issuedDate={fmtDate(quotation.created_at)}
           onClose={() => setSendModal(false)}
         />
+      )}
+
+      {/* ── Proforma Already Exists Toast ── */}
+      {proformaModal.open && proformaModal.alreadyExists && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
+          background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06)',
+          display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px',
+          maxWidth: 360, width: '100%',
+          animation: 'vqd_toast_in .3s cubic-bezier(.16,1,.3,1)',
+          borderLeft: '4px solid #f59e0b',
+        }}>
+          {/* Icon */}
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: '#fffbeb', border: '1.5px solid #fcd34d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <FileText size={16} color="#d97706" />
+          </div>
+          {/* Text */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Proforma Already Exists</div>
+            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 10 }}>A proforma has already been generated for this quotation.</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {proformaModal.proformaId && (
+                <button
+                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate(`/proforma/${proformaModal.proformaId}`); }}
+                  style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#059669,#0891b2)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <FileText size={11} /> {proformaModal.proformaNum ? `View ${proformaModal.proformaNum}` : 'View Proforma'}
+                </button>
+              )}
+              <button
+                onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate('/proforma'); }}
+                style={{ padding: '5px 12px', background: '#0f766e', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <FileText size={11} /> View Proforma List
+              </button>
+              <button
+                onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
+                style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          {/* Close X */}
+          <button
+            onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Proforma Generated Success Modal ── */}
+      {proformaModal.open && !proformaModal.alreadyExists && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <style>{`
+            @keyframes vqd_modal_in{from{opacity:0;transform:scale(.92) translateY(16px)}to{opacity:1;transform:scale(1) translateY(0)}}
+            @keyframes vqd_pulse_ring{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
+          `}</style>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 24, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 400, overflow: 'hidden', animation: 'vqd_modal_in .32s cubic-bezier(.16,1,.3,1)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ height: 5, background: 'linear-gradient(90deg,#0f766e,#0d9488,#14b8a6)' }} />
+            <div style={{ padding: '36px 32px 28px', textAlign: 'center' }}>
+              <div style={{ position: 'relative', width: 80, height: 80, margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid #6ee7b7', animation: 'vqd_pulse_ring 1.8s ease-out infinite' }} />
+                <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)', border: '2px solid #6ee7b7', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(5,150,105,.2)' }}>
+                  <CheckCircle size={38} color="#059669" />
+                </div>
+              </div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: '#1e293b', letterSpacing: '-.02em', marginBottom: 8 }}>Proforma Generated!</div>
+              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 6 }}>Your proforma has been successfully created and is ready to review.</div>
+              {proformaModal.proformaNum && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 20, padding: '6px 16px', margin: '6px 0 24px', fontSize: 13, fontWeight: 700, color: '#0f766e' }}>
+                  <FileText size={13} /> {proformaModal.proformaNum}
+                </div>
+              )}
+              {!proformaModal.proformaNum && <div style={{ marginBottom: 24 }} />}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <button
+                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate(`/proforma/${proformaModal.proformaId}`); }}
+                  style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#0f766e,#0d9488)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
+                >
+                  <FileText size={15} /> View Proforma
+                </button>
+                <button
+                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate('/proforma'); }}
+                  style={{ width: '100%', padding: '12px 20px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12, color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Go to Proforma List
+                </button>
+                <button
+                  onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
+                  style={{ width: '100%', padding: '10px 20px', background: 'none', border: 'none', borderRadius: 12, color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Stay on this Quotation
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Success toast ── */}

@@ -30,7 +30,7 @@ const ENDPOINTS = {
   SEARCH: '/quotations/search/',
   EXPORT: '/quotations/export/',
   GENERATE_PDF: '/quotations/generate_pdf/',
-  SEND_EMAIL: '/notification/send_email/',
+  SEND_EMAIL: '/notifications/send_email/',
 };
 
 // ============================================================================

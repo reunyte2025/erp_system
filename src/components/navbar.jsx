@@ -46,6 +46,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   // ─── Category icon + colour ────────────────────────────────────────────────
   const getCategoryStyle = (category) => {
     const map = {
+      proforma:{ icon: <FileText className="w-3.5 h-3.5" />,   bg: 'bg-orange-50', ring: 'ring-orange-200', text: 'text-orange-500' },
       client:  { icon: <Users className="w-3.5 h-3.5" />,      bg: 'bg-teal-50',   ring: 'ring-teal-200',   text: 'text-teal-600' },
       invoice: { icon: <FileText className="w-3.5 h-3.5" />,   bg: 'bg-blue-50',   ring: 'ring-blue-200',   text: 'text-blue-600' },
       project: { icon: <Briefcase className="w-3.5 h-3.5" />,  bg: 'bg-violet-50', ring: 'ring-violet-200', text: 'text-violet-600' },
@@ -62,19 +63,29 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     const navPath   = getNavigationPath(notification);
     const isUnread  = !notification.is_read;
 
+    // Status badge for proforma events
+    const et = (notification.event_type || '').toUpperCase();
+    const statusBadge = et.includes('APPROVED')
+      ? { label: 'Approved', cls: 'bg-green-100 text-green-700' }
+      : et.includes('REJECTED')
+      ? { label: 'Rejected', cls: 'bg-red-100 text-red-600' }
+      : et.includes('SUBMITTED')
+      ? { label: 'Submitted', cls: 'bg-blue-100 text-blue-600' }
+      : null;
+
     return (
       <div
         className={`
           group relative flex items-start gap-3 px-4 py-3.5
           border-b border-gray-100/80 transition-all duration-150
-          ${isUnread ? 'bg-teal-50/60' : 'bg-white'}
+          ${isUnread ? 'bg-teal-100/70' : 'bg-white'}
           ${navPath ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
         `}
         onClick={() => navPath && handleNotificationClick(notification)}
       >
         {/* Unread accent bar */}
         {isUnread && (
-          <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-teal-500" />
+          <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-teal-500" />
         )}
 
         {/* Icon */}
@@ -87,6 +98,11 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
           <p className={`text-[13px] leading-snug ${isUnread ? 'font-semibold text-gray-900' : 'font-normal text-gray-700'}`}>
             {getNotificationText(notification)}
           </p>
+          {statusBadge && (
+            <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>
+              {statusBadge.label}
+            </span>
+          )}
           {navPath && (
             <span className={`text-[11px] font-medium ${text} mt-0.5 block`}>
               Click to view →
@@ -95,19 +111,15 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
           <p className="text-[11px] text-gray-400 mt-1">{formatTime(notification.created_at)}</p>
         </div>
 
-        {/* Right: unread dot + delete on hover */}
+        {/* Right: unread dot + delete button (always visible) */}
         <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
           {isUnread && <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />}
           <button
-            className={`
-              p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50
-              transition-all duration-150
-              ${compact ? 'opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'}
-            `}
-            title="Remove"
+            className="p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-150"
+            title="Remove notification"
             onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
