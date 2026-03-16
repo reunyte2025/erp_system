@@ -10,12 +10,13 @@ import {
 } from 'lucide-react';
 import {
   getQuotationById, generateQuotationPdf, sendQuotationToClient,
-  getComplianceByCategory,
 } from '../../services/quotation';
+import { getComplianceByCategory } from '../../services/proforma';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
-import { createProforma } from '../../services/proforma';
+
 import api from '../../services/api';
+import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -574,217 +575,33 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [editDiscRate, setEditDiscRate] = useState(0);
   const [editItems,    setEditItems]    = useState([]);
 
-  // ── Compliance modal state (exact same as quotations.jsx) ─────────────────
-  const [showAddSection,    setShowAddSection]    = useState(false);
-  const [selectedCategoryType, setSelectedCategoryType] = useState(null); // 'certificates' | 'execution'
-  const [sectionForm,       setSectionForm]       = useState({ category_id: null, category_name: '', items: [] });
-  const [editingSection,    setEditingSection]    = useState(null); // index into editItems-groups or null
-  const [editingItemIndex,  setEditingItemIndex]  = useState(null);
-  const [itemForm,          setItemForm]          = useState({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-  const [itemFormSearchTerms, setItemFormSearchTerms] = useState({ compliance: '', subCompliance: '' });
-  const [complianceDescriptions, setComplianceDescriptions] = useState([]);
-  const [complianceDescLoading,  setComplianceDescLoading]  = useState(false);
-  const [descriptionMode,   setDescriptionMode]   = useState('dropdown');
-  const [descriptionSearch, setDescriptionSearch] = useState('');
-  const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
 
-  // Close description dropdown on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (!e.target.closest('.vqd-desc-dd')) setShowDescriptionDropdown(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
 
-  // Scroll lock when modal is open — same as quotations.jsx
-  useEffect(() => {
-    if (showAddSection) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [showAddSection]);
+  // ── Compliance modal state — handled by AddComplianceModal component ────────
+  const [showAddSection, setShowAddSection] = useState(false);
 
-  // ── Compliance modal helpers ───────────────────────────────────────────────
-
-  const fetchComplianceDescriptions = async (categoryId, subCategoryId) => {
-    if (!categoryId) return;
-    setComplianceDescLoading(true);
-    setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
-    try {
-      const params = { category: categoryId, page_size: 100 };
-      if (subCategoryId) params.sub_category = subCategoryId;
-      const res = await api.get('/compliance/get_compliance_by_category/', { params });
-      if (res?.data?.status === 'success' && res?.data?.data?.results) {
-        setComplianceDescriptions(res.data.data.results);
-        if (res.data.data.results.length === 0) setDescriptionMode('manual');
-      } else {
-        setComplianceDescriptions([]);
-        setDescriptionMode('manual');
-      }
-    } catch {
-      setComplianceDescriptions([]);
-      setDescriptionMode('manual');
-    } finally {
-      setComplianceDescLoading(false);
-    }
+  /**
+   * fetchDescriptionsForModal — passed to AddComplianceModal as fetchDescriptions prop.
+   * Calls the API and returns a plain array of description objects.
+   */
+  const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
+    const res = await getComplianceByCategory(categoryId, subCategoryId || null);
+    if (res?.status === 'success' && res?.data?.results) return res.data.results;
+    return [];
   };
 
-  // Detect locked group type from existing edit items
-  const getLockedType = () => {
-    if (!editItems.length) return null;
-    const cats = [...new Set(editItems.map(it => it.compliance_category ?? 0))];
-    if (cats.some(c => COMPLIANCE_GROUPS.certificates.includes(c))) return 'certificates';
-    if (cats.some(c => COMPLIANCE_GROUPS.execution.includes(c))) return 'execution';
-    return null;
-  };
+  const handleOpenAddSection = () => setShowAddSection(true);
 
-  const isSectionTypeDisabled = (type) => {
-    const lockedType = getLockedType();
-    if (!lockedType) return false;
-    return lockedType !== type;
-  };
-
-  // Open modal — determine type from existing items, go straight to the right category
-  const handleOpenAddSection = () => {
-    const lockedType = getLockedType();
-    if (lockedType) {
-      handleSelectCategoryType(lockedType);
-    } else {
-      // No existing items — show the type chooser (showAddSection true, no type selected yet)
-      setSectionForm({ category_id: null, category_name: '', items: [] });
-      setSelectedCategoryType(null);
-      setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-      setComplianceDescriptions([]);
-      setDescriptionMode('dropdown');
-      setDescriptionSearch('');
-      setShowDescriptionDropdown(false);
-      setEditingItemIndex(null);
-      setEditingSection(null);
-      setShowAddSection(true);
-    }
-  };
-
-  const handleSelectCategoryType = (type) => {
-    setSelectedCategoryType(type);
-    const firstCatId = COMPLIANCE_GROUPS[type][0];
-    setSectionForm({ category_id: firstCatId, category_name: COMPLIANCE_CATEGORIES[firstCatId] || '', items: [] });
-    setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-    setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
-    setDescriptionSearch('');
-    setShowDescriptionDropdown(false);
-    if (type === 'execution') fetchComplianceDescriptions(firstCatId, null);
-    setShowAddSection(true);
-  };
-
-  const handleCategoryChange = (categoryId) => {
-    setSectionForm(prev => ({ ...prev, category_id: categoryId, category_name: COMPLIANCE_CATEGORIES[categoryId] || '' }));
-    if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
-      fetchComplianceDescriptions(categoryId, null);
-    } else {
-      setComplianceDescriptions([]);
-      setDescriptionMode('dropdown');
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
-    }
-  };
-
-  const handleAddItem = () => {
-    if (!itemForm.compliance_name.trim()) return;
-    if (COMPLIANCE_GROUPS.certificates.includes(sectionForm.category_id) && !itemForm.sub_compliance_id) return;
-
-    const newItem = {
-      compliance_name:      itemForm.compliance_name.trim(),
-      compliance_id:        itemForm.compliance_id || null,
-      sub_compliance_id:    itemForm.sub_compliance_id || null,
-      quantity:             parseInt(itemForm.quantity, 10) || 1,
-      miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
-      Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
-      total_amount:         calcItemTotal(itemForm),
-    };
-
-    if (editingItemIndex !== null) {
-      setSectionForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === editingItemIndex ? newItem : it) }));
-      setEditingItemIndex(null);
-    } else {
-      setSectionForm(prev => ({ ...prev, items: [...prev.items, newItem] }));
-    }
-
-    setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-    setItemFormSearchTerms(prev => ({ ...prev, compliance: '' }));
-  };
-
-  const handleEditModalItem = (index) => {
-    const item = sectionForm.items[index];
-    setItemForm({
-      compliance_name: item.compliance_name,
-      compliance_id: item.compliance_id || null,
-      sub_compliance_id: item.sub_compliance_id || null,
-      quantity: item.quantity || 1,
-      miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount: item.Professional_amount || 0,
-    });
-    setEditingItemIndex(index);
-    if (item.sub_compliance_id && COMPLIANCE_GROUPS.certificates.includes(sectionForm.category_id)) {
-      fetchComplianceDescriptions(sectionForm.category_id, item.sub_compliance_id);
-    }
-  };
-
-  const handleRemoveModalItem = (index) => {
-    if (editingItemIndex === index) {
-      setEditingItemIndex(null);
-      setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-    }
-    setSectionForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
-  };
-
-  // "Save Compliance" — convert sectionForm items to flat editItems format and append
-  const handleSaveSection = () => {
-    if (!sectionForm.category_id || sectionForm.items.length === 0) return;
-    const newFlatItems = sectionForm.items.map(item => ({
-      id:                      null,
-      description:             item.compliance_name,
-      quantity:                item.quantity,
-      Professional_amount:     item.Professional_amount,
-      miscellaneous_amount:    item.miscellaneous_amount,
-      compliance_category:     sectionForm.category_id,
-      sub_compliance_category: item.sub_compliance_id || 0,
-      total_amount:            calcItemTotal(item),
-    }));
+  /**
+   * Called by AddComplianceModal when user clicks "Save Compliance".
+   * newFlatItems is already correctly tagged per category — just append to editItems.
+   */
+  const handleComplianceSave = (newFlatItems) => {
     setEditItems(prev => [...prev, ...newFlatItems]);
-    closeAddSection();
-  };
-
-  const closeAddSection = () => {
     setShowAddSection(false);
-    setSectionForm({ category_id: null, category_name: '', items: [] });
-    setSelectedCategoryType(null);
-    setEditingSection(null);
-    setEditingItemIndex(null);
-    setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
-    setDescriptionSearch('');
-    setShowDescriptionDropdown(false);
   };
 
+  // ── Edit mode lifecycle ────────────────────────────────────────────────────
   const enterEditMode = () => {
     if (!quotation) return;
     // Block editing once proforma is generated (backend sets status = 3 / sent)
@@ -1672,332 +1489,15 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         </div>{/* end .vqd-doc */}
       </div>
 
-      {/* ── Add/Edit Compliance Modal — exact same as quotations.jsx ── */}
-      {showAddSection && (
-        <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
-          {/* Clean dark backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50"
-            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={closeAddSection}
-          />
+      {/* ══════════ ADD COMPLIANCE MODAL ══════════ */}
+      <AddComplianceModal
+        isOpen={showAddSection}
+        onClose={() => setShowAddSection(false)}
+        onSave={handleComplianceSave}
+        existingItems={editItems}
+        fetchDescriptions={fetchDescriptionsForModal}
+      />
 
-          <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div
-              className="relative w-full max-w-2xl animate-scaleIn bg-white flex flex-col"
-              style={{ borderRadius: '20px', boxShadow: '0 32px 64px rgba(0,0,0,0.24)', height: '88vh', maxHeight: '760px', minHeight: '480px', overflow: 'hidden' }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="bg-teal-700 px-6 py-4 flex-shrink-0" style={{ borderRadius: '20px 20px 0 0' }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
-                      <Plus className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-white font-bold text-base leading-tight">Add New Compliance</p>
-                      <p className="text-teal-200 text-xs mt-0.5">{sectionForm.category_name || 'Select a category below'}</p>
-                    </div>
-                  </div>
-                  <button onClick={closeAddSection} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-                    <X size={16} className="text-white" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Scrollable body */}
-              <div id="compliance-modal-body" className="p-5 space-y-4 bg-gray-50 flex-1" style={{ minHeight: 0, overflowY: 'scroll', scrollbarGutter: 'stable' }}>
-
-                {/* Type selector — shown only if no existing items lock the type */}
-                {!selectedCategoryType && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Select Compliance Type</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { type: 'certificates', label: 'Certificates', sub: 'Construction / Occupational' },
-                        { type: 'execution',    label: 'Execution',    sub: 'Water Main / STP' },
-                      ].map(({ type, label, sub }) => {
-                        const disabled = isSectionTypeDisabled(type);
-                        return (
-                          <button key={type} onClick={() => !disabled && handleSelectCategoryType(type)} disabled={disabled}
-                            className={`px-4 py-3 rounded-xl border-2 font-medium text-sm transition-colors text-left ${disabled ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed' : 'border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 cursor-pointer'}`}>
-                            <p className="font-semibold">{label}</p>
-                            <p className="text-xs font-normal mt-0.5 opacity-70">{sub}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Category pills — shown after type is selected */}
-                {selectedCategoryType && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Compliance Category</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {selectedCategoryType === 'certificates' ? (
-                        [{id:1,label:'Construction Certificate'},{id:2,label:'Occupational Certificate'}].map(cat => (
-                          <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                            className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                            {cat.label}
-                          </button>
-                        ))
-                      ) : (
-                        [{id:3,label:'Water Main'},{id:4,label:'STP'}].map(cat => (
-                          <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                            className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                            {cat.label}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Add Item Form — shown after category is selected */}
-                {sectionForm.category_id && (
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-visible">
-                    {/* Form header */}
-                    <div className={`px-4 py-3 border-b border-gray-100 flex items-center justify-between ${editingItemIndex !== null ? 'bg-amber-50' : 'bg-gray-50'}`}>
-                      <div className="flex items-center gap-2">
-                        {editingItemIndex !== null ? (
-                          <><div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center"><Edit className="w-3 h-3 text-white" /></div><span className="text-sm font-semibold text-amber-800">Editing Item #{editingItemIndex + 1}</span></>
-                        ) : (
-                          <><div className="w-5 h-5 rounded-full bg-teal-600 flex items-center justify-center"><Plus className="w-3 h-3 text-white" /></div><span className="text-sm font-semibold text-gray-700">Add Item</span></>
-                        )}
-                      </div>
-                      {editingItemIndex !== null && (
-                        <button onClick={() => { setEditingItemIndex(null); setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 }); }}
-                          className="text-xs text-amber-600 hover:text-amber-800 font-medium">Cancel edit</button>
-                      )}
-                    </div>
-
-                    <div className="p-4 space-y-3">
-                      {/* Sub-compliance — certificates only */}
-                      {selectedCategoryType === 'certificates' && (
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Sub-Compliance Category <span className="text-red-400">*</span></label>
-                          <SubComplianceDropdown
-                            value={itemForm.sub_compliance_id}
-                            onChange={(id) => {
-                              setItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
-                              setDescriptionSearch('');
-                              setShowDescriptionDropdown(false);
-                              fetchComplianceDescriptions(sectionForm.category_id, id);
-                            }}
-                            categoryId={sectionForm.category_id}
-                            searchTerm={itemFormSearchTerms.subCompliance}
-                            onSearchChange={(term) => setItemFormSearchTerms(prev => ({ ...prev, subCompliance: term }))}
-                            placeholder="Select sub-compliance category"
-                          />
-                        </div>
-                      )}
-
-                      {/* Description */}
-                      <div className="relative" style={{ paddingBottom: showDescriptionDropdown ? '320px' : '0', transition: 'padding-bottom 0.15s ease' }}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description <span className="text-red-400">*</span></label>
-                          {complianceDescriptions.length > 0 && (
-                            <button type="button" onClick={() => { setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown'); setItemForm(prev => ({ ...prev, compliance_name: '' })); }}
-                              className="text-xs text-teal-600 hover:text-teal-700 font-medium">
-                              {descriptionMode === 'dropdown' ? '+ Type manually' : '← Pick from list'}
-                            </button>
-                          )}
-                        </div>
-
-                        {complianceDescLoading ? (
-                          <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-2 text-sm text-gray-500">
-                            <Loader2 className="w-4 h-4 animate-spin text-teal-500" />Loading descriptions...
-                          </div>
-                        ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
-                          <div className="vqd-desc-dd description-dropdown relative w-full">
-                            <button type="button"
-                              onClick={() => { const next = !showDescriptionDropdown; setShowDescriptionDropdown(next); if (next) setTimeout(() => { const b = document.getElementById('compliance-modal-body'); if (b) b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); }, 50); }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
-                              <span className={itemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
-                                {itemForm.compliance_name ? (itemForm.compliance_name.length > 65 ? itemForm.compliance_name.substring(0, 65) + '...' : itemForm.compliance_name) : 'Select a description'}
-                              </span>
-                              <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
-                            </button>
-                            {showDescriptionDropdown && (
-                              <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden" style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
-                                <div className="p-3 border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
-                                  <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-400" />
-                                    <input type="text" placeholder="Search descriptions..." value={descriptionSearch} onChange={e => setDescriptionSearch(e.target.value)} onClick={e => e.stopPropagation()}
-                                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-teal-400 text-sm bg-white shadow-sm" autoFocus />
-                                  </div>
-                                  <div className="flex items-center justify-between mt-2 px-0.5">
-                                    <span className="text-xs text-gray-400">{descriptionSearch ? `${complianceDescriptions.filter(d => d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())).length} of ${complianceDescriptions.length} results` : `${complianceDescriptions.length} descriptions`}</span>
-                                    <span className="text-xs text-teal-500 font-medium">Click to select</span>
-                                  </div>
-                                </div>
-                                <div className="max-h-64 overflow-y-auto p-2 space-y-1.5">
-                                  {(() => {
-                                    const filtered = complianceDescriptions.filter(d => d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase()));
-                                    if (filtered.length === 0) return (
-                                      <div className="px-4 py-10 text-center">
-                                        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3"><FileText className="w-6 h-6 text-gray-300" /></div>
-                                        <p className="text-sm font-medium text-gray-500">No descriptions found</p>
-                                        <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
-                                      </div>
-                                    );
-                                    return filtered.map((desc, idx) => {
-                                      const isSelected = itemForm.compliance_name === desc.compliance_description;
-                                      const words = desc.compliance_description?.split(' ') || [];
-                                      const preview = words.slice(0, 4).join(' ');
-                                      const rest = words.slice(4).join(' ');
-                                      return (
-                                        <button key={desc.id} type="button"
-                                          onClick={() => { setItemForm(prev => ({ ...prev, compliance_name: desc.compliance_description })); setShowDescriptionDropdown(false); setDescriptionSearch(''); }}
-                                          className={`w-full text-left rounded-lg border transition-all duration-150 group ${isSelected ? 'border-teal-400 bg-teal-50 shadow-sm' : 'border-gray-100 bg-white hover:border-teal-200 hover:bg-teal-50/30'}`}>
-                                          <div className="flex items-start gap-3 px-3 py-2.5">
-                                            <div className={`flex-shrink-0 min-w-[1.5rem] h-6 rounded-md flex items-center justify-center text-xs font-bold mt-0.5 ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-100 group-hover:text-teal-600'}`}>{idx + 1}</div>
-                                            <div className="flex-1 min-w-0">
-                                              <p className={`text-sm leading-relaxed ${isSelected ? 'text-teal-900 font-medium' : 'text-gray-700'}`}>
-                                                <span className={`font-semibold ${isSelected ? 'text-teal-700' : 'text-gray-900'}`}>{preview}</span>{rest && <span> {rest}</span>}
-                                              </p>
-                                            </div>
-                                            {isSelected && <div className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-500 flex items-center justify-center mt-0.5"><svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg></div>}
-                                          </div>
-                                        </button>
-                                      );
-                                    });
-                                  })()}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <textarea value={itemForm.compliance_name} onChange={e => setItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
-                            placeholder={complianceDescriptions.length === 0 && !complianceDescLoading ? 'No presets — type your own description' : 'Enter service description'}
-                            rows="2" className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none" />
-                        )}
-                      </div>
-
-                      {/* Qty + Amounts row */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                          <input type="number" min="1" value={itemForm.quantity}
-                            onChange={e => setItemForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
-                          <input type="number" min="0" step="0.01"
-                            value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                            onChange={e => setItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
-                            placeholder="0.00"
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                            Misc. (Rs.)
-                            {itemForm.miscellaneous_amount !== '' && (
-                              <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
-                                {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
-                              </span>
-                            )}
-                          </label>
-                          <input type="text" value={itemForm.miscellaneous_amount}
-                            onChange={e => setItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
-                            placeholder="Amount or description"
-                            className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`} />
-                        </div>
-                      </div>
-
-                      {/* Total preview + Add button */}
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
-                          <span className="text-sm text-teal-700 font-medium">Item Total:</span>
-                          <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(itemForm).toLocaleString('en-IN')}</span>
-                          {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
-                            <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              Misc shown as note
-                            </span>
-                          ) : (
-                            <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
-                          )}
-                        </div>
-                        <button onClick={handleAddItem}
-                          disabled={!itemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !itemForm.sub_compliance_id)}
-                          className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
-                          {editingItemIndex !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Items list */}
-                {sectionForm.items.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                      <span className="text-sm font-semibold text-gray-700">Added Items</span>
-                      <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">{sectionForm.items.length} items</span>
-                    </div>
-                    <div className="divide-y divide-gray-100">
-                      {sectionForm.items.map((item, index) => (
-                        <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${editingItemIndex === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
-                          <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-gray-500">{index + 1}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                              {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>}
-                              <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
-                              <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                              {String(item.miscellaneous_amount ?? '').trim() !== '' && (
-                                isMiscNumeric(item.miscellaneous_amount)
-                                  ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
-                                  : <span className="text-xs text-amber-600 italic font-medium">Misc: {item.miscellaneous_amount}</span>
-                              )}
-                              <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <button onClick={() => handleEditModalItem(index)}
-                              className={`p-1.5 rounded-lg transition-colors ${editingItemIndex === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`} title="Edit item">
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleRemoveModalItem(index)}
-                              className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors" title="Remove item">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
-                      <span className="text-sm font-bold text-gray-800">
-                        Section Total: Rs. {sectionForm.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Footer */}
-              <div className="border-t border-gray-200 px-5 py-4 bg-white flex items-center justify-between gap-3 flex-shrink-0" style={{ borderRadius: '0 0 20px 20px' }}>
-                <span className="text-xs text-gray-400">
-                  {sectionForm.items.length === 0 ? 'Add at least one item to continue' : `${sectionForm.items.length} item${sectionForm.items.length > 1 ? 's' : ''} ready`}
-                </span>
-                <div className="flex gap-2">
-                  <button onClick={closeAddSection} className="px-5 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-600">Cancel</button>
-                  <button onClick={handleSaveSection} disabled={sectionForm.items.length === 0}
-                    className="px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                    Save Compliance
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Send to Client Modal ── */}
       {sendModal && (
