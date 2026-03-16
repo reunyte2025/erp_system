@@ -945,7 +945,7 @@ export default function InvoicesList() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [createdInvoice,    setCreatedInvoice]    = useState(null);
   const [stats, setStats] = useState({
-    total: 0, under_review: 0, placed_work_order: 0,
+    total: 0, total_amount: 0, paid_amount: 0, unpaid_amount: 0,
   });
 
   const requestInProgress = useRef(false);
@@ -972,17 +972,15 @@ export default function InvoicesList() {
         setTotalPages(apiData.total_pages || 1);
         setTotalCount(apiData.total_count || 0);
         try {
-          const statsResponse = await getInvoiceStats();
-          if (statsResponse.status === 'success' && statsResponse.data) {
-            setStats(statsResponse.data);
-          }
-        } catch {
-          const total = apiData.total_count || (apiData.results || []).length;
+          // Stats come directly from the get_all_invoices response — no separate API call needed
           setStats({
-            total,
-            under_review:      Math.floor(total * 0.30),
-            placed_work_order: Math.floor(total * 0.50),
+            total:        apiData.total_count  || 0,
+            total_amount: apiData.total_amount || 0,
+            paid_amount:  apiData.paid_amount  || 0,
+            unpaid_amount: apiData.unpaid_amount || 0,
           });
+        } catch {
+          setStats({ total: apiData.total_count || 0, total_amount: 0, paid_amount: 0, unpaid_amount: 0 });
         }
       } else {
         setInvoices([]);
@@ -1018,10 +1016,7 @@ export default function InvoicesList() {
   const handlePageChange   = (page)  => setCurrentPage(page);
   const handleFilterToggle = ()      => setShowFilter(prev => !prev);
 
-  const handleRowClick = (invoice) => {
-    setSelectedInvoiceId(invoice.id);
-    setShowDetailModal(true);
-  };
+  const handleRowClick = (invoice) => navigate(`/invoices/${invoice.id}`);
 
   const handleViewInvoice = () => {
     setShowSuccessModal(false);
@@ -1037,22 +1032,29 @@ export default function InvoicesList() {
         icon={<Receipt className="w-5 h-5 text-white" />}
         count={stats.total || 0}
         label="Total Invoices"
-        subLabel={`${stats.total || 0} added in last 2 days`}
+        subLabel={`${stats.total || 0} invoices created`}
         bgColor="bg-teal-500"
       />
       <StatCard
         icon={<Receipt className="w-5 h-5 text-white" />}
-        count={stats.under_review || 0}
-        label="Under Review"
-        subLabel={`${stats.under_review || 0} Quotations under review`}
-        bgColor="bg-yellow-500"
+        count={`Rs. ${Number(stats.total_amount || 0).toLocaleString('en-IN')}`}
+        label="Total Amount"
+        subLabel="Sum of all invoice amounts"
+        bgColor="bg-blue-500"
       />
       <StatCard
         icon={<Receipt className="w-5 h-5 text-white" />}
-        count={stats.placed_work_order || 0}
-        label="Work-Order Placed"
-        subLabel={`${stats.placed_work_order || 0} work-Order placed`}
+        count={`Rs. ${Number(stats.paid_amount || 0).toLocaleString('en-IN')}`}
+        label="Paid Amount"
+        subLabel="Total amount received"
         bgColor="bg-green-500"
+      />
+      <StatCard
+        icon={<Receipt className="w-5 h-5 text-white" />}
+        count={`Rs. ${Number(stats.unpaid_amount || 0).toLocaleString('en-IN')}`}
+        label="Unpaid Amount"
+        subLabel="Outstanding balance"
+        bgColor="bg-red-500"
       />
     </>
   );
@@ -1077,12 +1079,6 @@ export default function InvoicesList() {
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
-      />
-
-      <InvoiceDetailModal
-        isOpen={showDetailModal}
-        onClose={() => { setShowDetailModal(false); setSelectedInvoiceId(null); }}
-        invoiceId={selectedInvoiceId}
       />
 
       <SelectInvoiceModal

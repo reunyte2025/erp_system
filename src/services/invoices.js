@@ -16,11 +16,12 @@ const serviceLogger = {
 };
 
 const ENDPOINTS = {
-  GET_ALL:  '/invoices/get_all_invoices/',
-  GET_BY_ID: '/invoices/get_invoice/',
-  CREATE:   '/invoices/create_invoice/',
-  UPDATE:   '/invoices/',
-  DELETE:   '/invoices/',
+  GET_ALL:       '/invoices/get_all_invoices/',
+  GET_BY_ID:     '/invoices/get_invoice/',
+  CREATE:        '/invoices/create_invoice/',
+  UPDATE:        '/invoices/',
+  DELETE:        '/invoices/',
+  TRACK_INVOICE: '/invoices/track_invoice/',
 };
 
 const generateInvoiceNumber = () => {
@@ -69,28 +70,18 @@ export const createInvoice = async (invoiceData) => {
   try {
     serviceLogger.log('[Invoice Service] Creating invoice:', invoiceData);
 
-    if (!invoiceData.client)   throw new Error('Client is required');
-    if (!invoiceData.quotation) throw new Error('Quotation is required');
     if (!invoiceData.proforma) throw new Error('Proforma is required');
 
+    // Backend derives client, quotation, items etc. from the proforma.
+    // Only proforma + advance_amount are required for the generate-invoice flow.
     const payload = {
-      invoice_number: invoiceData.invoice_number
-        ? Number(invoiceData.invoice_number)
-        : generateInvoiceNumber(),
-      client:   Number(invoiceData.client),
-      quotation: Number(invoiceData.quotation),
-      proforma:  Number(invoiceData.proforma),
-      gst_rate:      String(invoiceData.gst_rate || '18'),
-      discount_rate: String(invoiceData.discount_rate || '0'),
-      items: (invoiceData.items || []).map(item => ({
-        description: String(item.description).trim(),
-        quantity:    Number(item.quantity),
-        unit_price:  Number(item.unit_price || item.rate || 0),
-        tax_rate:    String(item.tax_rate || '10'),
-      })),
-      ...(invoiceData.notes && { notes: invoiceData.notes.trim() }),
-      ...(invoiceData.terms && { terms: invoiceData.terms.trim() }),
+      proforma:        Number(invoiceData.proforma),
+      advance_amount:  String(invoiceData.advance_amount ?? '0.00'),
     };
+
+    // Optional fields — only include when explicitly provided
+    if (invoiceData.client)   payload.client   = Number(invoiceData.client);
+    if (invoiceData.quotation) payload.quotation = Number(invoiceData.quotation);
 
     const response = await api.post(ENDPOINTS.CREATE, payload);
     return response.data;
@@ -145,6 +136,19 @@ export const deleteInvoice = async (id) => {
   }
 };
 
+export const trackInvoice = async (id) => {
+  try {
+    if (!id) throw new Error('Invoice ID is required');
+    serviceLogger.log(`[Invoice Service] Tracking invoice ID: ${id}`);
+    const response = await api.get(ENDPOINTS.TRACK_INVOICE, { params: { id } });
+    return response.data;
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`[Invoice Service] trackInvoice(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 export const getInvoiceStats = async () => {
   try {
     const response = await getInvoices({ page: 1, page_size: 1 });
@@ -171,4 +175,5 @@ export default {
   updateInvoice,
   deleteInvoice,
   getInvoiceStats,
+  trackInvoice,
 };
