@@ -7,13 +7,15 @@ import {
   Tag, Percent, ChevronRight, Mail, FileEdit,
   ThumbsUp, ThumbsDown, Receipt,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Search, ChevronDown, Edit, X, Paperclip,
+  Edit, X, Paperclip,
 } from 'lucide-react';
 import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma } from '../../services/proforma';
+import { createInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
+import AddComplianceModal from '../../components/AddComplianceModal/AddComplianceModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -416,154 +418,6 @@ const calcItemTotal = (item) => {
   return parseFloat(((prof + misc) * (parseInt(item.quantity) || 1)).toFixed(2));
 };
 
-// ─── SubComplianceDropdown — exact copy from viewquotationdetails ─────────────
-const SubComplianceDropdown = ({ value, onChange, categoryId, searchTerm, onSearchChange, placeholder = 'Select Sub-Compliance' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    const handler = (e) => { if (!e.target.closest('.vpd-sub-dropdown')) setIsOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const getAvailable = () => {
-    if ([1, 2].includes(categoryId)) {
-      return [SUB_COMPLIANCE_CATEGORIES[1], SUB_COMPLIANCE_CATEGORIES[2], SUB_COMPLIANCE_CATEGORIES[3], SUB_COMPLIANCE_CATEGORIES[4]];
-    }
-    return [];
-  };
-
-  const list     = getAvailable().filter(i => i.name.toLowerCase().includes((searchTerm || '').toLowerCase()));
-  const selected = getAvailable().find(i => i.id === value);
-
-  return (
-    <div className="vpd-sub-dropdown" style={{ position: 'relative', width: '100%' }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: selected ? '#1e293b' : '#94a3b8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', outline: 'none', transition: 'border-color .15s' }}
-      >
-        <span>{selected ? selected.name : placeholder}</span>
-        <ChevronDown size={15} color="#94a3b8" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
-      </button>
-      {isOpen && (
-        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, width: '100%', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 12, boxShadow: '0 12px 36px rgba(0,0,0,.14)', zIndex: 99999, overflow: 'hidden' }}>
-          <div style={{ padding: 10, borderBottom: '1px solid #f0f4f8', background: '#f8fafc' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text" placeholder="Search…" value={searchTerm || ''}
-                onChange={e => onSearchChange(e.target.value)}
-                onClick={e => e.stopPropagation()}
-                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7, border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-          </div>
-          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-            {list.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No results</div>
-            ) : list.map(item => (
-              <button
-                key={item.id}
-                onClick={() => { onChange(item.id); setIsOpen(false); onSearchChange(''); }}
-                style={{ width: '100%', padding: '10px 14px', border: 'none', background: value === item.id ? '#f0fdf4' : 'transparent', borderLeft: value === item.id ? '3px solid #0f766e' : '3px solid transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, fontWeight: value === item.id ? 700 : 500, color: value === item.id ? '#0f766e' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit' }}
-              >
-                {item.name}
-                {value === item.id && <CheckCircle size={14} color="#0f766e" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── DescriptionDropdown — exact copy from viewquotationdetails ───────────────
-const DescriptionDropdown = ({ value, onChange, items, loading, searchTerm, onSearchChange, placeholder = 'Select a description' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    const handler = (e) => { if (!e.target.closest('.vpd-desc-dropdown')) setIsOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered     = items.filter(d => (d.compliance_description || '').toLowerCase().includes(searchTerm.toLowerCase()));
-  const selectedItem = items.find(d => d.compliance_description === value);
-
-  const handleOpen = () => {
-    setIsOpen(prev => {
-      if (!prev) {
-        setTimeout(() => {
-          const body = document.getElementById('vpd-compliance-modal-body');
-          if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-        }, 60);
-      }
-      return !prev;
-    });
-  };
-
-  return (
-    <div className="vpd-desc-dropdown" style={{ position: 'relative', width: '100%' }}>
-      <button
-        onClick={handleOpen}
-        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: value ? '#1e293b' : '#94a3b8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', outline: 'none', textAlign: 'left', gap: 8 }}
-      >
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {value ? (value.length > 65 ? value.substring(0, 65) + '…' : value) : placeholder}
-        </span>
-        <ChevronDown size={15} color="#94a3b8" style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
-      </button>
-      {isOpen && (
-        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, width: '100%', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,.18)', zIndex: 99999, overflow: 'hidden' }}>
-          <div style={{ padding: 10, borderBottom: '1px solid #f0f4f8', background: '#f8fafc' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                autoFocus type="text" placeholder="Search descriptions…" value={searchTerm}
-                onChange={e => onSearchChange(e.target.value)}
-                onClick={e => e.stopPropagation()}
-                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7, border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ marginTop: 6, fontSize: 10, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
-              <span>{filtered.length} of {items.length} results</span>
-              <span style={{ color: '#0f766e', fontWeight: 600 }}>Click to select</span>
-            </div>
-          </div>
-          <div style={{ maxHeight: 220, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {loading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <Loader2 size={14} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Loading…
-              </div>
-            ) : filtered.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No descriptions found</div>
-            ) : filtered.map((desc, idx) => {
-              const isSelected = value === desc.compliance_description;
-              const words   = (desc.compliance_description || '').split(' ');
-              const preview = words.slice(0, 4).join(' ');
-              const rest    = words.slice(4).join(' ');
-              return (
-                <button
-                  key={desc.id || idx}
-                  onClick={() => { onChange(desc.compliance_description); setIsOpen(false); onSearchChange(''); }}
-                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${isSelected ? '#6ee7b7' : '#f0f4f8'}`, borderRadius: 8, background: isSelected ? '#f0fdf4' : '#fff', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', alignItems: 'flex-start', gap: 10, transition: 'background .1s' }}
-                >
-                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: isSelected ? '#0f766e' : '#f1f5f9', color: isSelected ? '#fff' : '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, marginTop: 1 }}>{idx + 1}</span>
-                  <span style={{ flex: 1, fontSize: 12, lineHeight: 1.5, color: isSelected ? '#0f766e' : '#334155' }}>
-                    <strong style={{ fontWeight: 700 }}>{preview}</strong>{rest && ` ${rest}`}
-                  </span>
-                  {isSelected && <CheckCircle size={14} color="#0f766e" style={{ flexShrink: 0, marginTop: 3 }} />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 
 // ─── Send to Client Modal ────────────────────────────────────────────────────
 
@@ -750,23 +604,20 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [rejectReasonError,   setRejectReasonError]   = useState('');
   const [approvalToast,       setApprovalToast]       = useState('');
 
+  // ── Generate Invoice modal state ─────────────────────────────────────────────
+  const [showInvoiceModal,   setShowInvoiceModal]   = useState(false);
+  const [advanceAmount,      setAdvanceAmount]      = useState('');
+  const [invoiceGenerating,  setInvoiceGenerating]  = useState(false);
+  const [invoiceError,       setInvoiceError]       = useState('');
+  const [invoiceSuccess,     setInvoiceSuccess]     = useState(null); // holds created invoice object
+
   const [editSacCode,  setEditSacCode]  = useState('');
   const [editGstRate,  setEditGstRate]  = useState(0);
   const [editDiscRate, setEditDiscRate] = useState(0);
   const [editItems,    setEditItems]    = useState([]);
 
-  // ── Compliance modal state ───────────────────────────────────────────────────
-  const [showAddSection,         setShowAddSection]         = useState(false);
-  const [selectedCategoryType,   setSelectedCategoryType]   = useState(null);
-  const [sectionForm,            setSectionForm]            = useState({ category_id: null, category_name: '', items: [] });
-  const [editingSection,         setEditingSection]         = useState(null);
-  const [editingItemIndex,       setEditingItemIndex]       = useState(null);
-  const [itemForm,               setItemForm]               = useState({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-  const [itemFormSearchTerms,    setItemFormSearchTerms]    = useState({ compliance: '', subCompliance: '' });  const [complianceDescriptions, setComplianceDescriptions] = useState([]);
-  const [complianceDescLoading,  setComplianceDescLoading]  = useState(false);
-  const [descriptionMode,        setDescriptionMode]        = useState('dropdown');
-  const [descriptionSearch,      setDescriptionSearch]      = useState('');
-  const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
+  // ── Compliance modal state — handled by AddComplianceModal component ────────
+  const [showAddSection, setShowAddSection] = useState(false);
 
   // Scroll lock when modal open
   // Lock body scroll whenever ANY modal is open — prevents blue/scrollable background
@@ -792,156 +643,29 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       document.body.style.width = '';
       document.body.style.overflow = '';
     };
-  }, [showAddSection, showUpdateReasonModal, showRejectModal, sendModal]);
+  }, [showAddSection, showUpdateReasonModal, showRejectModal, sendModal, showInvoiceModal]);
 
   // ── Compliance modal helpers ─────────────────────────────────────────────────
 
-  const fetchComplianceDescriptions = async (categoryId, subCategoryId) => {
-    if (!categoryId) return;
-    setComplianceDescLoading(true);
-    setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
-    try {
-      const res = await getComplianceByCategory(categoryId, subCategoryId || null);
-      if (res?.status === 'success' && res?.data?.results) {
-        setComplianceDescriptions(res.data.results);
-        if (res.data.results.length === 0) setDescriptionMode('manual');
-      } else {
-        setComplianceDescriptions([]);
-        setDescriptionMode('manual');
-      }
-    } catch {
-      setComplianceDescriptions([]);
-      setDescriptionMode('manual');
-    } finally {
-      setComplianceDescLoading(false);
-    }
+  /**
+   * fetchDescriptionsForModal — passed to AddComplianceModal as fetchDescriptions prop.
+   * Calls the proforma service and returns a plain array of description objects.
+   */
+  const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
+    const res = await getComplianceByCategory(categoryId, subCategoryId || null);
+    if (res?.status === 'success' && res?.data?.results) return res.data.results;
+    return [];
   };
 
-  const getLockedType = () => {
-    if (!editItems.length) return null;
-    const cats = [...new Set(editItems.map(it => it.compliance_category ?? 0))];
-    if (cats.some(c => COMPLIANCE_GROUPS.certificates.includes(c))) return 'certificates';
-    if (cats.some(c => COMPLIANCE_GROUPS.execution.includes(c))) return 'execution';
-    return null;
-  };
+  const handleOpenAddSection = () => setShowAddSection(true);
 
-  const isSectionTypeDisabled = (type) => {
-    const lockedType = getLockedType();
-    if (!lockedType) return false;
-    return lockedType !== type;
-  };
-
-  const handleOpenAddSection = () => {
-    const lockedType = getLockedType();
-    if (lockedType) {
-      handleSelectCategoryType(lockedType);
-    } else {
-      setSectionForm({ category_id: null, category_name: '', items: [] });
-      setSelectedCategoryType(null);
-      setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-      setComplianceDescriptions([]);
-      setDescriptionMode('dropdown');
-      setDescriptionSearch('');
-      setShowDescriptionDropdown(false);
-      setEditingItemIndex(null);
-      setEditingSection(null);
-      setShowAddSection(true);
-    }
-  };
-
-  const handleSelectCategoryType = (type) => {
-    setSelectedCategoryType(type);
-    const firstCatId = COMPLIANCE_GROUPS[type][0];
-    setSectionForm({ category_id: firstCatId, category_name: COMPLIANCE_CATEGORIES[firstCatId] || '', items: [] });
-    setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-    setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
-    setDescriptionSearch('');
-    setShowDescriptionDropdown(false);
-    if (type === 'execution') fetchComplianceDescriptions(firstCatId, null);
-    setShowAddSection(true);
-  };
-
-  const handleCategoryChange = (categoryId) => {
-    setSectionForm(prev => ({ ...prev, category_id: categoryId, category_name: COMPLIANCE_CATEGORIES[categoryId] || '' }));
-    if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
-      fetchComplianceDescriptions(categoryId, null);
-    } else {
-      setComplianceDescriptions([]);
-      setDescriptionMode('dropdown');
-      setItemForm(prev => ({ ...prev, compliance_name: '', sub_compliance_id: null }));
-    }
-  };
-
-  const handleAddItem = () => {
-    if (!itemForm.compliance_name.trim()) return;
-    if (COMPLIANCE_GROUPS.certificates.includes(sectionForm.category_id) && !itemForm.sub_compliance_id) return;
-    const newItem = {
-      compliance_name:      itemForm.compliance_name.trim(),
-      compliance_id:        itemForm.compliance_id || null,
-      sub_compliance_id:    itemForm.sub_compliance_id || null,
-      quantity:             parseInt(itemForm.quantity, 10) || 1,
-      miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
-      Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
-      total_amount:         calcItemTotal(itemForm),
-    };
-    if (editingItemIndex !== null) {
-      setSectionForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === editingItemIndex ? newItem : it) }));
-      setEditingItemIndex(null);
-    } else {
-      setSectionForm(prev => ({ ...prev, items: [...prev.items, newItem] }));
-    }
-    setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 });
-    setItemFormSearchTerms(prev => ({ ...prev, compliance: '' }));
-  };
-
-  const handleEditModalItem = (index) => {
-    const item = sectionForm.items[index];
-    setItemForm({
-      compliance_name: item.compliance_name,
-      compliance_id: item.compliance_id || null,
-      sub_compliance_id: item.sub_compliance_id || null,
-      quantity: item.quantity || 1,
-      miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount: item.Professional_amount || 0,
-    });
-    setItemFormSearchTerms({ compliance: item.compliance_name || '', subCompliance: '' });
-    setEditingItemIndex(index);
-  };
-
-  const handleRemoveModalItem = (index) => {
-    setSectionForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
-    if (editingItemIndex === index) setEditingItemIndex(null);
-  };
-
-  const handleSaveSection = () => {
-    if (sectionForm.items.length === 0) return;
-    const newFlatItems = sectionForm.items.map(item => ({
-      id: null,
-      description: item.compliance_name,
-      quantity: parseInt(item.quantity) || 1,
-      Professional_amount: parseFloat(item.Professional_amount) || 0,
-      miscellaneous_amount: String(item.miscellaneous_amount ?? '').trim(),
-      compliance_category: sectionForm.category_id,
-      sub_compliance_category: item.sub_compliance_id || 0,
-      total_amount: calcItemTotal(item),
-    }));
+  /**
+   * Called by AddComplianceModal when user clicks "Save Compliance".
+   * newFlatItems is already correctly tagged per category — just append to editItems.
+   */
+  const handleComplianceSave = (newFlatItems) => {
     setEditItems(prev => [...prev, ...newFlatItems]);
     setShowAddSection(false);
-    setSectionForm({ category_id: null, category_name: '', items: [] });
-    setSelectedCategoryType(null);
-    setEditingSection(null);
-    setEditingItemIndex(null);
-  };
-
-  const closeAddSection = () => {
-    setShowAddSection(false);
-    setSectionForm({ category_id: null, category_name: '', items: [] });
-    setSelectedCategoryType(null);
-    setEditingItemIndex(null);
-    setEditingSection(null);
   };
 
   // ── Edit mode lifecycle ──────────────────────────────────────────────────────
@@ -1207,6 +931,55 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     }
   };
 
+  // ── Generate Invoice handler ─────────────────────────────────────────────────
+  const handleGenerateInvoice = async () => {
+    setInvoiceError('');
+    setInvoiceGenerating(true);
+    try {
+      const advance = advanceAmount ? parseFloat(advanceAmount) : 0;
+      if (advanceAmount && isNaN(advance)) {
+        setInvoiceError('Please enter a valid advance amount.');
+        setInvoiceGenerating(false);
+        return;
+      }
+      if (advance < 0) {
+        setInvoiceError('Advance amount cannot be negative.');
+        setInvoiceGenerating(false);
+        return;
+      }
+      const res = await createInvoice({
+        proforma:       proforma.id,
+        advance_amount: String(advance.toFixed(2)),
+      });
+      // Backend returns the created invoice — could be nested under data or at root
+      const created = res?.data || res;
+      if (!created?.id && !created?.invoice_number) {
+        setInvoiceError('Invoice created but response was unexpected. Please check Invoice List.');
+        return;
+      }
+      setInvoiceSuccess(created);
+    } catch (e) {
+      const respData = e.response?.data;
+      let msg = '';
+      if (respData) {
+        const errs = respData.errors || respData.message || respData.detail || respData;
+        if (typeof errs === 'string') msg = errs;
+        else if (typeof errs === 'object') msg = Object.values(errs).flat().join(' | ');
+      }
+      setInvoiceError(msg || e.message || 'Failed to generate invoice. Please try again.');
+    } finally {
+      setInvoiceGenerating(false);
+    }
+  };
+
+  const fmtInvNum = (n) => {
+    if (!n) return '—';
+    if (String(n).startsWith('IN-')) return String(n);
+    const s = String(n);
+    if (s.length >= 8) return `IN-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
+    return `IN-2026-${String(n).padStart(5, '0')}`;
+  };
+
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No proforma ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
@@ -1438,6 +1211,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-modal-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
         .vpd-success-toast{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:10px;background:#0f766e;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,118,110,.4);animation:vpd_toast_in .3s cubic-bezier(.16,1,.3,1)}
         @keyframes vpd_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes vqd_pulse_ring{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
         @keyframes vpd_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
         @keyframes vpd_overlay_in{from{opacity:0}to{opacity:1}}
         @keyframes vpd_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
@@ -1558,9 +1332,13 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 <button
                   className="vpd-btn-invoice"
                   disabled={!isApproved()}
-                  title={isApproved() ? 'Generate Invoice' : 'Proforma must be Approved before generating an invoice'}
-
-                  onClick={() => {/* TODO: wire to generate invoice API */}}
+                  title={isApproved() ? 'Generate Invoice from this Proforma' : 'Proforma must be Approved before generating an invoice'}
+                  onClick={() => {
+                    setAdvanceAmount('');
+                    setInvoiceError('');
+                    setInvoiceSuccess(null);
+                    setShowInvoiceModal(true);
+                  }}
                 >
                   <Receipt size={14} /> Generate Invoice
                 </button>
@@ -2031,280 +1809,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         </div>
       )}
 
-      {/* ══════════ ADD COMPLIANCE MODAL — exact copy from viewquotationdetails ══════════ */}
-      {showAddSection && (
-        <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
-          <div
-            className="absolute inset-0 bg-black/50"
-            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={closeAddSection}
-          />
-          <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div
-              className="relative w-full max-w-2xl animate-scaleIn bg-white flex flex-col"
-              style={{ borderRadius: '20px', boxShadow: '0 32px 64px rgba(0,0,0,0.24)', height: '88vh', maxHeight: '760px', minHeight: '480px', overflow: 'hidden' }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="bg-teal-700 px-6 py-4 flex-shrink-0" style={{ borderRadius: '20px 20px 0 0' }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
-                      <Plus className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-white font-bold text-base leading-tight">Add New Compliance</p>
-                      <p className="text-teal-200 text-xs mt-0.5">{sectionForm.category_name || 'Select a category below'}</p>
-                    </div>
-                  </div>
-                  <button onClick={closeAddSection} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-                    <X size={16} className="text-white" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Scrollable body */}
-              <div id="vpd-compliance-modal-body" className="p-5 space-y-4 bg-gray-50 flex-1" style={{ minHeight: 0, overflowY: 'scroll', scrollbarGutter: 'stable' }}>
-
-                {/* Type selector */}
-                {!selectedCategoryType && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Select Compliance Type</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { type: 'certificates', label: 'Certificates', sub: 'Construction / Occupational' },
-                        { type: 'execution',    label: 'Execution',    sub: 'Water Main / STP' },
-                      ].map(({ type, label, sub }) => {
-                        const disabled = isSectionTypeDisabled(type);
-                        return (
-                          <button key={type} onClick={() => !disabled && handleSelectCategoryType(type)} disabled={disabled}
-                            className={`px-4 py-3 rounded-xl border-2 font-medium text-sm transition-colors text-left ${disabled ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed' : 'border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 cursor-pointer'}`}>
-                            <p className="font-semibold">{label}</p>
-                            <p className="text-xs font-normal mt-0.5 opacity-70">{sub}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Category pills */}
-                {selectedCategoryType && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Compliance Category</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {selectedCategoryType === 'certificates' ? (
-                        [{id:1,label:'Construction Certificate'},{id:2,label:'Occupational Certificate'}].map(cat => (
-                          <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                            className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                            {cat.label}
-                          </button>
-                        ))
-                      ) : (
-                        [{id:3,label:'Water Main'},{id:4,label:'STP'}].map(cat => (
-                          <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                            className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors ${sectionForm.category_id === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                            {cat.label}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Add Item Form */}
-                {sectionForm.category_id && (
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-visible">
-                    <div className={`px-4 py-3 border-b border-gray-100 flex items-center justify-between ${editingItemIndex !== null ? 'bg-amber-50' : 'bg-gray-50'}`}>
-                      <div className="flex items-center gap-2">
-                        {editingItemIndex !== null ? (
-                          <><div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center"><Edit className="w-3 h-3 text-white" /></div><span className="text-sm font-semibold text-amber-800">Editing Item #{editingItemIndex + 1}</span></>
-                        ) : (
-                          <><div className="w-5 h-5 rounded-full bg-teal-600 flex items-center justify-center"><Plus className="w-3 h-3 text-white" /></div><span className="text-sm font-semibold text-gray-700">Add Item</span></>
-                        )}
-                      </div>
-                      {editingItemIndex !== null && (
-                        <button onClick={() => { setEditingItemIndex(null); setItemForm({ compliance_name: '', compliance_id: null, sub_compliance_id: itemForm.sub_compliance_id, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 }); }}
-                          className="text-xs text-amber-600 hover:text-amber-800 font-medium">Cancel edit</button>
-                      )}
-                    </div>
-
-                    <div className="p-4 space-y-3">
-                      {/* Sub-compliance — certificates only */}
-                      {selectedCategoryType === 'certificates' && (
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Sub-Compliance Category <span className="text-red-400">*</span></label>
-                          <SubComplianceDropdown
-                            value={itemForm.sub_compliance_id}
-                            onChange={(id) => {
-                              setItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
-                              setDescriptionSearch('');
-                              setShowDescriptionDropdown(false);
-                              fetchComplianceDescriptions(sectionForm.category_id, id);
-                            }}
-                            categoryId={sectionForm.category_id}
-                            searchTerm={itemFormSearchTerms.subCompliance}
-                            onSearchChange={(term) => setItemFormSearchTerms(prev => ({ ...prev, subCompliance: term }))}
-                            placeholder="Select sub-compliance category"
-                          />
-                        </div>
-                      )}
-
-                      {/* Description */}
-                      <div className="relative" style={{ paddingBottom: showDescriptionDropdown ? '320px' : '0', transition: 'padding-bottom 0.15s ease' }}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description <span className="text-red-400">*</span></label>
-                          {complianceDescriptions.length > 0 && (
-                            <button type="button" onClick={() => { setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown'); setItemForm(prev => ({ ...prev, compliance_name: '' })); }}
-                              className="text-xs text-teal-600 hover:text-teal-700 font-medium">
-                              {descriptionMode === 'dropdown' ? '+ Type manually' : '← Pick from list'}
-                            </button>
-                          )}
-                        </div>
-
-                        {complianceDescLoading ? (
-                          <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-2 text-sm text-gray-500">
-                            <Loader2 className="w-4 h-4 animate-spin text-teal-500" />Loading descriptions...
-                          </div>
-                        ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
-                          <DescriptionDropdown
-                            value={itemForm.compliance_name}
-                            onChange={(val) => setItemForm(prev => ({ ...prev, compliance_name: val }))}
-                            items={complianceDescriptions}
-                            loading={complianceDescLoading}
-                            searchTerm={descriptionSearch}
-                            onSearchChange={setDescriptionSearch}
-                            placeholder="Select or search compliance description…"
-                          />
-                        ) : (
-                          <textarea value={itemForm.compliance_name} onChange={e => setItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
-                            placeholder={complianceDescriptions.length === 0 && !complianceDescLoading ? 'No presets — type your own description' : 'Enter service description'}
-                            rows="2" className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none" />
-                        )}
-                      </div>
-
-                      {/* Qty + Amounts row */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                          <input type="number" min="1" value={itemForm.quantity}
-                            onChange={e => setItemForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
-                          <input type="number" min="0" step="0.01"
-                            value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                            onChange={e => setItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
-                            placeholder="0.00"
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                            Misc. (Rs.)
-                            {itemForm.miscellaneous_amount !== '' && (
-                              <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
-                                {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
-                              </span>
-                            )}
-                          </label>
-                          <input type="text" value={itemForm.miscellaneous_amount}
-                            onChange={e => setItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
-                            placeholder="Amount or description"
-                            className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`} />
-                        </div>
-                      </div>
-
-                      {/* Total preview + Add button */}
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
-                          <span className="text-sm text-teal-700 font-medium">Item Total:</span>
-                          <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(itemForm).toLocaleString('en-IN')}</span>
-                          {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
-                            <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              Misc shown as note
-                            </span>
-                          ) : (
-                            <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
-                          )}
-                        </div>
-                        <button onClick={handleAddItem}
-                          disabled={!itemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !itemForm.sub_compliance_id)}
-                          className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
-                          {editingItemIndex !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Items list */}
-                {sectionForm.items.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                      <span className="text-sm font-semibold text-gray-700">Added Items</span>
-                      <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">{sectionForm.items.length} items</span>
-                    </div>
-                    <div className="divide-y divide-gray-100">
-                      {sectionForm.items.map((item, index) => (
-                        <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${editingItemIndex === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
-                          <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-gray-500">{index + 1}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                              {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>}
-                              <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
-                              <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                              {String(item.miscellaneous_amount ?? '').trim() !== '' && (
-                                isMiscNumeric(item.miscellaneous_amount)
-                                  ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
-                                  : <span className="text-xs text-amber-600 italic font-medium">Misc: {item.miscellaneous_amount}</span>
-                              )}
-                              <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <button onClick={() => handleEditModalItem(index)}
-                              className={`p-1.5 rounded-lg transition-colors ${editingItemIndex === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`} title="Edit item">
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleRemoveModalItem(index)}
-                              className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors" title="Remove item">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
-                      <span className="text-sm font-bold text-gray-800">
-                        Section Total: Rs. {sectionForm.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Footer */}
-              <div className="border-t border-gray-200 px-5 py-4 bg-white flex items-center justify-between gap-3 flex-shrink-0" style={{ borderRadius: '0 0 20px 20px' }}>
-                <span className="text-xs text-gray-400">
-                  {sectionForm.items.length === 0 ? 'Add at least one item to continue' : `${sectionForm.items.length} item${sectionForm.items.length > 1 ? 's' : ''} ready`}
-                </span>
-                <div className="flex gap-2">
-                  <button onClick={closeAddSection} className="px-5 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-600">Cancel</button>
-                  <button onClick={handleSaveSection} disabled={sectionForm.items.length === 0}
-                    className="px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                    Add to Proforma
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ══════════ ADD COMPLIANCE MODAL ══════════ */}
+      <AddComplianceModal
+        isOpen={showAddSection}
+        onClose={() => setShowAddSection(false)}
+        onSave={handleComplianceSave}
+        existingItems={editItems}
+        fetchDescriptions={fetchDescriptionsForModal}
+      />
 
       {/* ══════════ SUCCESS TOAST ══════════ */}
       {saveSuccess && (
@@ -2335,50 +1847,78 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => setShowUpdateReasonModal(false)} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative bg-white" style={{ borderRadius: 20, padding: '28px 28px 24px', width: '100%', maxWidth: 440, boxShadow: '0 24px 64px rgba(0,0,0,0.24)', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
-
-              {/* Header */}
-              <div className="vpd-modal-title">
-                <div style={{ width: 38, height: 38, borderRadius: 10, background: '#fffbeb', border: '1.5px solid #fcd34d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <PenLine size={18} color="#d97706" />
+            <div
+              className="relative animate-scaleIn"
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Orange gradient header — matches quotation modal style */}
+              <div style={{ background: 'linear-gradient(135deg,#b45309 0%,#d97706 45%,#f59e0b 100%)', padding: '20px 24px 18px', borderRadius: '20px 20px 0 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <PenLine size={18} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Reason for Update</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>Briefly describe what you are changing</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }}
+                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', transition: 'background .15s' }}
+                  >
+                    <X size={15} />
+                  </button>
                 </div>
-                Reason for Update
               </div>
-              <p className="vpd-modal-sub">
-                Please briefly describe what you are changing and why. This is recorded in the proforma history.
-              </p>
 
-              <div className="vpd-modal-label">Update Reason <span style={{ color: '#dc2626' }}>*</span></div>
-              <textarea
-                className="vpd-modal-textarea vpd-modal-textarea--amber"
-                placeholder="e.g. Corrected GST rate, added new compliance item for client..."
-                value={updateReason}
-                onChange={e => { setUpdateReason(e.target.value); setUpdateReasonError(''); }}
-                autoFocus
-              />
-              {updateReasonError && (
-                <div className="vpd-modal-err">
-                  <AlertCircle size={13} /> {updateReasonError}
+              {/* Body */}
+              <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+                {/* Info banner */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 18 }}>
+                  <AlertCircle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+                    This reason will be recorded in the proforma history so the team can track what changed and why.
+                  </p>
                 </div>
-              )}
 
-              <div className="vpd-modal-actions">
-                <button
-                  className="vpd-btn-cancel"
-                  onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="vpd-btn-save"
-                  onClick={handleSaveUpdateConfirm}
-                  disabled={saving || !updateReason.trim()}
-                >
-                  {saving
-                    ? <><Loader2 size={13} className="vpd-spin" /> Saving…</>
-                    : <><Save size={13} /> Confirm & Save</>}
-                </button>
+                <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                  Update Reason <span style={{ color: '#dc2626' }}>*</span>
+                </div>
+                <textarea
+                  style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${updateReasonError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', minHeight: 96, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: '#fff' }}
+                  placeholder="e.g. Corrected GST rate from 18% to 12%, added new compliance item per client request..."
+                  value={updateReason}
+                  onChange={e => { setUpdateReason(e.target.value); setUpdateReasonError(''); }}
+                  onFocus={e => { e.target.style.borderColor = '#d97706'; e.target.style.boxShadow = '0 0 0 3px rgba(217,119,6,.12)'; }}
+                  onBlur={e => { e.target.style.borderColor = updateReasonError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                  autoFocus
+                />
+                {updateReasonError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 6, fontWeight: 500 }}>
+                    <AlertCircle size={13} /> {updateReasonError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                  <button
+                    className="vpd-btn-cancel"
+                    onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveUpdateConfirm}
+                    disabled={saving || !updateReason.trim()}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', borderRadius: 9, border: 'none', background: saving || !updateReason.trim() ? '#d1d5db' : 'linear-gradient(135deg,#d97706,#f59e0b)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving || !updateReason.trim() ? 'not-allowed' : 'pointer', transition: 'all .15s', boxShadow: saving || !updateReason.trim() ? 'none' : '0 2px 8px rgba(217,119,6,.35)', fontFamily: 'inherit' }}
+                  >
+                    {saving
+                      ? <><Loader2 size={13} className="vpd-spin" /> Saving…</>
+                      : <><Save size={13} /> Confirm & Save</>}
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -2436,6 +1976,176 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                     : <><ThumbsDown size={13} /> Confirm Reject</>}
                 </button>
               </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ GENERATE INVOICE MODAL ══════════ */}
+      {showInvoiceModal && (
+        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
+          <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+            onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }} />
+          <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
+            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpd_modal_in .32s cubic-bezier(.16,1,.3,1)' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Top accent bar */}
+              <div style={{ height: 5, background: 'linear-gradient(90deg,#7c3aed,#6d28d9,#8b5cf6)' }} />
+
+              {/* ── SUCCESS STATE ── */}
+              {invoiceSuccess ? (
+                <div style={{ padding: '36px 32px 28px', textAlign: 'center' }}>
+                  {/* Animated checkmark ring */}
+                  <div style={{ position: 'relative', width: 80, height: 80, margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid #c4b5fd', animation: 'vqd_pulse_ring 1.8s ease-out infinite' }} />
+                    <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg,#ede9fe,#ddd6fe)', border: '2px solid #c4b5fd', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(124,58,237,.2)' }}>
+                      <CheckCircle size={38} color="#7c3aed" />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 21, fontWeight: 800, color: '#1e293b', letterSpacing: '-.02em', marginBottom: 8 }}>Invoice Generated!</div>
+                  <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 6 }}>
+                    Your invoice has been successfully created and is ready to review.
+                  </div>
+                  {/* Invoice number chip */}
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#faf5ff', border: '1.5px solid #ddd6fe', borderRadius: 20, padding: '6px 16px', margin: '6px 0 8px', fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>
+                    <Receipt size={13} /> {fmtInvNum(invoiceSuccess.invoice_number)}
+                  </div>
+                  {/* Show advance deduction if applicable */}
+                  {parseFloat(advanceAmount) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16, margin: '8px 0 16px', fontSize: 12, color: '#64748b' }}>
+                      <span>Grand Total: <strong style={{ color: '#1e293b' }}>Rs. {fmtINR(invoiceSuccess.grand_total)}</strong></span>
+                      <span>Advance Paid: <strong style={{ color: '#059669' }}>Rs. {fmtINR(advanceAmount)}</strong></span>
+                      <span>Outstanding: <strong style={{ color: '#dc2626' }}>Rs. {fmtINR(invoiceSuccess.total_outstanding)}</strong></span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+                    <button
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`); }}
+                      style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
+                    >
+                      <Receipt size={15} /> View Invoice
+                    </button>
+                    <button
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate('/invoices'); }}
+                      style={{ width: '100%', padding: '12px 20px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12, color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Go to Invoice List
+                    </button>
+                    <button
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); }}
+                      style={{ width: '100%', padding: '10px 20px', background: 'none', border: 'none', borderRadius: 12, color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Stay on this Proforma
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ── INPUT STATE ── */
+                <div style={{ padding: '28px 28px 24px' }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Receipt size={20} color="#fff" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#1e293b' }}>Generate Invoice</div>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{pNum}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { if (!invoiceGenerating) setShowInvoiceModal(false); }}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: invoiceGenerating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', opacity: invoiceGenerating ? 0.4 : 1 }}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+
+                  {/* Proforma summary chip */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+                    <CheckCircle size={15} color="#059669" style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>Approved Proforma</div>
+                      <div style={{ fontSize: 11, color: '#047857', marginTop: 1 }}>
+                        {pNum} · Grand Total: <strong>Rs. {fmtINR(proforma.grand_total || grandTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Advance amount input */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+                      Advance Amount (Rs.) <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— optional</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00 — leave blank if no advance"
+                      value={advanceAmount}
+                      onChange={e => { setAdvanceAmount(e.target.value); setInvoiceError(''); }}
+                      disabled={invoiceGenerating}
+                      style={{ width: '100%', padding: '10px 14px', border: `1.5px solid ${invoiceError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#1e293b', background: '#fff', outline: 'none', transition: 'border-color .15s', boxSizing: 'border-box' }}
+                      onFocus={e => { e.target.style.borderColor = '#7c3aed'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,.1)'; }}
+                      onBlur={e => { e.target.style.borderColor = invoiceError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                    />
+                    <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
+                      If provided, the advance will be deducted from the grand total and shown as the outstanding balance.
+                    </p>
+                  </div>
+
+                  {/* Live preview when advance is entered */}
+                  {advanceAmount && !isNaN(parseFloat(advanceAmount)) && parseFloat(advanceAmount) > 0 && (
+                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Payment Preview</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#475569' }}>
+                          <span>Grand Total</span>
+                          <span style={{ fontWeight: 700, color: '#1e293b' }}>Rs. {fmtINR(proforma.grand_total || grandTotal)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#059669' }}>
+                          <span>Advance Paid</span>
+                          <span style={{ fontWeight: 700 }}>− Rs. {fmtINR(parseFloat(advanceAmount))}</span>
+                        </div>
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: '#dc2626' }}>
+                          <span>Outstanding Balance</span>
+                          <span>Rs. {fmtINR(Math.max(0, parseFloat(proforma.grand_total || grandTotal) - parseFloat(advanceAmount)))}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error message */}
+                  {invoiceError && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626', lineHeight: 1.5 }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span>{typeof invoiceError === 'string' ? invoiceError : JSON.stringify(invoiceError)}</span>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => { if (!invoiceGenerating) setShowInvoiceModal(false); }}
+                      disabled={invoiceGenerating}
+                      style={{ flex: 1, padding: '11px 16px', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: invoiceGenerating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: invoiceGenerating ? 0.5 : 1 }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleGenerateInvoice}
+                      disabled={invoiceGenerating}
+                      style={{ flex: 2, padding: '11px 16px', border: 'none', borderRadius: 10, background: invoiceGenerating ? '#a78bfa' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: invoiceGenerating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all .15s' }}
+                    >
+                      {invoiceGenerating
+                        ? <><Loader2 size={14} className="vpd-spin" /> Generating…</>
+                        : <><Receipt size={14} /> Generate Invoice</>}
+                    </button>
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>

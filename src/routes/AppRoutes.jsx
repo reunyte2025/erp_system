@@ -8,6 +8,8 @@ import ProformaList from '../pages/proforma/proformaList';
 import ViewProformaDetails from '../pages/proforma/viewproformadetails';
 import Invoices from '../pages/invoices/invoices';
 import InvoicesList from '../pages/invoices/invoicesList';
+import ViewInvoiceDetails from '../pages/invoices/viewinvoicedetails';
+import InvoiceTrackPayment from '../pages/payments/invoice.track.payment';
 import Purchase from '../pages/purchase/purchase';
 import PurchaseOrder from '../pages/purchase/purchaseOrder';
 import VendorProfile from '../pages/purchase/vendorProfile';
@@ -167,7 +169,7 @@ export default function AppRoutes({
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
-              <ViewQuotationDetails />
+              <ViewQuotationDetails onUpdateNavigation={setNavigationConfig} />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -207,7 +209,7 @@ export default function AppRoutes({
         element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
-              <ViewProformaDetails />
+              <ViewProformaDetails onUpdateNavigation={setNavigationConfig} />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }
@@ -226,9 +228,14 @@ export default function AppRoutes({
 
       {/* ==================================================================
           INVOICES
-          IMPORTANT: /invoices/generate  before  /invoices
+          IMPORTANT: most-specific routes FIRST
+            1. /invoices/generate          — invoice generation form
+            2. /invoices/:id/track-payment — track payment for an invoice
+            3. /invoices/:id               — view invoice details
+            4. /invoices                   — list view
           ================================================================== */}
 
+      {/* 1 — Invoice generation form */}
       <Route
         path="/invoices/generate"
         element={
@@ -240,6 +247,31 @@ export default function AppRoutes({
         }
       />
 
+      {/* 2 — Track payment for a specific invoice */}
+      <Route
+        path="/invoices/:id/track-payment"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <InvoiceTrackPayment onUpdateNavigation={setNavigationConfig} />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* 3 — View invoice details (dedicated page) */}
+      <Route
+        path="/invoices/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <ViewInvoiceDetails onUpdateNavigation={setNavigationConfig} />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* 4 — Invoices list */}
       <Route
         path="/invoices"
         element={
