@@ -16,7 +16,7 @@ import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 
 import api from '../../services/api';
-import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
+  import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
