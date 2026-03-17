@@ -62,25 +62,25 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId }) => {
 
   useEffect(() => {
     if (isOpen && invoiceId) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top      = `-${scrollY}px`;
-      document.body.style.width    = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
       fetchInvoiceDetails();
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen, invoiceId]);
 
@@ -147,15 +147,15 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity"
         onClick={onClose}
         style={{ position: 'fixed', width: '100vw', height: '100vh' }}
       />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-scaleIn"
+          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-scaleIn pointer-events-auto"
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}
@@ -352,38 +352,38 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId }) => {
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top      = `-${scrollY}px`;
-      document.body.style.width    = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity"
         style={{ position: 'fixed', width: '100vw', height: '100vh' }}
       />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn"
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto"
           onClick={e => e.stopPropagation()}
         >
           <div className="mb-6 flex justify-center">
@@ -436,11 +436,11 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed }) => {
 
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top      = `-${scrollY}px`;
-      document.body.style.width    = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
       // Reset on every open
       setStep('client');
       setSelectedClient(null);
@@ -451,18 +451,18 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed }) => {
       setProformaSearch('');
       fetchClients();
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
@@ -596,9 +596,9 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed }) => {
   const stepIndex = steps.findIndex(s => s.key === step);
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity"
         style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
@@ -607,7 +607,7 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed }) => {
         style={{ height: '100vh' }}
       >
         <div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn"
+          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto"
           onClick={e => e.stopPropagation()}
         >
           {/* Header — matches proformaList.jsx header exactly */}

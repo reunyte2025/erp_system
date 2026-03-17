@@ -186,7 +186,7 @@ export const getProjectById = async (id) => {
  * 
  * @param {Object} projectData - Project information
  * @param {string} projectData.name - Project name (required)
- * @param {string} [projectData.servey_number] - Survey number
+ * @param {string} [projectData.cts_number] - CTS number
  * @param {string} [projectData.address] - Address
  * @param {string} [projectData.city] - City
  * @param {string} [projectData.state] - State
@@ -215,8 +215,8 @@ export const createProject = async (projectData) => {
     payload.name = projectData.name.trim();
     
     // Optional fields - only include if provided and not empty
-    if (projectData.servey_number?.trim()) {
-      payload.servey_number = projectData.servey_number.trim();
+    if (projectData.cts_number?.trim()) {
+      payload.cts_number = projectData.cts_number.trim();
     }
     
     if (projectData.address?.trim()) {

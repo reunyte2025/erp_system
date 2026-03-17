@@ -112,7 +112,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
       style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
     >
       <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
         style={{ 
           width: '100vw', 
           height: '100vh', 
@@ -301,7 +301,7 @@ const SuccessModal = ({ isOpen, onClose, onProceed, isDraft = false }) => {
       style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
     >
       <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
         style={{ 
           width: '100vw', 
           height: '100vh', 
@@ -372,7 +372,7 @@ const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, clientName, isLoading 
   return (
     <div className="fixed inset-0 z-[9999]" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
         onClick={!isLoading ? onClose : undefined}
       />
       <div className="relative z-10 flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
@@ -694,7 +694,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
         style={{ width: '100vw', height: '100vh', top: 0, left: 0, position: 'fixed', overflow: 'hidden' }}
         onClick={onClose}
       />
