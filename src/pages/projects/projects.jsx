@@ -59,26 +59,26 @@ const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
+      
       if (scrollY) {
         window.scrollTo(0, parseInt(scrollY || '0') * -1);
       }
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
@@ -102,7 +102,7 @@ const SuccessModal = ({ isOpen, onClose, onProceed }) => {
         onClick={onClose}
       />
       
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div 
           className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn"
           onClick={(e) => e.stopPropagation()}
@@ -156,7 +156,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
 
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = 'hidden';
+      
     } else {
       document.body.style.overflow = 'unset';
     }
@@ -391,7 +391,7 @@ const ClientDropdown = ({ value, onChange, disabled }) => {
             <span className="text-sm text-gray-800 truncate">
               {selectedClient.first_name} {selectedClient.last_name}
             </span>
-            <span className="text-xs text-gray-400 flex-shrink-0">ID: {selectedClient.id}</span>
+
           </div>
         ) : (
           <span className="text-sm text-gray-400">Select a client</span>
@@ -629,7 +629,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
     name: '',
     client_id: '',
     assigned_user_id: '',
-    servey_number: '',
+    cts_number: '',
     address: '',
     city: '',
     state: '',
@@ -642,26 +642,26 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
+      
       if (scrollY) {
         window.scrollTo(0, parseInt(scrollY || '0') * -1);
       }
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
@@ -698,7 +698,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
         name: '',
         client_id: '',
         assigned_user_id: '',
-        servey_number: '',
+        cts_number: '',
         address: '',
         city: '',
         state: '',
@@ -725,265 +725,222 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[9999] animate-fadeIn overflow-y-auto"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
-    >
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ 
-          width: '100vw', 
-          height: '100vh', 
-          top: 0, 
-          left: 0, 
-          position: 'fixed',
-          overflow: 'hidden'
-        }}
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4 py-10">
-        <div 
-          className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-scaleIn"
+
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto"
+          style={{ borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
-            <h2 className="text-xl font-bold text-gray-800">Create New Project</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              disabled={submitting}
-            >
-              <X className="w-6 h-6" />
-            </button>
+          {/* ── Header ── */}
+          <div className="bg-teal-700 px-6 py-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Building2 size={18} className="text-white" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-base leading-tight">Create New Project</p>
+                  <p className="text-teal-200 text-xs mt-0.5">Fill in the project details</p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                disabled={submitting}
+              >
+                <X size={16} className="text-white" />
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 max-h-[calc(100vh-200px)] overflow-y-auto">
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-slideDown">
-                {error}
-              </div>
-            )}
+          {/* ── Body ── */}
+          <form onSubmit={handleSubmit}>
+            <div className="bg-white p-5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-slideDown">
+                  {error}
+                </div>
+              )}
 
-            <div className="space-y-4">
-              {/* Project Name */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <Building2 className="w-4 h-4" />
-                  Project Name *
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="Enter project name"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                  required
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Client - Searchable Dropdown */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <Users className="w-4 h-4" />
-                  Client
-                </label>
-                <ClientDropdown
-                  value={formData.client_id}
-                  onChange={(clientId) => {
-                    setFormData(prev => ({ ...prev, client_id: clientId }));
-                    if (error) setError('');
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Assigned User - Required */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <User className="w-4 h-4" />
-                  Assigned User *
-                </label>
-                <UserDropdown
-                  value={formData.assigned_user_id}
-                  onChange={(userId) => {
-                    setFormData(prev => ({ ...prev, assigned_user_id: userId }));
-                    if (error) setError('');
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Is Draft Toggle */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <FileText className="w-4 h-4" />
-                  Save as Draft
-                </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, is_draft: !prev.is_draft }))}
+              <div className="space-y-4">
+                {/* Project Name */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <Building2 className="w-4 h-4" />
+                    Project Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="Enter project name"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    required
                     disabled={submitting}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
-                      formData.is_draft ? 'bg-teal-500' : 'bg-gray-200'
-                    } ${submitting ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                        formData.is_draft ? 'translate-x-6' : 'translate-x-1'
-                      }`}
+                  />
+                </div>
+
+                {/* Client - Searchable Dropdown */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <Users className="w-4 h-4" />
+                    Client
+                  </label>
+                  <ClientDropdown
+                    value={formData.client_id}
+                    onChange={(clientId) => {
+                      setFormData(prev => ({ ...prev, client_id: clientId }));
+                      if (error) setError('');
+                    }}
+                    disabled={submitting}
+                  />
+                </div>
+
+                {/* Assigned User - Required */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <User className="w-4 h-4" />
+                    Assigned User *
+                  </label>
+                  <UserDropdown
+                    value={formData.assigned_user_id}
+                    onChange={(userId) => {
+                      setFormData(prev => ({ ...prev, assigned_user_id: userId }));
+                      if (error) setError('');
+                    }}
+                    disabled={submitting}
+                  />
+                </div>
+
+                {/* Is Draft Toggle */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <FileText className="w-4 h-4" />
+                    Save as Draft
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, is_draft: !prev.is_draft }))}
+                      disabled={submitting}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
+                        formData.is_draft ? 'bg-teal-500' : 'bg-gray-200'
+                      } ${submitting ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                          formData.is_draft ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm text-gray-500">
+                      {formData.is_draft ? 'Draft — will not be published' : 'Active — will be published immediately'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* CTS Number */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <Hash className="w-4 h-4" />
+                    CTS Number
+                  </label>
+                  <input
+                    type="text"
+                    name="cts_number"
+                    value={formData.cts_number}
+                    onChange={handleInputChange}
+                    placeholder="Enter CTS number"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    disabled={submitting}
+                  />
+                </div>
+
+                {/* Address */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                    <MapPin className="w-4 h-4" />
+                    Address
+                  </label>
+                  <input
+                    type="text"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleInputChange}
+                    placeholder="Enter address"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    disabled={submitting}
+                  />
+                </div>
+
+                {/* City and State */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                      <MapPin className="w-4 h-4" />
+                      City
+                    </label>
+                    <input
+                      type="text"
+                      name="city"
+                      value={formData.city}
+                      onChange={handleInputChange}
+                      placeholder="Enter city"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      disabled={submitting}
                     />
-                  </button>
-                  <span className="text-sm text-gray-500">
-                    {formData.is_draft ? 'Draft — will not be published' : 'Active — will be published immediately'}
-                  </span>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                      <MapPin className="w-4 h-4" />
+                      State
+                    </label>
+                    <input
+                      type="text"
+                      name="state"
+                      value={formData.state}
+                      onChange={handleInputChange}
+                      placeholder="Enter state"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      disabled={submitting}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {/* Survey Number */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <Hash className="w-4 h-4" />
-                  Survey Number
-                </label>
-                <input
-                  type="text"
-                  name="servey_number"
-                  value={formData.servey_number}
-                  onChange={handleInputChange}
-                  placeholder="Enter survey number"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Address */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <MapPin className="w-4 h-4" />
-                  Address
-                </label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  placeholder="Enter address"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* City and State */}
-              <div className="grid grid-cols-2 gap-4">
+                {/* Pincode */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
                     <MapPin className="w-4 h-4" />
-                    City
+                    Pincode
                   </label>
                   <input
                     type="text"
-                    name="city"
-                    value={formData.city}
+                    name="pincode"
+                    value={formData.pincode}
                     onChange={handleInputChange}
-                    placeholder="Enter city"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+                    placeholder="Enter pincode"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                     disabled={submitting}
                   />
                 </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                    <MapPin className="w-4 h-4" />
-                    State
-                  </label>
-                  <input
-                    type="text"
-                    name="state"
-                    value={formData.state}
-                    onChange={handleInputChange}
-                    placeholder="Enter state"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                    disabled={submitting}
-                  />
-                </div>
-              </div>
 
-              {/* Pincode */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <MapPin className="w-4 h-4" />
-                  Pincode
-                </label>
-                <input
-                  type="text"
-                  name="pincode"
-                  value={formData.pincode}
-                  onChange={handleInputChange}
-                  placeholder="Enter pincode"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Start and End Date */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                    <PlayCircle className="w-4 h-4" />
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    name="start_date"
-                    value={formData.start_date}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                    disabled={submitting}
-                  />
-                </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                    <FileCheck className="w-4 h-4" />
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    name="end_date"
-                    value={formData.end_date}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                    disabled={submitting}
-                  />
-                </div>
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                  <FileText className="w-4 h-4" />
-                  Description
-                </label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Enter project description"
-                  rows={4}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all resize-none"
-                  disabled={submitting}
-                />
               </div>
             </div>
 
-            {/* Submit Button */}
-            <div className="mt-6 flex gap-3">
+            {/* ── Footer ── */}
+            <div className="px-5 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium"
+                className="px-4 py-2.5 text-slate-600 hover:bg-gray-100 rounded-xl transition-colors text-sm font-medium"
                 disabled={submitting}
               >
                 Cancel
@@ -991,16 +948,20 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="flex-1 px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                  submitting
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-teal-600 text-white hover:bg-teal-700'
+                }`}
               >
                 {submitting ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     Creating...
                   </>
                 ) : (
                   <>
-                    <Send className="w-5 h-5" />
+                    <Send className="w-4 h-4" />
                     Create Project
                   </>
                 )}

@@ -36,25 +36,25 @@ const ProformaDetailModal = ({ isOpen, onClose, proformaId }) => {
 
   useEffect(() => {
     if (isOpen && proformaId) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
       fetchProformaDetails();
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen, proformaId]);
 
@@ -119,10 +119,10 @@ const ProformaDetailModal = ({ isOpen, onClose, proformaId }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-scaleIn" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" onClick={onClose} style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
           {/* Header */}
           <div className="bg-gradient-to-r from-teal-600 to-teal-700 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
             <div className="flex items-center gap-3">
@@ -302,34 +302,34 @@ const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
           <div className="mb-6 flex justify-center">
             <div className="w-20 h-20 bg-teal-100 rounded-full flex items-center justify-center animate-bounce">
               <CheckCircle className="w-12 h-12 text-teal-600" />
@@ -364,11 +364,11 @@ const SelectClientQuotationModal = ({ isOpen, onClose, onProceed }) => {
 
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
+      
+      
+      
+      
+      
       setStep('client');
       setSelectedClient(null);
       setSelectedQuotation(null);
@@ -376,18 +376,18 @@ const SelectClientQuotationModal = ({ isOpen, onClose, onProceed }) => {
       setQuotationSearch('');
       fetchClients();
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      
+      
+      
+      
+      
+      
     }
     return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
+      
+      
+      
+      
     };
   }, [isOpen]);
 
@@ -465,10 +465,10 @@ const SelectClientQuotationModal = ({ isOpen, onClose, onProceed }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={onClose} />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={onClose} />
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
 
           {/* Header */}
           <div className="bg-teal-700 text-white px-5 py-4 flex justify-between items-center">
