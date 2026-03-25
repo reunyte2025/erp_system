@@ -8,22 +8,26 @@ import { createContext, useContext } from 'react';
  * Provides the current user's role throughout the app without prop-drilling.
  *
  * Roles (from backend):
- *   Admin   → full access (can delete/undo clients, see all actions)
- *   Manager → read-only on destructive actions (no delete/undo)
- *   User    → read-only on destructive actions (no delete/undo)
+ *   Admin   → full access (delete/undo, sees Users tab, sees Actions columns)
+ *   Manager → elevated access (sees Users tab, sees Actions columns)
+ *   User    → standard access (no destructive actions, no Users tab)
  *
  * Usage:
- *   // In any child component:
- *   const { isAdmin, userRole } = useRole();
+ *   const { isAdmin, isManager, isAdminOrManager, userRole } = useRole();
  *
  * Provider is placed in AuthenticatedLayout so it wraps every protected page.
  */
 
-const RoleContext = createContext({ userRole: 'User', isAdmin: false });
+const RoleContext = createContext({
+  userRole:         'User',
+  isAdmin:          false,
+  isManager:        false,
+  isAdminOrManager: false,
+});
 
 /**
  * Hook to consume role context
- * @returns {{ userRole: string, isAdmin: boolean }}
+ * @returns {{ userRole: string, isAdmin: boolean, isManager: boolean, isAdminOrManager: boolean }}
  */
 export const useRole = () => useContext(RoleContext);
 

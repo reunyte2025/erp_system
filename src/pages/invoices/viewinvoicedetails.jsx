@@ -5,12 +5,14 @@ import {
   CheckCircle, Clock, Send, FileText, XCircle,
   Building2, User, MapPin, Hash, Calendar,
   Tag, Percent, ChevronRight, Mail, Receipt,
-  Briefcase, ShoppingCart, Users, X, Paperclip,
-  DollarSign, FileEdit,
+  Briefcase, ShoppingCart, Users, X, Paperclip, Truck,
+  DollarSign, FileEdit, ChevronDown, Search,
 } from 'lucide-react';
 import { getInvoiceById } from '../../services/invoices';
+import { getQuotationById } from '../../services/quotation';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
+import { getVendors } from '../../services/vendors';
 import api from '../../services/api';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
@@ -54,8 +56,9 @@ const fmtInvNum = (n) => {
 
 const fmtINR = (v) => {
   const n = parseFloat(v) || 0;
+  // Always show 2 decimal places to preserve amounts like 61,371.80
   return new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
 };
@@ -120,6 +123,44 @@ function numberToWords(n) {
   return str;
 }
 
+/**
+ * Determine compliance type from items
+ * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
+ */
+const getComplianceType = (items = []) => {
+  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
+  const hasExec = items.some(it => [3, 4].includes(it.compliance_category));
+  
+  if (hasCerts && hasExec) return 'mixed';
+  if (hasCerts) return 'certificates';
+  if (hasExec) return 'execution';
+  return 'none';
+};
+
+/**
+ * Get display text for compliance type
+ */
+const getComplianceTypeLabel = (items = []) => {
+  const type = getComplianceType(items);
+  switch (type) {
+    case 'certificates':
+      return 'Certificates (Construction & Occupational)';
+    case 'execution':
+      return 'Execution (Water Main & STP)';
+    case 'mixed':
+      return 'Mixed Compliance (Certificates & Execution)';
+    default:
+      return 'No Compliance Items';
+  }
+};
+
+/**
+ * Check if invoice has Execution compliance items (categories 3 or 4)
+ */
+const hasExecutionCompliance = (items = []) => {
+  return items.some(it => [3, 4].includes(it.compliance_category));
+};
+
 // ─── Sub-components ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
@@ -171,9 +212,12 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 const QuickInfoCard = ({ invoice, client, project }) => {
   const [activeTab, setActiveTab] = useState('info');
 
-  const clientDisplayName = client
-    ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Unknown Client'
-    : `Client #${invoice.client}`;
+  const isVendorInv = Boolean(invoice.vendor) && !invoice.client;
+  const clientDisplayName = isVendorInv
+    ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
+    : client
+      ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Unknown Client'
+      : invoice.client_name || (invoice.client ? `Client #${invoice.client}` : '—');
 
   const getEventStyle = (event = '') => {
     const e = event.toLowerCase();
@@ -529,6 +573,13 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [visible,       setVisible]       = useState(false);
   const [sendModal,     setSendModal]     = useState(false);
 
+  // Create Purchase Order Modal state
+  const [showCreatePOModal, setShowCreatePOModal] = useState(false);
+  const [poVendors,         setPoVendors]         = useState([]);
+  const [poVendorsLoading,  setPoVendorsLoading]  = useState(false);
+  const [poSelectedVendor,  setPoSelectedVendor]  = useState(null);
+  const [poVendorSearch,    setPoVendorSearch]    = useState('');
+
   // Scroll lock when send modal is open
   useEffect(() => {
     if (sendModal) {
@@ -566,20 +617,73 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
       const inv = res.data;
       setInvoice(inv);
-      if (inv.client) {
+
+      // ── Resolve client ID and project ID ────────────────────────────────────
+      // When invoice is generated from quotation, backend may not populate:
+      //   inv.client, inv.client_name, inv.project, inv.quotation
+      // Strategy:
+      //   1. Use inv.client / inv.project if present
+      //   2. If inv.quotation is populated, fetch that quotation
+      //   3. If not, find the quotation by matching trailing digits of invoice_number
+      let resolvedClientId  = inv.client  || null;
+      let resolvedProjectId = inv.project || null;
+
+      // Only run quotation lookup if we're missing client or project
+      if (!resolvedClientId || !resolvedProjectId) {
+        let quotationData = null;
+
+        // Try 1: use inv.quotation field directly
+        if (inv.quotation) {
+          try {
+            const qRes = await getQuotationById(inv.quotation);
+            quotationData = qRes?.data || qRes;
+          } catch { /* silently ignore */ }
+        }
+
+        // Try 2: match by trailing digits (INV-202603-3075714 → "3075714" → QT-xxx-3075714)
+        if (!quotationData && inv.invoice_number) {
+          try {
+            const invTrailing = String(inv.invoice_number).split('-').pop();
+            const allQ = await api.get('/quotations/get_all_quotations/', {
+              params: { page: 1, page_size: 100 },
+            });
+            const qResults =
+              allQ.data?.data?.results ||
+              allQ.data?.results ||
+              [];
+            const matched = qResults.find((q) => {
+              const qTrailing = String(q.quotation_number || '').split('-').pop();
+              return qTrailing && qTrailing === invTrailing;
+            });
+            if (matched) quotationData = matched;
+          } catch { /* silently ignore */ }
+        }
+
+        if (quotationData) {
+          if (!resolvedClientId  && quotationData.client)  resolvedClientId  = quotationData.client;
+          if (!resolvedProjectId && quotationData.project) resolvedProjectId = quotationData.project;
+        }
+      }
+
+      // ── Load client ──────────────────────────────────────────────────────────
+      if (resolvedClientId) {
         try {
-          const cr = await getClientById(inv.client);
+          const cr = await getClientById(resolvedClientId);
           if (cr.status === 'success' && cr.data) setClient(cr.data);
         } catch {}
       }
-      if (inv.project) {
+
+      // ── Load project ──────────────────────────────────────────────────────────
+      if (resolvedProjectId) {
         try {
           const pr  = await getProjects({ page: 1, page_size: 500 });
           const all = pr?.data?.results || pr?.results || [];
-          const found = all.find(proj => String(proj.id) === String(inv.project));
+          const found = all.find(proj => String(proj.id) === String(resolvedProjectId));
           if (found) setProject(found);
         } catch {}
       }
+
+      // ── Load created-by name ────────────────────────────────────────────────
       if (inv.created_by) {
         try {
           const ur = await api.get('/users/get_user/', { params: { id: inv.created_by } });
@@ -589,6 +693,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           }
         } catch {}
       }
+
       setTimeout(() => setVisible(true), 60);
     } catch (e) {
       setFetchError(e.message || 'Failed to load invoice details');
@@ -623,6 +728,52 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     }
   };
 
+  /**
+   * Open Create PO Modal and fetch vendors.
+   * Project is pre-filled from the invoice — only vendor selection is needed.
+   */
+  const handleOpenCreatePOModal = async () => {
+    setPoSelectedVendor(null);
+    setPoVendorSearch('');
+    setPoVendors([]);
+    setShowCreatePOModal(true);
+    setPoVendorsLoading(true);
+    try {
+      const response = await getVendors({ page: 1, page_size: 100 });
+      if (response.status === 'success' && response.data) {
+        setPoVendors(response.data.results || []);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch vendors:', error);
+    } finally {
+      setPoVendorsLoading(false);
+    }
+  };
+
+  /**
+   * Navigate to /purchase/form with pre-filled vendor + project data.
+   */
+  const handleCreatePO = () => {
+    if (!poSelectedVendor) return;
+    const prefilledProject = project
+      ? { id: project.id, name: project.name || project.title, city: project.city, state: project.state }
+      : { id: invoice.project, name: invoice.project_name || `Project #${invoice.project}` };
+
+    navigate('/purchase/form', {
+      state: {
+        selectedVendor:  poSelectedVendor,
+        selectedProject: prefilledProject,
+      },
+    });
+    setShowCreatePOModal(false);
+  };
+
+  const handleCloseCreatePOModal = () => {
+    setShowCreatePOModal(false);
+    setPoSelectedVendor(null);
+    setPoVendorSearch('');
+  };
+
   if (loading)    return <LoadingView />;
   if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/invoices')} />;
   if (!invoice)   return <ErrorView message="Invoice not available." onRetry={fetchData} onBack={() => navigate('/invoices')} />;
@@ -636,17 +787,36 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const discAmt    = parseFloat(((subtotal * discRate) / 100).toFixed(2));
   const taxable    = parseFloat((subtotal - discAmt).toFixed(2));
   const gstAmt     = parseFloat(((taxable * gstRate) / 100).toFixed(2));
-  const grandTotal = parseFloat(invoice.grand_total || (taxable + gstAmt));
+  // Always use grand_total from API — it's the authoritative value including all server-side rounding
+  const grandTotal = parseFloat(invoice.grand_total || invoice.total_outstanding || (taxable + gstAmt));
   const items      = invoice.items || [];
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  const clientName = client
-    ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
-    : `Client #${invoice.client}`;
+  // Detect vendor invoice: has vendor but no client (generated from a Purchase Order)
+  const isVendorInvoice = Boolean(invoice.vendor) && !invoice.client;
+
+  const billedToName = isVendorInvoice
+    ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
+    : client
+      ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
+      : invoice.client_name
+        ? invoice.client_name
+        : invoice.client
+          ? `Client #${invoice.client}`
+          : '—';
+
+  // Keep clientName alias for legacy usage (SendToClientModal etc.)
+  const clientName = billedToName;
+
   const projName = project
     ? (project.name || project.title || `Project #${invoice.project}`)
-    : (invoice.project ? `Project #${invoice.project}` : '—');
+    : invoice.project_name
+      ? invoice.project_name
+      : invoice.project
+        ? `Project #${invoice.project}`
+        : '—';
+
   const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
 
   return (
@@ -807,7 +977,16 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             </button>
             {/* Coming soon — solid slate buttons, not clickable */}
             <button className="vid-btn-soon"><Briefcase size={14} /> Proceed to Work Order</button>
-            <button className="vid-btn-soon"><ShoppingCart size={14} /> Create Purchase Order</button>
+            {/* Create Purchase Order — visible only for Execution compliance */}
+            {hasExecutionCompliance(invoice.items || []) && (
+              <button 
+                className="vid-btn-p" 
+                onClick={handleOpenCreatePOModal}
+                title="Create a purchase order for execution items (Water Main, STP)"
+              >
+                <ShoppingCart size={14} /> Create Purchase Order
+              </button>
+            )}
             <button className="vid-btn-soon"><Users size={14} /> Create Vendor</button>
           </div>
         </div>
@@ -857,11 +1036,28 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           {/* ══════════ PARTIES ══════════ */}
           <div className="vid-parties">
             <div className="vid-party">
-              <div className="vid-plabel">Billed To</div>
-              <div className="vid-pavatar">{clientName.charAt(0).toUpperCase()}</div>
-              <div className="vid-pname">{clientName}</div>
-              {client?.email        && <div className="vid-pdetail"><User  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
-              {client?.phone_number && <div className="vid-pdetail"><Hash  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
+              <div className="vid-plabel">{isVendorInvoice ? 'Vendor' : 'Billed To'}</div>
+              <div className="vid-pavatar" style={isVendorInvoice ? { background: 'linear-gradient(135deg,#0d9488,#0f766e)' } : {}}>
+                {(billedToName && billedToName !== '—' ? billedToName : isVendorInvoice ? 'V' : '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="vid-pname">{billedToName}</div>
+              {isVendorInvoice ? (
+                <>
+                  {invoice.vendor && (
+                    <div className="vid-pdetail"><Truck size={11} style={{ opacity: .45, flexShrink: 0 }} />Vendor ID #{invoice.vendor}</div>
+                  )}
+                  <div className="vid-pdetail" style={{ marginTop: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#0f766e', border: '1px solid #6ee7b7', borderRadius: 20, padding: '1px 7px' }}>
+                      Purchase Order Invoice
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {client?.email        && <div className="vid-pdetail"><User  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
+                  {client?.phone_number && <div className="vid-pdetail"><Hash  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
+                </>
+              )}
             </div>
             <div className="vid-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
             <div className="vid-party vid-party--proj">
@@ -898,6 +1094,35 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
             {/* LEFT: Line Items */}
             <div className="vid-body-left">
+              {/* ══════════ COMPLIANCE TYPE INDICATOR ══════════ */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                marginBottom: 12,
+                padding: '10px 16px',
+                background: '#f0fdf4',
+                border: '1.5px solid #bbf7d0',
+                borderRadius: 8,
+              }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#0d6360',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}>
+                  Compliance Type
+                </span>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#059669',
+                }}>
+                  {getComplianceTypeLabel(items)}
+                </span>
+              </div>
+
               <div className="vid-sec-hdr">
                 <FileText size={15} color="#0f766e" />
                 Services &amp; Compliance Items
@@ -1039,6 +1264,182 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           onClose={() => setSendModal(false)}
         />
       )}
+
+      {/* ═══════════ CREATE PURCHASE ORDER MODAL ═══════════ */}
+      {showCreatePOModal && (() => {
+        const avatarColors  = ['bg-violet-500','bg-blue-500','bg-emerald-500','bg-orange-500','bg-rose-500','bg-cyan-500','bg-amber-500','bg-indigo-500'];
+        const getAvatarColor = (id) => avatarColors[(id || 0) % avatarColors.length];
+        const prefilledProjectName = project
+          ? (project.name || project.title || `Project #${project.id}`)
+          : (invoice.project_name || `Project #${invoice.project}`);
+        const filteredVendors = poVendors.filter((v) => {
+          const name  = (v.name || v.company_name || '').toLowerCase();
+          const email = (v.email || '').toLowerCase();
+          return name.includes(poVendorSearch.toLowerCase()) || email.includes(poVendorSearch.toLowerCase());
+        });
+
+        return (
+          <div className="fixed inset-0 z-[9999] animate-po-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
+            <div
+              className="absolute inset-0 bg-black/50"
+              style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+              onClick={handleCloseCreatePOModal}
+            />
+            <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+              <div
+                className="relative w-full max-w-md overflow-hidden animate-po-scaleIn"
+                style={{ borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* ── Header — teal, exact copy from purchase.jsx ── */}
+                <div className="bg-teal-700 px-6 py-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                        <FileText size={18} className="text-white" />
+                      </div>
+                      <div>
+                        <p className="text-white font-semibold text-base leading-tight">Create Purchase Order</p>
+                        <p className="text-teal-200 text-xs mt-0.5">Select a vendor to continue</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleCloseCreatePOModal}
+                      className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                    >
+                      <X size={16} className="text-white" />
+                    </button>
+                  </div>
+
+                  {/* Progress bar — single filled step */}
+                  <div className="flex gap-2">
+                    <div className="flex-1 h-1 rounded-full bg-white/40" />
+                    <div className="flex-1 h-1 rounded-full bg-white/40" />
+                  </div>
+
+                  {/* Step labels */}
+                  <div className="flex justify-between mt-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold bg-white text-teal-700">1</div>
+                      <span className="text-xs font-medium text-white">Select Vendor</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-teal-300/60">Project (pre-selected)</span>
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold bg-white/20 text-teal-300/60">✓</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Body ── */}
+                <div className="bg-white" style={{ minHeight: '340px' }}>
+                  <div className="p-5">
+
+                    {/* Project locked chip */}
+                    <div className="flex items-center gap-2.5 mb-5 px-3 py-2.5 bg-teal-50 rounded-xl border border-teal-200/80">
+                      <div className="w-8 h-8 bg-teal-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <Building2 size={14} className="text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-teal-600 uppercase tracking-wide mb-0.5">Project (pre-selected)</p>
+                        <p className="text-sm font-semibold text-teal-900 truncate">{prefilledProjectName}</p>
+                      </div>
+                      <span className="text-xs bg-teal-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">Locked</span>
+                    </div>
+
+                    <p className="text-sm font-semibold text-gray-700 mb-0.5">Choose a Vendor</p>
+                    <p className="text-xs text-gray-400 mb-4">Select the vendor this purchase order is for</p>
+
+                    {poSelectedVendor && (
+                      <div className="mb-3 flex items-center justify-between px-3 py-2.5 bg-teal-50 rounded-xl border border-teal-200/80">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle size={16} className="text-teal-600 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-teal-800">{poSelectedVendor.name || poSelectedVendor.company_name}</span>
+                        </div>
+                        <button onClick={() => setPoSelectedVendor(null)} className="text-xs text-teal-500 hover:text-teal-700 font-medium transition-colors">Clear</button>
+                      </div>
+                    )}
+
+                    <div className="relative mb-3">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search by name or email..."
+                        value={poVendorSearch}
+                        onChange={(e) => setPoVendorSearch(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      />
+                    </div>
+
+                    <div className="overflow-y-auto rounded-xl border border-gray-200 bg-white" style={{ maxHeight: '220px' }}>
+                      {poVendorsLoading ? (
+                        <div className="flex items-center justify-center py-10">
+                          <Loader2 size={24} className="text-teal-500 animate-spin" />
+                        </div>
+                      ) : filteredVendors.length > 0 ? (
+                        filteredVendors.map((vendor) => {
+                          const isSelected = poSelectedVendor?.id === vendor.id;
+                          const vendorName = vendor.name || vendor.company_name || 'Vendor';
+                          return (
+                            <div
+                              key={vendor.id}
+                              onClick={() => setPoSelectedVendor(vendor)}
+                              className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors ${isSelected ? 'bg-teal-50' : 'hover:bg-gray-50'}`}
+                            >
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs flex-shrink-0 ${isSelected ? 'bg-teal-600' : getAvatarColor(vendor.id)}`}>
+                                {(vendorName[0] || '').toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-semibold truncate transition-colors ${isSelected ? 'text-teal-800' : 'text-gray-800'}`}>{vendorName}</p>
+                                <p className="text-xs text-gray-400 truncate">{vendor.email || ''}</p>
+                              </div>
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-teal-600 border-teal-600' : 'border-gray-300'}`}>
+                                {isSelected && (
+                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="py-10 text-center">
+                          <User size={32} className="text-gray-300 mx-auto mb-2" />
+                          <p className="text-sm text-gray-400">No vendors found</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Footer ── */}
+                <div className="px-5 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+                  <button
+                    onClick={handleCloseCreatePOModal}
+                    className="px-4 py-2.5 text-slate-600 hover:bg-gray-100 rounded-xl transition-colors text-sm font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreatePO}
+                    disabled={!poSelectedVendor}
+                    className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${poSelectedVendor ? 'bg-teal-600 text-white hover:bg-teal-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                  >
+                    Create Purchase Order →
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <style>{`
+              @keyframes po-fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+              @keyframes po-scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+              .animate-po-fadeIn  { animation: po-fadeIn  0.2s ease-out; }
+              .animate-po-scaleIn { animation: po-scaleIn 0.3s cubic-bezier(0.16,1,0.3,1); }
+            `}</style>
+          </div>
+        );
+      })()}
 
     </>
   );

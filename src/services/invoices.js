@@ -70,18 +70,24 @@ export const createInvoice = async (invoiceData) => {
   try {
     serviceLogger.log('[Invoice Service] Creating invoice:', invoiceData);
 
-    if (!invoiceData.proforma) throw new Error('Proforma is required');
+    // Either proforma or quotation is required (but not both)
+    if (!invoiceData.proforma && !invoiceData.quotation) {
+      throw new Error('Either Proforma or Quotation is required');
+    }
 
-    // Backend derives client, quotation, items etc. from the proforma.
-    // Only proforma + advance_amount are required for the generate-invoice flow.
+    // Backend requires BOTH fields in payload (one will be the ID, other will be null)
     const payload = {
-      proforma:        Number(invoiceData.proforma),
+      proforma:        invoiceData.proforma ? Number(invoiceData.proforma) : null,
+      quotation:       invoiceData.quotation ? Number(invoiceData.quotation) : null,
       advance_amount:  String(invoiceData.advance_amount ?? '0.00'),
     };
 
     // Optional fields — only include when explicitly provided
-    if (invoiceData.client)   payload.client   = Number(invoiceData.client);
-    if (invoiceData.quotation) payload.quotation = Number(invoiceData.quotation);
+    if (invoiceData.client) {
+      payload.client = Number(invoiceData.client);
+    }
+
+    serviceLogger.log('[Invoice Service] Sending payload to API:', JSON.stringify(payload, null, 2));
 
     const response = await api.post(ENDPOINTS.CREATE, payload);
     return response.data;
@@ -94,7 +100,13 @@ export const createInvoice = async (invoiceData) => {
         JSON.stringify(error.response?.data);
       throw new Error(`Validation Error: ${backendError}`);
     }
+    // For 409 (and any other status), re-throw the ORIGINAL error so callers
+    // can inspect error.response.status (e.g. to detect "Invoice already exists")
+    if (error.response) {
+      throw error;
+    }
     const errorMessage = normalizeError(error);
+    serviceLogger.error('[Invoice Service] createInvoice failed:', errorMessage);
     throw new Error(errorMessage);
   }
 };

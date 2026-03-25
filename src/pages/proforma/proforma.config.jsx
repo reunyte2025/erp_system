@@ -1,46 +1,85 @@
-import { FileEdit } from 'lucide-react';
+import { FileEdit, FileText, Clock, CheckCircle2, FileX, AlertCircle } from 'lucide-react';
 
 /**
  * ============================================================================
  * PROFORMA MODULE CONFIGURATION
  * ============================================================================
+ * Left icon: ALWAYS FileText — only its COLOR changes based on status.
+ * Status badge: emoji + text pill on the right (no border).
+ *
+ * STATUS IDs (from backend):
+ *   1 = Draft
+ *   2 = Sent (for approval)
+ *   3 = Approved
+ *   4 = Rejected
+ *   5 = Expired
  */
 
 // ============================================================================
-// HELPER FUNCTIONS
+// UNIFIED STATUS RESOLVER
+// The API returns status in THREE possible shapes:
+//   1. Numeric string  → row.status = "2"
+//   2. Snake-case slug → row.status = "sent"
+//   3. Display string  → row.status_display = "Sent for Approval"
+// resolveStatus() handles all three so the badge is always correct.
 // ============================================================================
 
-// Icon colors — backend: 1=Draft 2=Sent(pending) 3=Approved 4=Rejected 5=Expired
-const getStatusIconColor = (status) => {
-  const s = String(status || '');
-  const sl = s.toLowerCase();
-  const colors = {
-    '1': 'text-slate-500',   'draft':    'text-slate-500',
-    '2': 'text-amber-500',   'sent':     'text-amber-500',
-    '3': 'text-green-600',   'approved': 'text-green-600',
-    '4': 'text-red-500',     'rejected': 'text-red-500',
-    '5': 'text-gray-400',    'expired':  'text-gray-400',
-  };
-  return colors[s] || colors[sl] || 'text-gray-500';
+const STATUS_MAP = {
+  // Numeric IDs
+  '1': { iconColor: 'text-blue-600',   iconBg: 'bg-blue-100/30',   emoji: '📄', text: 'Draft',             badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
+  '2': { iconColor: 'text-amber-500',  iconBg: 'bg-amber-100/30',  emoji: '📤', text: 'Sent for Approval', badgeBg: 'bg-amber-100',  badgeText: 'text-amber-700'  },
+  '3': { iconColor: 'text-green-600',  iconBg: 'bg-green-100/30',  emoji: '✅', text: 'Approved',          badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
+  '4': { iconColor: 'text-red-500',    iconBg: 'bg-red-100/30',    emoji: '❌', text: 'Rejected',          badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
+  '5': { iconColor: 'text-gray-400',   iconBg: 'bg-gray-100/30',   emoji: '⏰', text: 'Expired',           badgeBg: 'bg-gray-100',   badgeText: 'text-gray-600'   },
+
+  // Snake-case slugs → alias to numeric key
+  'draft':    '1',
+  'sent':     '2',
+  'approved': '3',
+  'rejected': '4',
+  'expired':  '5',
+
+  // Human-readable display strings (status_display field from API)
+  'sent for approval': '2',
 };
 
-// Status badges — backend: 1=Draft 2=Sent 3=Approved 4=Rejected 5=Expired
-const getStatusBadge = (status) => {
-  const s  = String(status || '');
-  const sl = s.toLowerCase();
-  const map = {
-    '1': { text: 'Draft',              bgColor: 'bg-slate-100',  textColor: 'text-slate-600',  icon: '📄' },
-    '2': { text: 'Sent for Approval',  bgColor: 'bg-amber-100',  textColor: 'text-amber-700',  icon: '⏳' },
-    '3': { text: 'Approved',           bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: '✅' },
-    '4': { text: 'Rejected',           bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: '❌' },
-    '5': { text: 'Expired',            bgColor: 'bg-gray-100',   textColor: 'text-gray-500',   icon: '🕒' },
-    'draft':    { text: 'Draft',              bgColor: 'bg-slate-100',  textColor: 'text-slate-600',  icon: '📄' },
-    'sent':     { text: 'Sent for Approval',  bgColor: 'bg-amber-100',  textColor: 'text-amber-700',  icon: '⏳' },
-    'approved': { text: 'Approved',           bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: '✅' },
-    'rejected': { text: 'Rejected',           bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: '❌' },
-    'expired':  { text: 'Expired',            bgColor: 'bg-gray-100',   textColor: 'text-gray-500',   icon: '🕒' },
+const resolveEntry = (key) => {
+  const val = STATUS_MAP[key];
+  if (!val) return STATUS_MAP['1'];
+  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['1'];
+  return val;
+};
+
+const resolveStatus = (row) => {
+  if (!row) return STATUS_MAP['1'];
+  const display = String(row.status_display || '').toLowerCase().trim();
+  if (display && STATUS_MAP[display] !== undefined) return resolveEntry(display);
+  const raw = String(row.status ?? '').toLowerCase().trim();
+  if (raw && STATUS_MAP[raw] !== undefined) return resolveEntry(raw);
+  return STATUS_MAP['1'];
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+const getStatusIconConfig = (rowOrStatus) => {
+  const row = (rowOrStatus && typeof rowOrStatus === 'object') ? rowOrStatus : { status: rowOrStatus };
+  const s = resolveStatus(row);
+  // Icon is ALWAYS FileText — only color + bg change based on status
+  return { icon: FileText, color: s.iconColor, bgColor: s.iconBg, lightBg: s.iconBg };
+};
+
+const getStatusBadge = (rowOrStatus) => {
+  const row = (rowOrStatus && typeof rowOrStatus === 'object') ? rowOrStatus : { status: rowOrStatus };
+  const s = resolveStatus(row);
+  return {
+    text:        s.text,
+    icon:        s.emoji,
+    bgColor:     s.badgeBg,
+    textColor:   s.badgeText,
+    borderColor: '', // kept for backwards compat with any callers that use it
   };
-  return map[s] || map[sl] || map['1'];
 };
 
 const formatCurrency = (amount) => {
@@ -51,34 +90,30 @@ const formatCurrency = (amount) => {
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
   try {
-    const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, '0');
+    const date  = new Date(dateString);
+    const day   = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
+    const year  = date.getFullYear();
     return `${day}-${month}-${year}`;
-  } catch {
-    return 'N/A';
-  }
+  } catch { return 'N/A'; }
 };
 
 const formatTimestamp = (dateString) => {
   if (!dateString) return '';
   try {
-    const date = new Date(dateString);
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const date    = new Date(dateString);
+    const days    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months  = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dayName = days[date.getDay()];
-    const day = date.getDate();
-    const month = months[date.getMonth()];
-    const year = date.getFullYear();
-    let hours = date.getHours();
+    const day     = date.getDate();
+    const month   = months[date.getMonth()];
+    const year    = date.getFullYear();
+    let hours     = date.getHours();
     const minutes = String(date.getMinutes()).padStart(2, '0');
-    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const ampm    = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
     return `${dayName} ${day} ${month} ${year} ${hours}:${minutes} ${ampm}`;
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 };
 
 const getClientName = (row) => {
@@ -103,13 +138,14 @@ const truncateText = (text, maxLength = 30) => {
 // ============================================================================
 
 const columns = [
-  // Proforma Number Column
   {
     key: 'proforma_number',
     label: 'Proforma Number',
+    sortField: 'proforma_number',
     render: (row) => {
-      const status = row.status_display || row.status;
-      const iconColor = getStatusIconColor(status);
+      // Icon is always FileText, color changes based on status
+      const iconConfig    = getStatusIconConfig(row);
+      const IconComponent = iconConfig.icon; // always FileText
 
       const formatProformaNumber = (number) => {
         if (!number) return `PF-2026-${String(row.id || '00000').padStart(5, '0')}`;
@@ -125,8 +161,9 @@ const columns = [
 
       return (
         <div className="flex items-center gap-3">
-          <div className={`${iconColor} flex-shrink-0`}>
-            <FileEdit className="w-9 h-9" />
+          {/* Left icon — always same document icon, color reflects status */}
+          <div className={`${iconConfig.lightBg} rounded-xl p-2 flex items-center justify-center flex-shrink-0`}>
+            <IconComponent className={`w-5 h-5 ${iconConfig.color}`} />
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-gray-900 text-sm">
@@ -141,7 +178,6 @@ const columns = [
     },
   },
 
-  // Project / Client Name Column
   {
     key: 'client',
     label: 'Project Name',
@@ -152,23 +188,20 @@ const columns = [
     ),
   },
 
-  // Notes Column
   {
     key: 'notes',
     label: 'Notes',
     render: (row) => (
-      <div className="max-w-xs" title={row.notes || 'No notes'}>
-        <span className="text-gray-700 text-sm">
-          {row.notes ? truncateText(row.notes, 30) : 'abcdef'}
-        </span>
+      <div className="max-w-xs" title={row.notes || '—'}>
+        <span className="text-gray-700 text-sm">{row.notes ? truncateText(row.notes, 30) : '—'}</span>
       </div>
     ),
   },
 
-  // Total Outstanding Column
   {
     key: 'grand_total',
     label: 'Total Outstanding',
+    sortField: 'grand_total',
     render: (row) => (
       <span className="text-gray-900 font-medium text-sm">
         {formatCurrency(row.grand_total || row.total_amount || 0)}
@@ -176,24 +209,22 @@ const columns = [
     ),
   },
 
-  // Date Column
   {
     key: 'created_at',
     label: 'Date',
+    sortField: 'created_at',
     render: (row) => (
-      <span className="text-gray-700 text-sm">
-        {formatDate(row.created_at || row.date)}
-      </span>
+      <span className="text-gray-700 text-sm">{formatDate(row.created_at || row.date)}</span>
     ),
   },
 
-  // Status Column
   {
     key: 'status',
     label: 'Status',
+    sortField: 'status',
     render: (row) => {
-      const status = row.status_display || row.status;
-      const statusConfig = getStatusBadge(status);
+      // Right-side badge: emoji icon + text
+      const statusConfig = getStatusBadge(row);
       return (
         <div className="flex items-center">
           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}>
@@ -208,32 +239,24 @@ const columns = [
 ];
 
 // ============================================================================
-// MAIN CONFIGURATION OBJECT
+// MAIN CONFIG
 // ============================================================================
 
 const proformaConfig = {
-  title: 'Proforma List',
-  icon: FileEdit,
-  addButtonLabel: 'Add Proforma',
+  title:           'Proformas',
+  icon:            FileEdit,
+  addButtonLabel:  'Add',
   columns,
-  showSearch: true,
-  showFilter: true,
-  loadingMessage: 'Loading proformas...',
-  emptyMessage: 'No Proformas Found',
+  showSearch:      true,
+  showFilter:      true,
+  loadingMessage:  'Loading proformas...',
+  emptyMessage:    'No Proformas Found',
   emptySubMessage: 'Start by adding your first proforma',
-  note: 'Click on Proforma to get more details',
-  defaultSort: { field: 'created_at', direction: 'desc' },
+  note:            'Click on Proforma to get more details',
+  defaultSort:     { field: 'created_at', direction: 'desc' },
   defaultPageSize: 10,
 };
 
 export default proformaConfig;
 
-export {
-  formatCurrency,
-  formatDate,
-  formatTimestamp,
-  getClientName,
-  getStatusBadge,
-  getStatusIconColor,
-  truncateText,
-};
+export { formatCurrency, formatDate, formatTimestamp, getClientName, getStatusBadge, getStatusIconConfig, truncateText };

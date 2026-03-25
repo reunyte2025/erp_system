@@ -1,52 +1,84 @@
-import { Receipt } from 'lucide-react';
+import { Receipt, FileText, Clock, CheckCircle2, FileX } from 'lucide-react';
 
 /**
  * ============================================================================
  * INVOICES MODULE CONFIGURATION
  * ============================================================================
- * Follows exact same pattern as proforma.config.jsx
+ * Left icon: ALWAYS FileText — only its COLOR changes based on status.
+ * Status badge: emoji + text pill on the right (no border).
+ *
+ * STATUS IDs (from backend):
+ *   1 = Draft
+ *   2 = Under Review
+ *   3 = In Progress
+ *   4 = Placed Work-order
+ *   5 = Failed
  */
 
 // ============================================================================
-// HELPER FUNCTIONS
+// UNIFIED STATUS RESOLVER
+// The API returns status in THREE possible shapes:
+//   1. Numeric string  → row.status = "3"
+//   2. Snake-case slug → row.status = "in_progress"
+//   3. Display string  → row.status_display = "In Progress"
+// resolveStatus() handles all three so the badge is always correct.
 // ============================================================================
 
-const getStatusIconColor = (status) => {
-  const s = String(status || '').toLowerCase();
-  const colors = {
-    'draft':             'text-blue-500',
-    'pending':           'text-yellow-600',
-    'in_progress':       'text-yellow-600',
-    'under_review':      'text-yellow-600',
-    'verified':          'text-green-600',
-    'placed_work_order': 'text-green-600',
-    'failed':            'text-red-600',
-    '1': 'text-blue-500',
-    '2': 'text-yellow-600',
-    '3': 'text-yellow-600',
-    '4': 'text-green-600',
-    '5': 'text-red-600',
-  };
-  return colors[s] || 'text-gray-600';
+const STATUS_MAP = {
+  // Numeric IDs
+  '1': { iconColor: 'text-blue-600',    iconBg: 'bg-blue-100/30',    emoji: '📄', text: 'Draft',             badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
+  '2': { iconColor: 'text-yellow-600',  iconBg: 'bg-yellow-100/30',  emoji: '🔍', text: 'Under Review',      badgeBg: 'bg-yellow-100', badgeText: 'text-yellow-700' },
+  '3': { iconColor: 'text-yellow-600',  iconBg: 'bg-yellow-100/30',  emoji: '🕐', text: 'In Progress',       badgeBg: 'bg-yellow-100', badgeText: 'text-yellow-700' },
+  '4': { iconColor: 'text-green-600',   iconBg: 'bg-green-100/30',   emoji: '✅', text: 'Placed Work-order', badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
+  '5': { iconColor: 'text-red-600',     iconBg: 'bg-red-100/30',     emoji: '❌', text: 'Failed',            badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
+
+  // Snake-case slugs → alias to numeric key
+  'draft':             '1',
+  'pending':           '2',
+  'under_review':      '2',
+  'in_progress':       '3',
+  'verified':          '4',
+  'placed_work_order': '4',
+  'failed':            '5',
+
+  // Human-readable display strings (status_display field from API)
+  'under review':      '2',
+  'in progress':       '3',
+  'placed work-order': '4',
+  'placed work order': '4',
 };
 
-const getStatusBadge = (status) => {
-  const s = String(status || '').toLowerCase();
-  const statusConfigs = {
-    'draft':             { text: 'Draft',             bgColor: 'bg-blue-100',   textColor: 'text-blue-700',   icon: 'D' },
-    'pending':           { text: 'Pending',           bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: 'P' },
-    'in_progress':       { text: 'In Progress',       bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: 'P' },
-    'under_review':      { text: 'Under Review',      bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: 'P' },
-    'verified':          { text: 'Verified',          bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: 'V' },
-    'placed_work_order': { text: 'Placed Work-order', bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: 'V' },
-    'failed':            { text: 'Failed',            bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: 'X' },
-    '1': { text: 'Draft',             bgColor: 'bg-blue-100',   textColor: 'text-blue-700',   icon: 'D' },
-    '2': { text: 'Under Review',      bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: 'P' },
-    '3': { text: 'In Progress',       bgColor: 'bg-yellow-100', textColor: 'text-yellow-700', icon: 'P' },
-    '4': { text: 'Placed Work-order', bgColor: 'bg-green-100',  textColor: 'text-green-700',  icon: 'V' },
-    '5': { text: 'Failed',            bgColor: 'bg-red-100',    textColor: 'text-red-700',    icon: 'X' },
-  };
-  return statusConfigs[s] || statusConfigs['draft'];
+const resolveEntry = (key) => {
+  const val = STATUS_MAP[key];
+  if (!val) return STATUS_MAP['1'];
+  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['1'];
+  return val;
+};
+
+const resolveStatus = (row) => {
+  if (!row) return STATUS_MAP['1'];
+  const display = String(row.status_display || '').toLowerCase().trim();
+  if (display && STATUS_MAP[display] !== undefined) return resolveEntry(display);
+  const raw = String(row.status ?? '').toLowerCase().trim();
+  if (raw && STATUS_MAP[raw] !== undefined) return resolveEntry(raw);
+  return STATUS_MAP['1'];
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+const getStatusIconConfig = (rowOrStatus) => {
+  const row = (rowOrStatus && typeof rowOrStatus === 'object') ? rowOrStatus : { status: rowOrStatus };
+  const s = resolveStatus(row);
+  // Icon is ALWAYS FileText — only color + bg change based on status
+  return { icon: FileText, color: s.iconColor, bgColor: s.iconBg, lightBg: s.iconBg };
+};
+
+const getStatusBadge = (rowOrStatus) => {
+  const row = (rowOrStatus && typeof rowOrStatus === 'object') ? rowOrStatus : { status: rowOrStatus };
+  const s = resolveStatus(row);
+  return { text: s.text, icon: s.emoji, bgColor: s.badgeBg, textColor: s.badgeText };
 };
 
 const formatCurrency = (amount) => {
@@ -57,7 +89,7 @@ const formatCurrency = (amount) => {
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
   try {
-    const date = new Date(dateString);
+    const date  = new Date(dateString);
     const day   = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year  = date.getFullYear();
@@ -70,8 +102,7 @@ const formatTimestamp = (dateString) => {
   try {
     const date    = new Date(dateString);
     const days    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months  = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months  = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dayName = days[date.getDay()];
     const day     = date.getDate();
     const month   = months[date.getMonth()];
@@ -86,9 +117,7 @@ const formatTimestamp = (dateString) => {
 
 const getClientName = (row) => {
   if (row.client_name) {
-    return row.client_name.length > 25
-      ? row.client_name.substring(0, 25) + '...'
-      : row.client_name;
+    return row.client_name.length > 25 ? row.client_name.substring(0, 25) + '...' : row.client_name;
   }
   if (row.client && typeof row.client === 'object') {
     const name = `${row.client.first_name || ''} ${row.client.last_name || ''}`.trim();
@@ -105,29 +134,28 @@ const truncateText = (text, maxLength = 30) => {
 
 // ============================================================================
 // COLUMN DEFINITIONS
-// Invoice Number | Project Name | Notes | Total Outstanding | Date | Status
 // ============================================================================
 
 const columns = [
   {
     key: 'invoice_number',
     label: 'Invoice Number',
+    sortField: 'invoice_number',
     render: (row) => {
-      const status    = row.status_display || row.status;
-      const iconColor = getStatusIconColor(status);
+      // Icon is always FileText, color changes based on status
+      const iconConfig = getStatusIconConfig(row);
+      const IconComponent = iconConfig.icon; // always FileText
 
       const formatInvNumber = (number) => {
-        if (!number) return `IN-2026-${String(row.id || '00000').padStart(5, '0')}`;
-        if (String(number).startsWith('IN-')) return number;
-        const s = String(number);
-        if (s.length >= 8) return `IN-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-        return `IN-2026-${String(number).padStart(5, '0')}`;
+        if (!number) return `INV-${String(row.id || '00000')}`;
+        return String(number);
       };
 
       return (
         <div className="flex items-center gap-3">
-          <div className={`${iconColor} flex-shrink-0`}>
-            <Receipt className="w-9 h-9" />
+          {/* Left icon — always same document icon, color reflects status */}
+          <div className={`${iconConfig.lightBg} rounded-xl p-2 flex items-center justify-center flex-shrink-0`}>
+            <IconComponent className={`w-5 h-5 ${iconConfig.color}`} />
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-gray-900 text-sm">
@@ -145,21 +173,19 @@ const columns = [
   {
     key: 'client',
     label: 'Project Name',
-    render: (row) => (
-      <span className="text-gray-700 text-sm" title={getClientName(row)}>
-        {getClientName(row)}
-      </span>
-    ),
+    render: (row) => {
+      const display   = row.project_name || row.client_name || 'N/A';
+      const truncated = display.length > 25 ? display.substring(0, 25) + '...' : display;
+      return <span className="text-gray-700 text-sm" title={display}>{truncated}</span>;
+    },
   },
 
   {
     key: 'notes',
     label: 'Notes',
     render: (row) => (
-      <div className="max-w-xs" title={row.notes || 'No notes'}>
-        <span className="text-gray-700 text-sm">
-          {row.notes ? truncateText(row.notes, 30) : 'abcdef'}
-        </span>
+      <div className="max-w-xs" title={row.notes || '—'}>
+        <span className="text-gray-700 text-sm">{row.notes ? truncateText(row.notes, 30) : '—'}</span>
       </div>
     ),
   },
@@ -167,6 +193,7 @@ const columns = [
   {
     key: 'grand_total',
     label: 'Total Outstanding',
+    sortField: 'grand_total',
     render: (row) => (
       <span className="text-gray-900 font-medium text-sm">
         {formatCurrency(row.grand_total || row.total_amount || 0)}
@@ -177,24 +204,22 @@ const columns = [
   {
     key: 'created_at',
     label: 'Date',
+    sortField: 'created_at',
     render: (row) => (
-      <span className="text-gray-700 text-sm">
-        {formatDate(row.created_at || row.date)}
-      </span>
+      <span className="text-gray-700 text-sm">{formatDate(row.created_at || row.date)}</span>
     ),
   },
 
   {
     key: 'status',
     label: 'Status',
+    sortField: 'status',
     render: (row) => {
-      const status       = row.status_display || row.status;
-      const statusConfig = getStatusBadge(status);
+      // Right-side badge: emoji icon + text
+      const statusConfig = getStatusBadge(row);
       return (
         <div className="flex items-center">
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}
-          >
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}>
             <span>{statusConfig.icon}</span>
             <span>{statusConfig.text}</span>
           </span>
@@ -206,32 +231,24 @@ const columns = [
 ];
 
 // ============================================================================
-// MAIN CONFIGURATION OBJECT
+// MAIN CONFIG
 // ============================================================================
 
 const invoicesConfig = {
-  title:           'Invoices List',
+  title:           'Invoices',
   icon:            Receipt,
-  addButtonLabel:  'Add Invoice',
+  addButtonLabel:  'Add',
   columns,
   showSearch:      true,
   showFilter:      true,
   loadingMessage:  'Loading invoices...',
   emptyMessage:    'No Invoices Found',
   emptySubMessage: 'Start by adding your first invoice',
-  note:            'Click on Invoices to get more details',
+  note:            'Click on Invoice to get more details',
   defaultSort:     { field: 'created_at', direction: 'desc' },
   defaultPageSize: 10,
 };
 
 export default invoicesConfig;
 
-export {
-  formatCurrency,
-  formatDate,
-  formatTimestamp,
-  getClientName,
-  getStatusBadge,
-  getStatusIconColor,
-  truncateText,
-};
+export { formatCurrency, formatDate, formatTimestamp, getClientName, getStatusBadge, getStatusIconConfig, truncateText };

@@ -1,336 +1,244 @@
-import { User, Users } from 'lucide-react';
+import { FileText, CheckCircle2, Clock, FileX, Receipt } from 'lucide-react';
 
 /**
  * ============================================================================
- * PURCHASE MODULE CONFIGURATION
+ * PURCHASE MODULE CONFIGURATION — PURCHASE ORDERS LIST
  * ============================================================================
- * 
- * This file contains ALL configuration for the Purchase (Vendors) list page.
- * 
- * Separation of Concerns:
- * - Purchase.jsx = Business logic, state management, API calls
- * - purchase.config.jsx = UI configuration, column definitions
- * 
- * @module purchaseConfig
+ *
+ * Columns render data from the ListQuotationSerializer response
+ * (same shape as quotation list, but type=2 → vendor quotations).
+ *
+ * Response fields available per row:
+ *   id, quotation_number, vendor, vendor_name, client (null), client_name,
+ *   project, project_name, sac_code, total_amount, gst_rate, total_gst_amount,
+ *   discount_rate, grand_total, status, status_display, quotation_type,
+ *   quotation_url, created_at, updated_at
  */
 
 // ============================================================================
-// HELPER FUNCTIONS
+// HELPERS
 // ============================================================================
 
-/**
- * Vendor avatar color mapping
- * Returns color class based on index
- */
-const getVendorColor = (index) => {
-  const colors = [
-    'bg-teal-500',
-    'bg-green-500',
-    'bg-cyan-500',
-    'bg-purple-500',
-    'bg-yellow-600',
-    'bg-red-600',
-  ];
-  return colors[index % colors.length];
-};
-
-/**
- * Project avatar color mapping for last project column
- */
-const getProjectColor = (index) => {
-  const colors = [
-    'bg-lime-500',
-    'bg-green-500',
-    'bg-teal-500',
-  ];
-  return colors[index % colors.length];
-};
-
-/**
- * Category badge color mapping
- */
-const getCategoryColor = (category) => {
-  const colorMap = {
-    'Plumbing': 'bg-green-100 text-green-700',
-    'Interior': 'bg-blue-100 text-blue-700',
-    'Ceramics': 'bg-red-100 text-red-700',
-    'Electrical': 'bg-yellow-100 text-yellow-700',
-    'Carpentry': 'bg-purple-100 text-purple-700',
-    'Painting': 'bg-orange-100 text-orange-700',
+const getStatusBadge = (status) => {
+  const s = String(status || '').toLowerCase();
+  const map = {
+    'draft':      { text: 'Draft',              bg: 'bg-blue-100',   text_: 'text-blue-700',   icon: '📄' },
+    '1':          { text: 'Draft',              bg: 'bg-blue-100',   text_: 'text-blue-700',   icon: '📄' },
+    'pending':    { text: 'Pending',            bg: 'bg-yellow-100', text_: 'text-yellow-700', icon: '⏱️' },
+    '7':          { text: 'Pending',            bg: 'bg-yellow-100', text_: 'text-yellow-700', icon: '⏱️' },
+    'processing': { text: 'Under Review',       bg: 'bg-orange-100', text_: 'text-orange-700', icon: '🔍' },
+    '6':          { text: 'Under Review',       bg: 'bg-orange-100', text_: 'text-orange-700', icon: '🔍' },
+    'sent':       { text: 'Sent',               bg: 'bg-green-100',  text_: 'text-green-700',  icon: '✅' },
+    '2':          { text: 'Sent',               bg: 'bg-green-100',  text_: 'text-green-700',  icon: '✅' },
+    'accepted':   { text: 'Accepted',           bg: 'bg-green-100',  text_: 'text-green-700',  icon: '✅' },
+    '3':          { text: 'Accepted',           bg: 'bg-green-100',  text_: 'text-green-700',  icon: '✅' },
+    'rejected':   { text: 'Rejected',           bg: 'bg-red-100',    text_: 'text-red-700',    icon: '❌' },
+    '4':          { text: 'Rejected',           bg: 'bg-red-100',    text_: 'text-red-700',    icon: '❌' },
+    'expired':    { text: 'Expired',            bg: 'bg-gray-100',   text_: 'text-gray-600',   icon: '⌛' },
+    '5':          { text: 'Expired',            bg: 'bg-gray-100',   text_: 'text-gray-600',   icon: '⌛' },
+    'invoice_generated': { text: 'Invoice Generated', bg: 'bg-teal-100', text_: 'text-teal-700', icon: '✅' },
+    '8':          { text: 'Invoice Generated', bg: 'bg-teal-100',   text_: 'text-teal-700',   icon: '✅' },
   };
-  return colorMap[category] || 'bg-gray-100 text-gray-700';
+  const cfg = map[s] || map['draft'];
+  return { text: cfg.text, bgColor: cfg.bg, textColor: cfg.text_, icon: cfg.icon };
 };
 
-/**
- * Format full name from vendor data
- */
-const formatVendorName = (vendor) => {
-  const name = vendor.company_name || vendor.name || 'ABC Infra';
-  return name.length > 25 ? name.substring(0, 25) + '...' : name;
+const getStatusIconConfig = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (['draft', '1'].includes(s))                   return { icon: FileText,     color: 'text-blue-600',   lightBg: 'bg-blue-100/30'   };
+  if (['pending', '7', 'processing', '6'].includes(s)) return { icon: Clock,    color: 'text-yellow-600', lightBg: 'bg-yellow-100/30' };
+  if (['sent', '2', 'accepted', '3'].includes(s))   return { icon: CheckCircle2, color: 'text-green-600',  lightBg: 'bg-green-100/30'  };
+  if (['invoice_generated', '8'].includes(s)) return { icon: Receipt, color: 'text-teal-600', lightBg: 'bg-teal-100/30' };
+  return { icon: FileX, color: 'text-red-600', lightBg: 'bg-red-100/30' };
 };
 
-/**
- * Format email
- */
-const formatEmail = (vendor) => {
-  return vendor.email || 'abcinfra@gmail.com';
+const formatCurrency = (amount) => {
+  if (!amount && amount !== 0) return 'Rs. 0';
+  const num = parseFloat(amount);
+  if (isNaN(num)) return 'Rs. 0';
+  const hasDecimal = num % 1 !== 0;
+  return `Rs. ${num.toLocaleString('en-IN', {
+    minimumFractionDigits: hasDecimal ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  try {
+    const d = new Date(dateString);
+    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+  } catch { return 'N/A'; }
+};
+
+const formatTimestamp = (dateString) => {
+  if (!dateString) return '';
+  try {
+    const d = new Date(dateString);
+    const days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let h = d.getHours();
+    const m   = String(d.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${h}:${m} ${ampm}`;
+  } catch { return ''; }
+};
+
+const formatPONumber = (number, id) => {
+  if (!number) return `PO-2026-${String(id || '00000').padStart(5,'0')}`;
+  const s = String(number);
+  if (s.startsWith('QT-') || s.startsWith('PO-')) return s;
+  if (s.length >= 8) return `PO-${s.substring(0,4)}-${s.substring(4).padStart(5,'0')}`;
+  return `PO-2026-${s.padStart(5,'0')}`;
 };
 
 // ============================================================================
 // COLUMN DEFINITIONS
 // ============================================================================
 
-/**
- * Column Configuration
- * 
- * Each column object has:
- * - key: Unique identifier
- * - label: Display name in header
- * - accessor: Property path to access data (optional if using render)
- * - render: Custom render function (optional)
- * - width: Column width (optional)
- * - align: Text alignment (left/center/right)
- */
 const columns = [
-  // ============================================================================
-  // VENDOR NAME COLUMN (Complex with Avatar)
-  // ============================================================================
+  // ── PO Number + Timestamp ────────────────────────────────────────────────
   {
-    key: 'vendor_name',
-    label: 'Vendor Name',
-    render: (row, index) => (
-      <div className="flex items-center gap-3">
-        {/* Avatar with Dynamic Color */}
-        <div
-          className={`w-10 h-10 ${getVendorColor(index)} rounded-full flex items-center justify-center flex-shrink-0`}
-        >
-          <User className="w-5 h-5 text-white" />
-        </div>
-        {/* Name and Email */}
-        <div className="min-w-0">
-          <div className="font-medium text-gray-900">
-            {formatVendorName(row)}
-          </div>
-          <div className="text-sm text-gray-500 truncate">
-            {formatEmail(row)}
-          </div>
-        </div>
-      </div>
-    ),
-  },
-
-  // ============================================================================
-  // PROJECTS COLUMN (Number)
-  // ============================================================================
-  {
-    key: 'projects',
-    label: 'Projects',
-    render: (row) => (
-      <span className="text-gray-700 font-medium">
-        {row.total_projects || 50}
-      </span>
-    ),
-    align: 'center',
-  },
-
-  // ============================================================================
-  // LAST PROJECT COLUMN (Project with Avatar)
-  // ============================================================================
-  {
-    key: 'last_project',
-    label: 'last Project',
-    render: (row, index) => (
-      <div className="flex items-center gap-2">
-        {/* Project Avatar */}
-        <div
-          className={`w-8 h-8 ${getProjectColor(index)} rounded-full flex items-center justify-center flex-shrink-0`}
-        >
-          <Users className="w-4 h-4 text-white" />
-        </div>
-        {/* Project Name */}
-        <span className="text-gray-700 font-medium">
-          {row.last_project?.name || 'Acme Corporation'}
-        </span>
-      </div>
-    ),
-  },
-
-  // ============================================================================
-  // CATEGORY COLUMN (Badge)
-  // ============================================================================
-  {
-    key: 'category',
-    label: 'Category',
-    render: (row, index) => {
-      // Cycle through categories for demo
-      const categories = ['Plumbing', 'Interior', 'Ceramics'];
-      const category = row.category || categories[index % categories.length];
-      
+    key: 'quotation_number',
+    label: 'PO Number',
+    sortField: 'quotation_number',
+    render: (row) => {
+      const status     = row.status_display || row.status;
+      const iconCfg    = getStatusIconConfig(status);
+      const IconComp   = iconCfg.icon;
       return (
-        <span
-          className={`inline-block px-3 py-1.5 rounded-full text-xs font-semibold ${getCategoryColor(category)}`}
-        >
-          {category}
-        </span>
+        <div className="flex items-center gap-3">
+          <div className={`${iconCfg.lightBg} rounded-xl p-2 flex items-center justify-center flex-shrink-0`}>
+            <IconComp className={`w-5 h-5 ${iconCfg.color}`} />
+          </div>
+          <div className="min-w-0">
+            <div className="font-semibold text-gray-900 text-sm">
+              {formatPONumber(row.quotation_number, row.id)}
+            </div>
+            <div className="text-xs text-gray-500">
+              {formatTimestamp(row.created_at)}
+            </div>
+          </div>
+        </div>
       );
     },
   },
 
-  // ============================================================================
-  // TOTAL OUTSTANDING COLUMN (Currency)
-  // ============================================================================
+  // ── Vendor Name ──────────────────────────────────────────────────────────
   {
-    key: 'outstanding',
-    label: 'Total Outstanding',
+    key: 'vendor',
+    label: 'Vendor',
     render: (row) => (
-      <span className="text-gray-700 font-medium">
-        Rs. {row.total_outstanding ? row.total_outstanding.toLocaleString('en-IN') : '2,90,589'}
-      </span>
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0">
+          <span className="text-teal-700 font-semibold text-xs">
+            {(row.vendor_name || 'V')[0].toUpperCase()}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">
+            {row.vendor_name || `Vendor #${row.vendor}`}
+          </p>
+        </div>
+      </div>
     ),
   },
 
-  // ============================================================================
-  // DATE COLUMN
-  // ============================================================================
+  // ── Project Name ─────────────────────────────────────────────────────────
   {
-    key: 'date',
-    label: 'Date',
+    key: 'project',
+    label: 'Project',
     render: (row) => {
-      // Use created_at or default date
-      const date = row.created_at 
-        ? new Date(row.created_at).toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-          }).replace(/\//g, '- ')
-        : '01- 01- 2026';
-      
-      return <span className="text-gray-700">{date}</span>;
+      const name = row.project_name || (row.project ? `Project #${row.project}` : 'N/A');
+      const display = name.length > 25 ? name.substring(0, 25) + '…' : name;
+      return <span className="text-gray-700 text-sm" title={name}>{display}</span>;
     },
+  },
+
+  // ── Total Outstanding ────────────────────────────────────────────────────
+  {
+    key: 'grand_total',
+    label: 'Total Outstanding',
+    sortField: 'grand_total',
+    render: (row) => {
+      const subtotal     = parseFloat(row.total_amount  || 0);
+      const gstRate      = parseFloat(row.gst_rate      || 0);
+      const discountRate = parseFloat(row.discount_rate || 0);
+      let precise;
+      if (gstRate > 0 || discountRate > 0) {
+        const discountAmt = (subtotal * discountRate) / 100;
+        const taxable     = subtotal - discountAmt;
+        const gstAmt      = (taxable * gstRate) / 100;
+        precise = parseFloat((taxable + gstAmt).toFixed(2));
+      } else {
+        precise = parseFloat(row.grand_total || row.total_amount || 0);
+      }
+      return <span className="text-gray-900 font-medium text-sm">{formatCurrency(precise)}</span>;
+    },
+  },
+
+  // ── Date ─────────────────────────────────────────────────────────────────
+  {
+    key: 'created_at',
+    label: 'Date',
+    sortField: 'created_at',
+    render: (row) => (
+      <span className="text-gray-700 text-sm">{formatDate(row.created_at)}</span>
+    ),
+  },
+
+  // ── Status Badge ─────────────────────────────────────────────────────────
+  {
+    key: 'status',
+    label: 'Status',
+    sortField: 'status',
+    render: (row) => {
+      const status = row.status_display || row.status;
+      const cfg    = getStatusBadge(status);
+      return (
+        <div className="flex items-center">
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${cfg.bgColor} ${cfg.textColor}`}>
+            <span>{cfg.icon}</span>
+            <span>{cfg.text}</span>
+          </span>
+        </div>
+      );
+    },
+    align: 'left',
   },
 ];
 
 // ============================================================================
-// MAIN CONFIGURATION OBJECT
+// MAIN CONFIG
 // ============================================================================
 
-/**
- * Purchase/Vendor List Configuration
- * 
- * This object contains all configuration for the Purchase/Vendors list page:
- * - Page metadata (title, icon)
- * - Button labels
- * - Column definitions
- * - Search/filter settings
- * - Messages for different states
- */
 const purchaseConfig = {
-  // Page Metadata
-  title: 'Vendors List',
-  icon: User,
-
-  // Button Labels
-  addButtonLabel: 'Add Client',
-
-  // Column Definitions
-  columns: columns,
-
-  // Layout Type (table or cards)
-  layoutType: 'table', // Use table layout for vendors
-
-  // Search & Filter
-  showSearch: true,
-  showFilter: true,
-
-  // Messages
-  loadingMessage: 'Loading vendors...',
-  emptyMessage: 'No Vendors Found',
-  emptySubMessage: 'Currently there are no vendors in the system',
-  
-  // Note displayed below header
-  note: null, // No note for purchase page
-
-  // Default Sorting (optional)
+  title:          'Purchase Orders List',
+  icon:           FileText,
+  addButtonLabel: 'Add',
+  columns,
+  layoutType:     'table',
+  showSearch:     true,
+  showFilter:     true,
+  loadingMessage: 'Loading purchase orders...',
+  emptyMessage:   'No Purchase Orders Found',
+  emptySubMessage:'Click "+ Add" to create your first purchase order',
+  note:           'Click on a row to view purchase order details',
   defaultSort: {
-    field: 'company_name',
-    direction: 'asc',
+    field:     'created_at',
+    direction: 'desc',
   },
-
-  // Page Size (optional)
   defaultPageSize: 10,
 };
 
 export default purchaseConfig;
 
-/**
- * ============================================================================
- * FUTURE ENHANCEMENTS - WHEN BACKEND IS READY
- * ============================================================================
- * 
- * 1. REAL VENDOR DATA
- * Replace hardcoded values with actual API fields:
- * 
- * {
- *   key: 'projects',
- *   label: 'Projects',
- *   accessor: 'total_projects',
- * }
- * 
- * {
- *   key: 'last_project',
- *   label: 'last Project',
- *   render: (row) => (
- *     <div className="flex items-center gap-2">
- *       <div className="w-8 h-8 bg-green-500 rounded-full">
- *         <Users className="w-4 h-4 text-white" />
- *       </div>
- *       <span>{row.last_project?.name || 'N/A'}</span>
- *     </div>
- *   ),
- * }
- * 
- * 2. CATEGORY FROM BACKEND
- * {
- *   key: 'category',
- *   label: 'Category',
- *   accessor: 'category',
- *   render: (row) => (
- *     <span className={`px-3 py-1 rounded-full ${getCategoryColor(row.category)}`}>
- *       {row.category}
- *     </span>
- *   ),
- * }
- * 
- * 3. OUTSTANDING AMOUNT
- * {
- *   key: 'outstanding',
- *   label: 'Total Outstanding',
- *   accessor: 'total_outstanding',
- *   render: (row) => (
- *     <span>Rs. {row.total_outstanding.toLocaleString('en-IN')}</span>
- *   ),
- * }
- * 
- * 4. DYNAMIC DATES
- * {
- *   key: 'date',
- *   label: 'Date',
- *   accessor: 'created_at',
- *   render: (row) => {
- *     const date = new Date(row.created_at);
- *     return date.toLocaleDateString('en-GB', {
- *       day: '2-digit',
- *       month: '2-digit',
- *       year: 'numeric'
- *     }).replace(/\//g, '- ');
- *   },
- * }
- * 
- * 5. FILTERABLE COLUMNS
- * Add filter options for categories, date ranges, outstanding amounts
- * 
- * 6. SORTABLE COLUMNS
- * Enable sorting on vendor name, projects count, outstanding amount, date
- * 
- * ============================================================================
- */
+export {
+  formatCurrency,
+  formatDate,
+  formatTimestamp,
+  formatPONumber,
+  getStatusBadge,
+  getStatusIconConfig,
+};

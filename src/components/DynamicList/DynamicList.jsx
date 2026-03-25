@@ -7,6 +7,14 @@ import LoadingState from './LoadingState';
 import EmptyState from './EmptyState';
 import ErrorState from './ErrorState';
 
+/**
+ * ============================================================================
+ * REDESIGNED DYNAMIC LIST COMPONENT
+ * ============================================================================
+ * Modern wrapper component that handles both table and card layouts
+ * with darker visible borders.
+ */
+
 const DynamicList = ({
   config,
   data = [],
@@ -32,8 +40,9 @@ const DynamicList = ({
 }) => {
   if (!config) {
     return (
-      <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-red-700 font-medium">
-        Configuration error: config prop is required
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 font-medium text-center">
+        <p className="text-lg font-semibold mb-2">Configuration Error</p>
+        <p className="text-sm">The required config prop is missing</p>
       </div>
     );
   }
@@ -41,16 +50,18 @@ const DynamicList = ({
   if (config.layoutType === 'cards') {
     if (!config.cardComponent) {
       return (
-        <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-red-700 font-medium">
-          Configuration error: cardComponent is required for card layout
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 font-medium text-center">
+          <p className="text-lg font-semibold mb-2">Configuration Error</p>
+          <p className="text-sm">cardComponent is required for card layout</p>
         </div>
       );
     }
   } else {
     if (!config.columns || config.columns.length === 0) {
       return (
-        <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-red-700 font-medium">
-          Configuration error: columns are not defined for table layout
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 font-medium text-center">
+          <p className="text-lg font-semibold mb-2">Configuration Error</p>
+          <p className="text-sm">columns must be defined for table layout</p>
         </div>
       );
     }
@@ -105,14 +116,16 @@ const DynamicList = ({
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 px-3 sm:px-0">
+    <div className="space-y-5 lg:space-y-6">
+      {/* Stats Cards */}
       {statsCards && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
           {statsCards}
         </div>
       )}
 
-      <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-300 overflow-hidden">
+      {/* Main Content Container - Dark border for visibility */}
+      <div className="bg-white rounded-2xl shadow-sm border-2 border-gray-400 overflow-hidden">
         <ListHeader
           title={config.title}
           icon={config.icon}
@@ -128,10 +141,11 @@ const DynamicList = ({
           note={config.note}
         />
 
-        <div className={config.layoutType === 'cards' ? 'p-4 sm:p-6' : 'overflow-x-auto'}>
+        <div className={`${config.layoutType === 'cards' ? 'p-6 lg:p-8' : ''}`}>
           {renderContent()}
         </div>
 
+        {/* Pagination */}
         {!loading && !error && data.length > 0 && (
           <Pagination
             currentPage={currentPage}

@@ -12,7 +12,7 @@ import RoleContext from './RoleContext';
  * 
  * Features:
  * - Consistent header (Navbar) across all pages
- * - Collapsible sidebar with mobile support
+ * - Collapsible sidebar with mobile support (w-20 collapsed, w-64 expanded)
  * - Responsive main content area
  * - Smooth transitions for sidebar collapse
  * - Automatic breadcrumb generation from routes
@@ -26,6 +26,7 @@ import RoleContext from './RoleContext';
  * - Auto-generates breadcrumbs from current route
  * - Back button always visible on sub-pages (handled by navbar)
  * - Breadcrumbs persist on page reload
+ * - Compact sidebar sizing (w-20 / w-64)
  * 
  * @param {Object} props - Component props
  * @param {React.ReactNode} props.children - Page content to render
@@ -74,13 +75,17 @@ export default function AuthenticatedLayout({
       return ['Clients', 'Client Profile'];
     }
     
-    // Vendors routes (Purchase)
+    // Vendors routes
     // Payment history must be checked before general vendor profile
     if (path.match(/\/vendors\/\d+\/payments/)) {
-      return ['Purchase', 'Vendor Profile', 'Payment Details'];
+      return ['Vendors', 'Vendor Profile', 'Payment Details'];
     }
     if (path.startsWith('/vendors/')) {
-      return ['Purchase', 'Vendor Profile'];
+      return ['Vendors', 'Vendor Profile'];
+    }
+    // /vendors list page — no breadcrumb needed (it is a top-level page)
+    if (path === '/vendors') {
+      return null;
     }
     
     // Purchase Order route
@@ -125,6 +130,11 @@ export default function AuthenticatedLayout({
     if (path.startsWith('/settings/') && path !== '/settings') {
       return ['Settings', 'Settings Details'];
     }
+
+    // Users routes
+    if (path.startsWith('/users/') && path !== '/users') {
+      return ['Users', 'User Details'];
+    }
     
     // Return null for main pages (no breadcrumbs needed)
     return null;
@@ -133,33 +143,60 @@ export default function AuthenticatedLayout({
   // Use custom breadcrumbs if provided, otherwise auto-generate
   const breadcrumbs = navigationConfig?.breadcrumbs || getAutoBreadcrumbs();
 
+  /**
+   * Derive the correct page title from the current path.
+   * Source of truth — doesn't depend on App.jsx activeMenuItem,
+   * so it works correctly even for routes not yet mapped in App.jsx.
+   */
+  const getPageTitleFromPath = () => {
+    const path = location.pathname;
+    if (path.startsWith('/clients'))      return 'Clients';
+    if (path.startsWith('/projects'))     return 'Projects';
+    if (path.startsWith('/quotations'))   return 'Quotations';
+    if (path.startsWith('/proforma'))     return 'Proforma';
+    if (path.startsWith('/invoices'))     return 'Invoices';
+    if (path.startsWith('/vendors'))      return 'Vendors';
+    if (path.startsWith('/purchase'))     return 'Purchase';
+    if (path.startsWith('/employees'))    return 'Employees';
+    if (path.startsWith('/certificates')) return 'Certificates';
+    if (path.startsWith('/reports'))      return 'Reports';
+    if (path.startsWith('/settings'))     return 'Settings';
+    if (path.startsWith('/users'))        return 'Users';
+    return activeMenuItem || 'Dashboard';
+  };
+
+  const resolvedPageTitle = getPageTitleFromPath();
+
   // ── Role-based access ──────────────────────────────────────────────────────
-  const userRole = userData?.role?.name || 'User';
-  const isAdmin  = userRole === 'Admin';
+  const userRole         = userData?.role?.name || 'User';
+  const isAdmin          = userRole === 'Admin';
+  const isManager        = userRole === 'Manager';
+  const isAdminOrManager = isAdmin || isManager;
   // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <RoleContext.Provider value={{ userRole, isAdmin }}>
+    <RoleContext.Provider value={{ userRole, isAdmin, isManager, isAdminOrManager }}>
       <Navbar 
         user={userData} 
         onLogout={onLogout} 
-        pageTitle={activeMenuItem}
+        pageTitle={resolvedPageTitle}
         onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         breadcrumbs={breadcrumbs}
       />
       <div className="flex">
         <Sidebar 
-          activeItem={activeMenuItem} 
+          activeItem={resolvedPageTitle} 
           isMobileMenuOpen={isMobileSidebarOpen}
           setIsMobileMenuOpen={setIsMobileSidebarOpen}
           onCollapseChange={setIsSidebarCollapsed}
+          isAdminOrManager={isAdminOrManager}
         />
         <main 
           className={`
             flex-1 min-w-0 p-4 sm:p-6 lg:p-8
             overflow-x-hidden
-            transition-all duration-300 ease-in-out
-            ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72'}
+            transition-all duration-500 ease-out
+            ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'}
           `}
         >
           {/* Clone children and inject onUpdateNavigation callback */}

@@ -1,4 +1,4 @@
-import { FileText } from 'lucide-react';
+import { FileText, CheckCircle2 } from 'lucide-react';
 
 /**
  * ============================================================================
@@ -18,125 +18,74 @@ import { FileText } from 'lucide-react';
 // ============================================================================
 
 /**
- * Get status color for document icon based on status
+ * Get status icon configuration with icon component, color, and background.
+ * Quotations only have two meaningful states from the user's perspective:
+ *   Draft  →  not yet sent for proforma
+ *   Proforma Generated  →  proforma has been created from this quotation
+ * All other backend status values are mapped to one of these two visuals.
  */
-const getStatusIconColor = (status) => {
+const getStatusIconConfig = (status) => {
   const normalizedStatus = String(status || '').toLowerCase();
-  
-  const colors = {
-    'draft': 'text-blue-500',
-    'pending': 'text-yellow-600',
-    'sent': 'text-green-600',
-    'accepted': 'text-green-600',   // status_display from API when proforma generated
-    'approved': 'text-green-600',
-    'rejected': 'text-red-600',
-    'in_progress': 'text-yellow-600',
-    'completed': 'text-green-600',
-    'failed': 'text-red-600',
-    '1': 'text-blue-500',      // Draft
-    '2': 'text-yellow-600',    // Pending
-    '3': 'text-green-600',     // Proforma Generated
-    '4': 'text-green-600',     // Approved
-    '5': 'text-red-600',       // Rejected
+
+  // Proforma-Generated group — all backend values that mean "done / proforma exists"
+  const proformaGroup = ['sent', 'accepted', 'approved', 'completed', '3', '4'];
+  if (proformaGroup.includes(normalizedStatus)) {
+    return {
+      icon: CheckCircle2,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+      lightBg: 'bg-green-100/30',
+    };
+  }
+
+  // Draft group — everything else falls back to Draft
+  return {
+    icon: FileText,
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50',
+    lightBg: 'bg-blue-100/30',
   };
-  
-  return colors[normalizedStatus] || 'text-gray-600';
 };
 
 /**
- * Get status badge configuration
+ * Get status color for the document icon in the Quotation Number column.
+ * Only two states are shown: Draft (blue) and Proforma Generated (green).
+ */
+const getStatusIconColor = (status) => {
+  const normalizedStatus = String(status || '').toLowerCase();
+  const proformaGroup = ['sent', 'accepted', 'approved', 'completed', '3', '4'];
+  if (proformaGroup.includes(normalizedStatus)) return 'text-green-600';
+  return 'text-blue-500'; // Draft fallback
+};
+
+/**
+ * Get status badge configuration.
+ * The quotation list shows only two statuses:
+ *   • Draft              — quotation created, no proforma yet
+ *   • Proforma Generated — proforma has been created from this quotation
+ * Every backend value maps to one of these two badges.
  */
 const getStatusBadge = (status) => {
   const normalizedStatus = String(status || '').toLowerCase();
-  
-  const statusConfigs = {
-    'draft': {
-      text: 'Draft',
-      bgColor: 'bg-blue-100',
-      textColor: 'text-blue-700',
-      icon: '📄'
-    },
-    'pending': {
-      text: 'Pending',
-      bgColor: 'bg-yellow-100',
-      textColor: 'text-yellow-700',
-      icon: '⏱️'
-    },
-    'sent': {
+
+  // All backend values that mean "Proforma Generated"
+  const proformaGroup = ['sent', 'accepted', 'approved', 'completed', '3', '4'];
+  if (proformaGroup.includes(normalizedStatus)) {
+    return {
       text: 'Proforma Generated',
       bgColor: 'bg-green-100',
       textColor: 'text-green-700',
-      icon: '✅'
-    },
-    'accepted': {
-      text: 'Proforma Generated',
-      bgColor: 'bg-green-100',
-      textColor: 'text-green-700',
-      icon: '✅'
-    },
-    'approved': {
-      text: 'Completed',
-      bgColor: 'bg-green-100',
-      textColor: 'text-green-700',
-      icon: '✅'
-    },
-    'rejected': {
-      text: 'Failed',
-      bgColor: 'bg-red-100',
-      textColor: 'text-red-700',
-      icon: '❌'
-    },
-    'in_progress': {
-      text: 'In Progress',
-      bgColor: 'bg-yellow-100',
-      textColor: 'text-yellow-700',
-      icon: '⏱️'
-    },
-    'completed': {
-      text: 'Completed',
-      bgColor: 'bg-green-100',
-      textColor: 'text-green-700',
-      icon: '✅'
-    },
-    'failed': {
-      text: 'Failed',
-      bgColor: 'bg-red-100',
-      textColor: 'text-red-700',
-      icon: '❌'
-    },
-    '1': {
-      text: 'Draft',
-      bgColor: 'bg-blue-100',
-      textColor: 'text-blue-700',
-      icon: '📄'
-    },
-    '2': {
-      text: 'Pending',
-      bgColor: 'bg-yellow-100',
-      textColor: 'text-yellow-700',
-      icon: '⏱️'
-    },
-    '3': {
-      text: 'Proforma Generated',
-      bgColor: 'bg-green-100',
-      textColor: 'text-green-700',
-      icon: '✅'
-    },
-    '4': {
-      text: 'Completed',
-      bgColor: 'bg-green-100',
-      textColor: 'text-green-700',
-      icon: '✅'
-    },
-    '5': {
-      text: 'Failed',
-      bgColor: 'bg-red-100',
-      textColor: 'text-red-700',
-      icon: '❌'
-    }
+      icon: '✅',
+    };
+  }
+
+  // Everything else → Draft
+  return {
+    text: 'Draft',
+    bgColor: 'bg-blue-100',
+    textColor: 'text-blue-700',
+    icon: '📄',
   };
-  
-  return statusConfigs[normalizedStatus] || statusConfigs['draft'];
 };
 
 /**
@@ -247,7 +196,8 @@ const columns = [
     sortField: 'quotation_number',   // ← API sort_by value
     render: (row) => {
       const status = row.status_display || row.status;
-      const iconColor = getStatusIconColor(status);
+      const iconConfig = getStatusIconConfig(status);
+      const IconComponent = iconConfig.icon;
       
       // Format quotation number from backend (numeric) to display format
       const formatQuotationNumber = (number) => {
@@ -270,9 +220,9 @@ const columns = [
       
       return (
         <div className="flex items-center gap-3">
-          {/* Document Icon with Status Color */}
-          <div className={`${iconColor} flex-shrink-0`}>
-            <FileText className="w-9 h-9" />
+          {/* Status-colored icon with background */}
+          <div className={`${iconConfig.lightBg} rounded-xl p-2 flex items-center justify-center flex-shrink-0`}>
+            <IconComponent className={`w-5 h-5 ${iconConfig.color}`} />
           </div>
           {/* Quotation Number and Timestamp */}
           <div className="min-w-0">
@@ -422,13 +372,6 @@ const quotationConfig = {
   defaultPageSize: 10,
 };
 
-export default quotationConfig;
-
-/**
- * ============================================================================
- * EXPORT HELPER FUNCTIONS
- * ============================================================================
- */
 export {
   formatCurrency,
   formatDate,
@@ -438,3 +381,5 @@ export {
   getStatusIconColor,
   truncateText
 };
+
+export default quotationConfig;

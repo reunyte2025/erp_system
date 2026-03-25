@@ -1,37 +1,38 @@
 import React from 'react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
+
+/**
+ * ============================================================================
+ * REDESIGNED LIST TABLE COMPONENT
+ * ============================================================================
+ * Modern, sharp, professional table with:
+ * - Row dividers (visible, medium color)
+ * - NO column separator borders
+ * - Darker main border for visibility
+ * - Professional styling
+ */
 
 const SortIndicator = ({ field, sortBy, sortOrder }) => {
   const isActive = sortBy === field;
 
   if (isActive) {
     return (
-      <span className="inline-flex items-center justify-center ml-1.5 w-4 h-4 rounded bg-teal-600/20 flex-shrink-0">
-        <svg
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
-          className="text-teal-600"
-          style={{
-            transform: sortOrder === 'asc' ? 'rotate(0deg)' : 'rotate(180deg)',
-            transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
-          }}
-        >
-          <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
+      <div className="inline-flex items-center justify-center ml-2 w-5 h-5 rounded bg-teal-200">
+        {sortOrder === 'asc' ? (
+          <ChevronUp className="w-3.5 h-3.5 text-teal-700" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-teal-700" />
+        )}
+      </div>
     );
   }
 
   return (
-    <span
-      className="inline-flex flex-col items-center justify-center ml-1.5 gap-[1px] flex-shrink-0 opacity-0 group-hover:opacity-40 transition-opacity duration-150"
-      aria-hidden="true"
-    >
-      <svg width="8" height="5" viewBox="0 0 8 5" fill="none" className="text-gray-500">
-        <path d="M4 0L7.46 4.5H0.54L4 0Z" fill="currentColor" />
+    <div className="inline-flex items-center justify-center ml-2 w-5 h-5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-gray-500">
+        <path d="M7 1v12M11 6L7 2L3 6M11 8L7 12L3 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <svg width="8" height="5" viewBox="0 0 8 5" fill="none" className="text-gray-500">
-        <path d="M4 5L0.54 0.5H7.46L4 5Z" fill="currentColor" />
-      </svg>
-    </span>
+    </div>
   );
 };
 
@@ -49,7 +50,6 @@ const ListTable = ({
 
   const renderCell = (column, row, index) => {
     if (column.render && typeof column.render === 'function') {
-      // Pass actionHandlers as 3rd argument so action columns can use them
       return column.render(row, index, actionHandlers);
     }
     if (column.accessor) {
@@ -81,33 +81,33 @@ const ListTable = ({
       <div className="list-table-scroll-host">
         <table style={{ minWidth: '1080px', width: '100%', borderCollapse: 'collapse' }}>
 
-          {/* ── Header ── */}
+          {/* ── HEADER ── */}
           <thead>
-            <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #94a3b8' }}>
+            <tr style={{ backgroundColor: '#f3f4f6', borderBottom: '2px solid #d1d5db' }}>
               {columns.map((col) => {
                 const isSortable = !!col.sortField && !!onSort;
-                const isActive   = isSortable && sortBy === col.sortField;
+                const isActive = isSortable && sortBy === col.sortField;
 
                 return (
                   <th
                     key={col.key}
                     onClick={() => handleHeaderClick(col)}
-                    className={[
-                      isSortable ? 'cursor-pointer group' : '',
-                      alignClass(col.headerAlign ?? col.align),
-                    ].filter(Boolean).join(' ')}
+                    className={`
+                      ${isSortable ? 'cursor-pointer group hover:bg-gray-200/60' : ''}
+                      ${alignClass(col.headerAlign ?? col.align)}
+                      transition-colors duration-150
+                    `}
                     style={{
-                      padding: '14px 20px',
-                      fontSize: '11px',
+                      padding: '13px 16px',
+                      fontSize: '12px',
                       fontWeight: 700,
                       textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
+                      letterSpacing: '0.05em',
                       whiteSpace: 'nowrap',
                       userSelect: 'none',
                       width: col.width,
-                      color: isActive ? '#0f766e' : '#475569',
-                      backgroundColor: isActive ? '#f0fdfa' : 'transparent',
-                      transition: 'background-color 0.15s, color 0.15s',
+                      color: isActive ? '#0d9488' : '#4b5563',
+                      backgroundColor: isActive ? '#e0f7f6' : 'transparent',
                     }}
                   >
                     <span style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -122,32 +122,34 @@ const ListTable = ({
             </tr>
           </thead>
 
-          {/* ── Body ── */}
+          {/* ── BODY (With row dividers, NO column borders) ── */}
           <tbody>
             {data.map((row, rowIndex) => (
               <tr
                 key={row.id ?? rowIndex}
                 onClick={() => handleRowClick(row)}
-                className={onRowClick ? 'table-row-clickable' : ''}
+                className={`
+                  transition-all duration-150
+                  ${onRowClick ? 'cursor-pointer hover:bg-teal-50' : ''}
+                `}
                 style={{
                   backgroundColor: '#ffffff',
-                  borderBottom: '1.5px solid #cbd5e1',
-                  transition: 'background-color 0.15s',
-                  cursor: onRowClick ? 'pointer' : 'default',
+                  borderBottom: '1px solid #d9dce3',
                 }}
-                onMouseEnter={e => { if (onRowClick) e.currentTarget.style.backgroundColor = '#f0fdfa'; }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
               >
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={alignClass(col.align)}
+                    className={`
+                      ${alignClass(col.align)}
+                      text-sm text-gray-800
+                      ${col.key === 'actions' ? 'py-2' : 'py-3'}
+                    `}
                     onClick={col.key === 'actions' ? (e) => e.stopPropagation() : undefined}
                     style={{
-                      padding: '14px 20px',
-                      fontSize: '14px',
+                      padding: `${col.key === 'actions' ? '8px 16px' : '13px 16px'}`,
                       whiteSpace: 'nowrap',
-                      color: '#1e293b',
+                      color: '#374151',
                     }}
                   >
                     {renderCell(col, row, rowIndex)}
@@ -166,19 +168,25 @@ const ListTable = ({
           overflow-y: visible;
           -webkit-overflow-scrolling: touch;
           scrollbar-width: thin;
-          scrollbar-color: #0d9488 #e2e8f0;
-          border-radius: 0 0 12px 12px;
+          scrollbar-color: #0d9488 #f3f4f6;
         }
-        .list-table-scroll-host::-webkit-scrollbar { height: 5px; }
+
+        .list-table-scroll-host::-webkit-scrollbar {
+          height: 6px;
+        }
+
         .list-table-scroll-host::-webkit-scrollbar-track {
-          background: #e2e8f0;
+          background: #f9fafb;
         }
+
         .list-table-scroll-host::-webkit-scrollbar-thumb {
-          background: #0d9488;
+          background: #cbd5e1;
           border-radius: 999px;
+          border: 2px solid #f9fafb;
         }
+
         .list-table-scroll-host::-webkit-scrollbar-thumb:hover {
-          background: #0f766e;
+          background: #9ca3af;
         }
       `}</style>
     </>
