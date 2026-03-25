@@ -10,7 +10,7 @@ import {
  * ============================================================================
  * 
  * Professional configuration with smooth animations and polished UX
- * Built to match big tech company standards
+ * Cards now have COMPACT height for better visual balance
  * 
  * @module projectsConfig
  */
@@ -46,29 +46,28 @@ const formatStatus = (status) => {
 };
 
 // ============================================================================
-// PROJECT CARD COMPONENT - ENTERPRISE LEVEL WITH ULTRA-SMOOTH ANIMATIONS
+// PROJECT CARD COMPONENT - COMPACT HEIGHT, MEDIUM VISIBILITY
 // ============================================================================
 
 /**
  * ProjectCard Component
  * 
  * Features:
- * - Ultra-smooth expand/collapse (600ms with ease-in-out)
- * - Staggered child animations for professional feel
- * - Proper overflow handling
- * - Enterprise-level code quality
- * - Matches original design exactly
+ * - COMPACT height (reduced padding and spacing)
+ * - Medium visibility styling (clearly visible, not too dark)
+ * - Darker border for clear definition
+ * - Better shadow for depth
+ * - Ultra-smooth expand/collapse
+ * - Staggered child animations
  */
 export const ProjectCard = ({ project }) => {
   const [showDetails, setShowDetails] = useState(false);
 
-  // Safety check
   if (!project) {
     console.warn('ProjectCard received undefined project');
     return null;
   }
 
-  // Tracking data - replace with API data when available
   const trackingSteps = [
     { 
       icon: FileText, 
@@ -121,51 +120,53 @@ export const ProjectCard = ({ project }) => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden project-card">
-      {/* Card Header */}
-      <div className="p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-12 h-12 bg-teal-500 rounded-xl flex items-center justify-center flex-shrink-0">
-              <FolderKanban className="w-6 h-6 text-white" />
+    <div className="bg-white rounded-2xl border-2 border-gray-320 hover:border-gray-380 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden project-card">
+      {/* Card Header - COMPACT */}
+      <div className="p-4 border-b border-gray-220">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+              <FolderKanban className="w-5 h-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-bold text-gray-800 truncate">
+              <h3 className="text-base font-bold text-gray-900 truncate">
                 {project.name || 'Untitled Project'}
               </h3>
             </div>
           </div>
-          <button className="text-gray-400 hover:text-gray-600 transition-colors ml-2 flex-shrink-0">
-            <MoreVertical className="w-5 h-5" />
+          <button className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all duration-200 ml-2 flex-shrink-0 p-1 rounded-lg">
+            <MoreVertical className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Status Badge and Details Button */}
-        <div className="flex items-center justify-between mb-4">
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${getStatusColor(project.status || 'planning')}`}>
+        {/* Status Badge and Details Button - COMPACT */}
+        <div className="flex items-center justify-between gap-2">
+          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status || 'planning')}`}>
             <Clock className="w-3 h-3" />
             {formatStatus(project.status || 'planning')}
           </span>
           <button
             onClick={() => setShowDetails(!showDetails)}
-            className="text-teal-600 hover:text-teal-700 transition-all duration-200 flex items-center gap-1 text-sm font-medium"
+            className="text-teal-600 hover:text-teal-700 transition-all duration-200 flex items-center gap-0.5 text-xs font-medium"
           >
             {showDetails ? (
               <>
-                <ChevronUp className="w-4 h-4 transition-transform duration-200" />
+                <ChevronUp className="w-3.5 h-3.5 transition-transform duration-200" />
                 Hide
               </>
             ) : (
               <>
-                <ChevronDown className="w-4 h-4 transition-transform duration-200" />
+                <ChevronDown className="w-3.5 h-3.5 transition-transform duration-200" />
                 Details
               </>
             )}
           </button>
         </div>
+      </div>
 
-        {/* Project Description */}
-        <p className="text-sm text-gray-600 line-clamp-2">
+      {/* Project Description - COMPACT */}
+      <div className="px-4 py-2.5 bg-gray-70 border-b border-gray-220">
+        <p className="text-xs text-gray-700 line-clamp-2">
           {project.description || 'we discuss abot some points at first meeting and the client had fpcused on xyz things so we need to do those AEAP'}
         </p>
       </div>
@@ -173,7 +174,6 @@ export const ProjectCard = ({ project }) => {
       {/* Expandable Details Section - ULTRA SMOOTH ANIMATION */}
       <div 
         className={`
-          border-t border-gray-100 bg-gray-50 
           transition-all duration-600 ease-in-out
           ${showDetails 
             ? 'max-h-[1000px] opacity-100' 
@@ -187,30 +187,30 @@ export const ProjectCard = ({ project }) => {
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <div className="p-6">
+        <div className="p-4 bg-white border-t border-gray-220">
           {/* Tracking Header */}
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-teal-600" />
-            <h4 className="font-semibold text-gray-900 text-sm">Tracking</h4>
+          <div className="flex items-center gap-1.5 mb-3">
+            <Clock className="w-3.5 h-3.5 text-teal-600" />
+            <h4 className="font-semibold text-gray-900 text-xs uppercase tracking-wider">Tracking</h4>
           </div>
           
           {/* Tracking Steps with Staggered Animation */}
-          <div className="space-y-3 mb-6">
+          <div className="space-y-2.5 mb-4">
             {trackingSteps.map((step, index) => (
               <div 
                 key={index} 
-                className="flex items-start gap-3"
+                className="flex items-start gap-2.5"
                 style={{ 
                   opacity: showDetails ? 1 : 0,
                   transform: showDetails ? 'translateX(0)' : 'translateX(-10px)',
                   transition: `opacity 400ms ease-out ${100 + index * 60}ms, transform 400ms ease-out ${100 + index * 60}ms`
                 }}
               >
-                <div className={`w-8 h-8 ${step.bgColor} rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
-                  <step.icon className={`w-4 h-4 ${step.color}`} />
+                <div className={`w-7 h-7 ${step.bgColor} rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
+                  <step.icon className={`w-3.5 h-3.5 ${step.color}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{step.text}</p>
+                  <p className="text-xs font-medium text-gray-900">{step.text}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{step.timestamp}</p>
                 </div>
               </div>
@@ -219,22 +219,22 @@ export const ProjectCard = ({ project }) => {
 
           {/* Members and Dates Section */}
           <div 
-            className="pt-4 border-t border-gray-200"
+            className="pt-3 border-t border-gray-220"
             style={{
               opacity: showDetails ? 1 : 0,
               transform: showDetails ? 'translateY(0)' : 'translateY(10px)',
               transition: 'opacity 400ms ease-out 500ms, transform 400ms ease-out 500ms'
             }}
           >
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               {/* Members */}
               <div>
-                <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-medium">Members</p>
+                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Members</p>
                 <div className="flex items-center gap-1">
                   {members.map((member, index) => (
                     <div 
                       key={index} 
-                      className={`w-8 h-8 ${member.color} rounded-full border-2 border-white shadow-sm`}
+                      className={`w-7 h-7 ${member.color} rounded-full border-2 border-white shadow-sm`}
                       style={{
                         opacity: showDetails ? 1 : 0,
                         transform: showDetails ? 'scale(1)' : 'scale(0.8)',
@@ -247,21 +247,21 @@ export const ProjectCard = ({ project }) => {
 
               {/* Start Date */}
               <div className="text-center">
-                <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-medium">Start Date</p>
-                <p className="text-sm text-red-500 font-semibold">
+                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Start</p>
+                <p className="text-xs text-red-500 font-semibold">
                   {project.start_date 
                     ? new Date(project.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                    : '20 Jan 2026'}
+                    : '20 Jan'}
                 </p>
               </div>
 
               {/* End Date */}
               <div className="text-right">
-                <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-medium">End Date</p>
-                <p className="text-sm text-gray-900 font-semibold">
+                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">End</p>
+                <p className="text-xs text-gray-900 font-semibold">
                   {project.end_date 
                     ? new Date(project.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                    : '20 Jan 2026'}
+                    : '20 Jan'}
                 </p>
               </div>
             </div>
@@ -269,7 +269,7 @@ export const ProjectCard = ({ project }) => {
         </div>
       </div>
 
-      {/* Inline styles for ultra-smooth animation */}
+      {/* Custom styles */}
       <style>{`
         .duration-600 {
           transition-duration: 600ms;
@@ -284,17 +284,10 @@ export const ProjectCard = ({ project }) => {
 // ============================================================================
 
 const projectsConfig = {
-  // Page Metadata
-  title: 'Project List',
+  title: 'Projects',
   icon: FolderKanban,
-
-  // Button Labels
-  addButtonLabel: 'Create Project',
-
-  // Layout Type
+  addButtonLabel: 'Add',
   layoutType: 'cards',
-
-  // Card Configuration
   cardComponent: ProjectCard,
   gridColumns: {
     sm: 1,
@@ -302,23 +295,15 @@ const projectsConfig = {
     lg: 3,
   },
   gridGap: 6,
-
-  // Search & Filter
   showSearch: true,
   showFilter: true,
-
-  // Messages
   loadingMessage: 'Loading projects...',
   emptyMessage: 'No Projects Found',
   emptySubMessage: 'Start by creating your first project',
-
-  // Default Sorting
   defaultSort: {
     field: 'name',
     direction: 'asc',
   },
-
-  // Page Size
   defaultPageSize: 10,
 };
 
@@ -326,37 +311,30 @@ export default projectsConfig;
 
 /**
  * ============================================================================
- * ENTERPRISE-LEVEL ANIMATION IMPLEMENTATION
+ * COMPACT CARD SIZING
  * ============================================================================
  * 
- * SMOOTH EXPAND/COLLAPSE:
- * - Duration: 600ms for main expansion (perfectly balanced)
- * - Timing: cubic-bezier(0.4, 0, 0.2, 1) for natural motion
- * - Max height: 1000px (enough for all content)
- * - Opacity transition: 400ms (slightly faster for smooth fade)
+ * HEADER SECTION:
+ * - Padding: p-4 (was p-6, now more compact)
+ * - Icon: w-10 h-10 (was w-12 h-12)
+ * - Title: text-base (was text-lg)
+ * - Gap: gap-2.5 (was gap-3)
  * 
- * STAGGERED CHILD ANIMATIONS:
- * - Tracking items: 60ms delay between each (100ms start + index * 60ms)
- * - Members: 80ms delay between each (600ms start + index * 80ms)
- * - Bottom section: 500ms delay for polished sequence
+ * DESCRIPTION SECTION:
+ * - Padding: py-2.5 (was py-4)
+ * - Text: text-xs (was text-sm)
+ * - More compact appearance
  * 
- * PROFESSIONAL TOUCHES:
- * - Transform + opacity for depth perception
- * - Separate transitions for different properties
- * - Overflow hidden prevents content jump
- * - All transitions use ease-out for natural deceleration
+ * DETAILS SECTION:
+ * - All spacing reduced by ~33%
+ * - Same functionality, less visual weight
+ * - Better balance with grid layout
  * 
- * WHY THIS APPROACH:
- * - Used by Google Material Design, Apple Human Interface
- * - Creates sense of polish and attention to detail
- * - Users perceive as "high quality" and "professional"
- * - Smooth enough to feel good, fast enough to not annoy
- * 
- * PERFORMANCE:
- * - CSS transitions (GPU accelerated)
- * - No JavaScript animation loops
- * - No reflows during animation
- * - Efficient re-renders with React
+ * RESULT:
+ * - Cards look proportional and balanced
+ * - Less "broad" or "big" appearance
+ * - More modern and condensed
+ * - Better suited for 3-column layout
  * 
  * ============================================================================
  */

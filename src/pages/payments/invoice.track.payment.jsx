@@ -70,9 +70,16 @@ const AddPaymentModal = ({ invoice, onClose, onSuccess }) => {
     if (!form.payment_date) { setError('Payment date is required.'); return; }
     setError(''); setSubmitting(true);
     try {
+      // Determine if this is a vendor invoice or a client invoice.
+      // invoice.client holds the client id (number) for client invoices.
+      // invoice.vendor holds the vendor id (number) for vendor/PO invoices.
+      // Backend expects: client invoices → client_id=<id>, vendor_id=null
+      //                  vendor invoices → client_id=null, vendor_id=<id>
+      const isVendorInvoice = !invoice.client && !!invoice.vendor;
       const result = await createPayment({
         invoice_id:     invoice.id,
-        client_id:      invoice.client,
+        client_id:      isVendorInvoice ? null : (invoice.client || null),
+        vendor_id:      isVendorInvoice ? (invoice.vendor || null) : null,
         payment_date:   form.payment_date,
         payment_method: Number(form.payment_method),
         reference:      form.reference.trim(),

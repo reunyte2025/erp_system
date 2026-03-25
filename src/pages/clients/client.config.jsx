@@ -3,8 +3,9 @@ import { User, Trash2, RotateCcw } from 'lucide-react';
 
 /**
  * ============================================================================
- * CLIENT MODULE CONFIGURATION
+ * CLIENT MODULE CONFIGURATION - REDESIGNED
  * ============================================================================
+ * Modern, sharp, professional styling for client list
  */
 
 // ============================================================================
@@ -13,12 +14,24 @@ import { User, Trash2, RotateCcw } from 'lucide-react';
 
 const getStatusColor = (index) => {
   const colors = [
-    'bg-teal-500',
-    'bg-orange-600',
-    'bg-lime-500',
-    'bg-green-500',
-    'bg-yellow-500',
-    'bg-emerald-600',
+    'bg-gradient-to-br from-teal-500 to-teal-600',
+    'bg-gradient-to-br from-orange-500 to-orange-600',
+    'bg-gradient-to-br from-lime-500 to-lime-600',
+    'bg-gradient-to-br from-green-500 to-green-600',
+    'bg-gradient-to-br from-yellow-500 to-yellow-600',
+    'bg-gradient-to-br from-emerald-500 to-emerald-600',
+  ];
+  return colors[index % colors.length];
+};
+
+const getStatusColorLight = (index) => {
+  const colors = [
+    'text-teal-700',
+    'text-orange-700',
+    'text-lime-700',
+    'text-green-700',
+    'text-yellow-700',
+    'text-emerald-700',
   ];
   return colors[index % colors.length];
 };
@@ -29,16 +42,7 @@ const formatFullName = (firstName, lastName) => {
 };
 
 // ============================================================================
-// ACTIONS DROPDOWN MENU COMPONENT
-// ============================================================================
-//
-// Role rules:
-//   Admin   → sees "Delete Client" (active/draft) OR "Undo Client" (deactive)
-//   Manager → sees the 3-dot button but it's disabled with a tooltip
-//   User    → sees the 3-dot button but it's disabled with a tooltip
-//
-// render(row, index, handlers) — handlers = { onDeleteClient, onUndoClient }
-// injected by ListTable via actionHandlers prop from clients.jsx → DynamicList
+// MODERN ACTIONS DROPDOWN MENU COMPONENT
 // ============================================================================
 
 const ActionsMenu = ({ row, handlers }) => {
@@ -47,7 +51,6 @@ const ActionsMenu = ({ row, handlers }) => {
 
   const isDeactive = row.status === 3;
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handleOutside = (e) => {
@@ -71,53 +74,55 @@ const ActionsMenu = ({ row, handlers }) => {
     handlers?.onUndoClient?.(row);
   };
 
-  // ── Dropdown ───────────────────────────────────────────────────────────────
   return (
     <div className="relative flex justify-center" ref={menuRef}>
-      {/* 3-dot trigger */}
+      {/* Trigger Button */}
       <button
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg
-                   transition-all duration-150
-                   ${open
-                     ? 'text-gray-700 bg-gray-100'
-                     : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200'
-                   }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={`
+          inline-flex items-center justify-center w-8 h-8 rounded-lg
+          transition-all duration-150
+          ${open
+            ? 'text-teal-700 bg-teal-100'
+            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200'
+          }
+        `}
         title="Actions"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="8" cy="3"  r="1.4" />
-          <circle cx="8" cy="8"  r="1.4" />
+          <circle cx="8" cy="3" r="1.4" />
+          <circle cx="8" cy="8" r="1.4" />
           <circle cx="8" cy="13" r="1.4" />
         </svg>
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown Menu */}
       {open && (
         <div
-          className="absolute right-0 top-9 z-50 w-44 bg-white rounded-xl border border-gray-100 py-1.5 overflow-hidden"
-          style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.13)', animation: 'dropdownIn 0.15s ease' }}
+          className="absolute right-0 top-10 z-50 w-48 bg-white rounded-xl border border-gray-200 py-1.5 shadow-lg overflow-hidden"
+          style={{ animation: 'dropdownIn 0.15s ease-out' }}
           onClick={(e) => e.stopPropagation()}
         >
           {isDeactive ? (
-            /* Undo — only for deactive (status 3) */
+            /* Undo Action */
             <button
               onClick={handleUndo}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium
-                         text-teal-600 hover:bg-teal-50 transition-colors duration-100"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-teal-700 hover:bg-teal-50 transition-colors duration-100 first:rounded-t-lg last:rounded-b-lg"
             >
               <RotateCcw className="w-4 h-4 flex-shrink-0" />
-              Undo Client
+              <span>Restore Client</span>
             </button>
           ) : (
-            /* Delete — for active (2) and draft (1) */
+            /* Delete Action */
             <button
               onClick={handleDelete}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium
-                         text-red-500 hover:bg-red-50 transition-colors duration-100"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors duration-100 first:rounded-t-lg last:rounded-b-lg"
             >
               <Trash2 className="w-4 h-4 flex-shrink-0" />
-              Delete Client
+              <span>Delete Client</span>
             </button>
           )}
         </div>
@@ -125,8 +130,14 @@ const ActionsMenu = ({ row, handlers }) => {
 
       <style>{`
         @keyframes dropdownIn {
-          from { opacity: 0; transform: scale(0.95) translateY(-4px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0); }
+          from {
+            opacity: 0;
+            transform: scale(0.95) translateY(-4px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
         }
       `}</style>
     </div>
@@ -135,12 +146,10 @@ const ActionsMenu = ({ row, handlers }) => {
 
 // ============================================================================
 // COLUMN DEFINITIONS
-// getColumns(isAdmin) — Actions column is only included for Admin role.
-// Manager and User see no Actions column at all (no header, no cell).
 // ============================================================================
 
 const baseColumns = [
-  // ── Customer Name — sortable ─────────────────────────────────────────────
+  // ── Customer Name ─────────────────────────────────────────────────────
   {
     key: 'customer_name',
     label: 'Customer Name',
@@ -150,15 +159,15 @@ const baseColumns = [
     render: (row, index) => (
       <div className="flex items-center gap-3">
         <div
-          className={`w-10 h-10 ${getStatusColor(index)} rounded-full flex items-center justify-center flex-shrink-0`}
+          className={`w-10 h-10 ${getStatusColor(index)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm`}
         >
           <User className="w-5 h-5 text-white" />
         </div>
         <div className="min-w-0">
-          <div className="font-medium text-gray-900 truncate max-w-[130px]">
+          <div className="font-semibold text-gray-900 truncate max-w-[130px]">
             {formatFullName(row.first_name, row.last_name)}
           </div>
-          <div className="text-sm text-gray-500 truncate max-w-[130px]">
+          <div className="text-xs text-gray-500 truncate max-w-[130px]">
             {row.email || 'No email'}
           </div>
         </div>
@@ -166,26 +175,31 @@ const baseColumns = [
     ),
   },
 
-  // ── Address ──────────────────────────────────────────────────────────────
+  // ── Address ───────────────────────────────────────────────────────────
   {
     key: 'address',
     label: 'Address',
     width: '200px',
     headerAlign: 'center',
     render: (row) => {
-      const fullAddress = [row.address, row.city, row.state, row.pincode].filter(Boolean).join(', ');
+      const fullAddress = [row.address, row.city, row.state, row.pincode]
+        .filter(Boolean)
+        .join(', ');
       const shortAddress = [row.address, row.city].filter(Boolean).join(', ');
       return shortAddress ? (
-        <span className="text-gray-700 max-w-[180px] block truncate" title={fullAddress}>
+        <span
+          className="text-gray-700 max-w-[180px] block truncate text-sm"
+          title={fullAddress}
+        >
           {shortAddress}
         </span>
       ) : (
-        <span className="text-gray-400 block text-center">—</span>
+        <span className="text-gray-400 block text-center text-sm">—</span>
       );
     },
   },
 
-  // ── Notes ─────────────────────────────────────────────────────────────────
+  // ── Notes ─────────────────────────────────────────────────────────────
   {
     key: 'notes',
     label: 'Notes',
@@ -193,30 +207,33 @@ const baseColumns = [
     headerAlign: 'center',
     render: (row) => {
       const notes = row.Notes || [];
-      if (notes.length === 0) return <span className="text-gray-400 block text-center">—</span>;
+      if (notes.length === 0)
+        return <span className="text-gray-400 block text-center text-sm">—</span>;
       const firstNote = notes[0].note || '';
       const preview = firstNote.length > 20 ? firstNote.substring(0, 20) + '…' : firstNote;
       return (
-        <span className="text-gray-700" title={firstNote}>
+        <span className="text-gray-700 text-sm" title={firstNote}>
           {preview}
           {notes.length > 1 && (
-            <span className="ml-1.5 text-xs text-teal-600 font-medium">+{notes.length - 1}</span>
+            <span className="ml-2 text-xs text-teal-600 font-semibold">
+              +{notes.length - 1}
+            </span>
           )}
         </span>
       );
     },
   },
 
-  // ── Total Outstanding ─────────────────────────────────────────────────────
+  // ── Total Outstanding ─────────────────────────────────────────────────
   {
     key: 'outstanding',
     label: 'Total Outstanding',
     width: '140px',
     align: 'center',
-    render: () => <span className="text-gray-400 block text-center">—</span>,
+    render: () => <span className="text-gray-400 block text-center text-sm">—</span>,
   },
 
-  // ── Date — sortable ───────────────────────────────────────────────────────
+  // ── Date ──────────────────────────────────────────────────────────────
   {
     key: 'date',
     label: 'Date',
@@ -224,19 +241,18 @@ const baseColumns = [
     headerAlign: 'center',
     sortField: 'created_at',
     render: (row) => {
-      if (!row.created_at) return <span className="text-gray-400">—</span>;
+      if (!row.created_at) return <span className="text-gray-400 text-sm">—</span>;
       const date = new Date(row.created_at);
       const formatted = date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'short',
         year: 'numeric',
       });
-      return <span className="text-gray-700">{formatted}</span>;
+      return <span className="text-gray-700 text-sm">{formatted}</span>;
     },
   },
 
-  // ── Status — sortable ─────────────────────────────────────────────────────
-  // 1 = Draft  |  2 = Active  |  3 = Deactive
+  // ── Status ────────────────────────────────────────────────────────────
   {
     key: 'status',
     label: 'Status',
@@ -247,7 +263,7 @@ const baseColumns = [
       if (row.status === 1) {
         return (
           <div className="flex justify-center">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-100 text-orange-600 text-xs font-semibold whitespace-nowrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-semibold whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
               Draft
             </span>
@@ -257,7 +273,7 @@ const baseColumns = [
       if (row.status === 3) {
         return (
           <div className="flex justify-center">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-600 text-xs font-semibold whitespace-nowrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
               Deactive
             </span>
@@ -266,7 +282,7 @@ const baseColumns = [
       }
       return (
         <div className="flex justify-center">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold whitespace-nowrap">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-100 text-teal-700 text-xs font-semibold whitespace-nowrap">
             <span className="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0" />
             Active
           </span>
@@ -275,39 +291,35 @@ const baseColumns = [
     },
   },
 
-  // ── Actions — Admin only ──────────────────────────────────────────────────
-  // render(row, index, handlers) — handlers injected by ListTable
+  // ── Actions (Admin only) ──────────────────────────────────────────────
   {
     key: 'actions',
     label: 'Actions',
     width: '80px',
     align: 'center',
-    adminOnly: true,                       // ← marker used by getColumns()
-    render: (row, index, handlers) => (
-      <ActionsMenu row={row} handlers={handlers} />
-    ),
+    adminOnly: true,
+    render: (row, index, handlers) => <ActionsMenu row={row} handlers={handlers} />,
   },
 ];
 
 /**
- * Returns columns for the current user's role.
- * Admin → all columns including Actions.
- * Manager / User → all columns except Actions.
+ * Get columns for the current user's role
+ * Admin → all columns including Actions
+ * Manager / User → all columns except Actions
  */
 export const getColumns = (isAdmin) =>
   isAdmin ? baseColumns : baseColumns.filter((col) => !col.adminOnly);
 
 // ============================================================================
-// MAIN CONFIGURATION OBJECT
+// MAIN CONFIGURATION
 // ============================================================================
 
 const clientConfig = {
-  title: 'Client List',
+  title: 'Clients',
   icon: User,
 
   addButtonLabel: 'Add Client',
 
-  // `columns` is kept for backward compat but use getColumns(isAdmin) in pages
   columns: baseColumns,
 
   showSearch: true,
@@ -316,7 +328,7 @@ const clientConfig = {
   loadingMessage: 'Loading clients...',
   emptyMessage: 'No Clients Found',
   emptySubMessage: 'Start by adding your first client',
-  note: 'Click on client to get more details',
+  note: 'Click on a client to view details',
 
   defaultSort: {
     field: 'first_name',

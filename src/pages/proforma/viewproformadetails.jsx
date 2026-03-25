@@ -608,8 +608,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [showInvoiceModal,   setShowInvoiceModal]   = useState(false);
   const [advanceAmount,      setAdvanceAmount]      = useState('');
   const [invoiceGenerating,  setInvoiceGenerating]  = useState(false);
+  const [invoiceChecking,    setInvoiceChecking]    = useState(false); // true while pre-checking for existing invoice
   const [invoiceError,       setInvoiceError]       = useState('');
   const [invoiceSuccess,     setInvoiceSuccess]     = useState(null); // holds created invoice object
+
+  // ── Invoice Already Exists toast state (mirrors proformaModal in viewquotationdetails) ──
+  const [invoiceModal, setInvoiceModal] = useState({
+    open: false,
+    invoiceId: null,
+    invoiceNum: '',
+    alreadyExists: false,
+    genericError: '',
+  });
 
   const [editSacCode,  setEditSacCode]  = useState('');
   const [editGstRate,  setEditGstRate]  = useState(0);
@@ -931,7 +941,84 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     }
   };
 
-  // ── Generate Invoice handler ─────────────────────────────────────────────────
+  // ── Helper: fetch the invoice that belongs to this specific proforma ─────────
+  // The backend's get_all_invoices does not reliably filter by proforma param,
+  // so we fetch the first page and match client-side by proforma id.
+  // ── Invoice number formatter — display EXACTLY as returned by API, never reformat ──
+  const fmtInvNum = (n) => n ? String(n) : '—';
+
+  // ── Extract the shared trailing digits from a proforma/invoice number ─────────
+  // e.g. "PF-2026-3075433" → "3075433", "INV-202603-3075433" → "3075433"
+  const extractTrailingDigits = (numStr) => {
+    if (!numStr) return '';
+    const s = String(numStr);
+    const lastDash = s.lastIndexOf('-');
+    return lastDash >= 0 ? s.substring(lastDash + 1) : s;
+  };
+
+  // ── Find the invoice for THIS proforma by matching shared trailing digits ─────
+  // The backend invoice number is derived from the proforma number, so they share
+  // the same trailing segment (e.g. PF-2026-3075433 → INV-202603-3075433).
+  // get_all_invoices has NO proforma filter param, so we match client-side.
+  const fetchInvoiceForThisProforma = async () => {
+    const proformaTrailing = extractTrailingDigits(proforma.proforma_number || String(proforma.id));
+    const res = await api.get('/invoices/get_all_invoices/', {
+      params: { page: 1, page_size: 100 },
+    });
+    const results = res.data?.data?.results || res.data?.results || [];
+    // First try: match by proforma field on the invoice object (most reliable)
+    const proformaId = Number(proforma.id);
+    let match = results.find((inv) => Number(inv.proforma) === proformaId);
+    // Second try: match by shared trailing digits in invoice_number
+    if (!match && proformaTrailing) {
+      match = results.find((inv) => {
+        const invTrailing = extractTrailingDigits(inv.invoice_number);
+        return invTrailing && invTrailing === proformaTrailing;
+      });
+    }
+    return match || null;
+  };
+
+  // ── Dismiss invoice modal helper ─────────────────────────────────────────────
+  const dismissInvoiceModal = () =>
+    setInvoiceModal({ open: false, invoiceId: null, invoiceNum: '', alreadyExists: false, genericError: '' });
+
+  // ── Generate Invoice button click ─────────────────────────────────────────────
+  // Pre-checks for an existing invoice BEFORE opening the modal so the modal
+  // never opens if an invoice already exists. Uses fetchInvoiceForThisProforma
+  // which matches by proforma field AND by shared trailing digits.
+  const handleInvoiceButtonClick = async () => {
+    if (!isApproved()) return;
+    setInvoiceChecking(true);
+    try {
+      const existing = await fetchInvoiceForThisProforma();
+      if (existing) {
+        setInvoiceModal({
+          open: true,
+          invoiceId: existing.id,
+          invoiceNum: fmtInvNum(existing.invoice_number),
+          alreadyExists: true,
+          genericError: '',
+        });
+        return; // Never open the modal
+      }
+      // No existing invoice — safe to open modal
+      setAdvanceAmount('');
+      setInvoiceError('');
+      setInvoiceSuccess(null);
+      setShowInvoiceModal(true);
+    } catch {
+      // Pre-check failed — open modal and let the API 409 handle it
+      setAdvanceAmount('');
+      setInvoiceError('');
+      setInvoiceSuccess(null);
+      setShowInvoiceModal(true);
+    } finally {
+      setInvoiceChecking(false);
+    }
+  };
+
+  // ── Generate Invoice handler (called from inside the modal) ──────────────────
   const handleGenerateInvoice = async () => {
     setInvoiceError('');
     setInvoiceGenerating(true);
@@ -951,7 +1038,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         proforma:       proforma.id,
         advance_amount: String(advance.toFixed(2)),
       });
-      // Backend returns the created invoice — could be nested under data or at root
       const created = res?.data || res;
       if (!created?.id && !created?.invoice_number) {
         setInvoiceError('Invoice created but response was unexpected. Please check Invoice List.');
@@ -959,7 +1045,25 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       }
       setInvoiceSuccess(created);
     } catch (e) {
+      const status = e.response?.status;
       const respData = e.response?.data;
+
+      // ── 409 Conflict: safety-net if pre-check missed it ──────────────────────
+      if (status === 409) {
+        setShowInvoiceModal(false);
+        let existingId  = null;
+        let existingNum = '';
+        try {
+          const match = await fetchInvoiceForThisProforma();
+          if (match) {
+            existingId  = match.id;
+            existingNum = fmtInvNum(match.invoice_number);
+          }
+        } catch { /* silently ignore */ }
+        setInvoiceModal({ open: true, invoiceId: existingId, invoiceNum: existingNum, alreadyExists: true, genericError: '' });
+        return;
+      }
+
       let msg = '';
       if (respData) {
         const errs = respData.errors || respData.message || respData.detail || respData;
@@ -970,14 +1074,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     } finally {
       setInvoiceGenerating(false);
     }
-  };
-
-  const fmtInvNum = (n) => {
-    if (!n) return '—';
-    if (String(n).startsWith('IN-')) return String(n);
-    const s = String(n);
-    if (s.length >= 8) return `IN-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-    return `IN-2026-${String(n).padStart(5, '0')}`;
   };
 
   const fetchData = useCallback(async () => {
@@ -1328,19 +1424,16 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   );
                 })()}
 
-                {/* Generate Invoice — all roles, only enabled when Approved (status=3) */}
+                {/* Generate Invoice — only enabled when Approved (status=3) */}
                 <button
                   className="vpd-btn-invoice"
-                  disabled={!isApproved()}
+                  disabled={!isApproved() || invoiceChecking}
                   title={isApproved() ? 'Generate Invoice from this Proforma' : 'Proforma must be Approved before generating an invoice'}
-                  onClick={() => {
-                    setAdvanceAmount('');
-                    setInvoiceError('');
-                    setInvoiceSuccess(null);
-                    setShowInvoiceModal(true);
-                  }}
+                  onClick={handleInvoiceButtonClick}
                 >
-                  <Receipt size={14} /> Generate Invoice
+                  {invoiceChecking
+                    ? <><Loader2 size={14} className="vpd-spin" /> Checking…</>
+                    : <><Receipt size={14} /> Generate Invoice</>}
                 </button>
               </>
             )}
@@ -2149,6 +2242,68 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ══════════ INVOICE ALREADY EXISTS TOAST ══════════ */}
+      {invoiceModal.open && invoiceModal.alreadyExists && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
+          background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06)',
+          display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px',
+          maxWidth: 380, width: '100%',
+          animation: 'vpd_toast_in .3s cubic-bezier(.16,1,.3,1)',
+          borderLeft: '4px solid #7c3aed',
+          fontFamily: "'Outfit', sans-serif",
+        }}>
+          {/* Icon */}
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: '#faf5ff', border: '1.5px solid #ddd6fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Receipt size={16} color="#7c3aed" />
+          </div>
+          {/* Content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Invoice Already Exists</div>
+            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 10 }}>
+              An invoice has already been generated for this proforma.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {invoiceModal.invoiceId && (
+                <button
+                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`); }}
+                  style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <Receipt size={11} /> {invoiceModal.invoiceNum ? `View ${invoiceModal.invoiceNum}` : 'View Invoice'}
+                </button>
+              )}
+              <button
+                onClick={() => { dismissInvoiceModal(); navigate('/invoices'); }}
+                style={{ padding: '5px 12px', background: '#7c3aed', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <Receipt size={11} /> View Invoice List
+              </button>
+              <button
+                onClick={dismissInvoiceModal}
+                style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          {/* Close X */}
+          <button
+            onClick={dismissInvoiceModal}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ══════════ SAVE SUCCESS TOAST ══════════ */}
+      {saveSuccess && (
+        <div className="vpd-success-toast">
+          <CheckCircle size={17} />
+          Proforma updated successfully!
         </div>
       )}
 

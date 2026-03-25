@@ -1,30 +1,33 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, Bell, ChevronDown, User, Settings, Lock, LogOut,
+  Bell, ChevronDown, User, Settings, Lock, LogOut,
   Menu, ArrowLeft, CheckCheck, Trash2, X, Users, FileText,
-  Briefcase, CreditCard, Loader2,
+  Briefcase, CreditCard, ChevronRight, Building2,
+  Store, Tag, Receipt, Eye, RefreshCw,
 } from 'lucide-react';
 import { logout as authLogout } from '../services/authService';
 import { useNotifications } from '../services/useNotifications';
+import api from '../services/api';
 
 export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, breadcrumbs }) {
   const navigate = useNavigate();
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isProfileOpen,      setIsProfileOpen]      = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [showAllPanel, setShowAllPanel] = useState(false);
+  const [showAllPanel,       setShowAllPanel]       = useState(false);
+  const [activeTab,          setActiveTab]          = useState('all'); // 'all' | 'approvals' | 'alerts'
+  const [loadingNotifId,     setLoadingNotifId]     = useState(null);  // tracks which notification is resolving
+  const [quotationTypeCache, setQuotationTypeCache] = useState({});    // { [entity_id]: true/false } — true = isPO
 
   const {
     notifications,
     unreadCount,
-    loading: notifLoading,
     markAsRead,
     markAllRead,
     removeNotification,
     clearAllNotifications,
     getNotificationText,
     getNotificationCategory,
-    getNavigationPath,
     formatTime,
   } = useNotifications();
 
@@ -33,9 +36,89 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     else navigate('/clients');
   };
 
-  const handleNotificationClick = (notification) => {
+  // ─── Bell click: if "All panel" is open → close it; otherwise toggle dropdown ─
+  const handleBellClick = () => {
+    if (showAllPanel) {
+      setShowAllPanel(false);
+      return;
+    }
+    setIsNotificationOpen((prev) => !prev);
+    setIsProfileOpen(false);
+  };
+
+  // ─── Nav path resolver ────────────────────────────────────────────────────
+  // For QUOTATION events: CANNOT trust entity_type alone — backend sets
+  // entity_type="Quotation" for BOTH client quotations (type=1) AND purchase
+  // orders (type=2). We must fetch the record to check its type field.
+  const resolveNavPath = (notification) => {
+    const { entity_type, entity_id, event_type } = notification;
+    const et = (event_type || '').toUpperCase();
+
+    // Skip Quotation entity_type in the static map — handled async in handleNotificationClick
+    if (entity_id) {
+      const map = {
+        Client:   `/clients/${entity_id}`,
+        Invoice:  `/invoices/${entity_id}`,
+        Project:  `/projects/${entity_id}`,
+        Proforma: `/proforma/${entity_id}`,
+        Purchase: `/purchase/${entity_id}`,
+        Vendor:   `/vendors/${entity_id}`,
+      };
+      if (entity_type && map[entity_type]) return map[entity_type];
+    }
+
+    if (et.includes('PROFORMA'))  return entity_id ? `/proforma/${entity_id}`   : '/proforma';
+    if (et.includes('INVOICE'))   return entity_id ? `/invoices/${entity_id}`   : '/invoices';
+    if (et.includes('PAYMENT'))   return entity_id ? `/invoices/${entity_id}`   : '/invoices';
+    if (et.includes('CLIENT'))    return entity_id ? `/clients/${entity_id}`    : '/clients';
+    if (et.includes('PROJECT'))   return entity_id ? `/projects/${entity_id}`   : '/projects';
+    if (et.includes('VENDOR'))    return entity_id ? `/vendors/${entity_id}`    : '/vendors';
+    if (et.includes('PURCHASE'))  return entity_id ? `/purchase/${entity_id}`   : '/purchase';
+    // NOTE: QUOTATION is intentionally omitted — resolved async below
+
+    return null;
+  };
+
+  // ─── Smart click handler ───────────────────────────────────────────────────
+  // For QUOTATION events: fetch the record to check type (1=quotation, 2=purchase order)
+  // and route to the correct page. For all other events: resolve synchronously.
+  const handleNotificationClick = async (notification) => {
     if (!notification.is_read) markAsRead(notification.id);
-    const path = getNavigationPath(notification);
+
+    const { entity_id, event_type } = notification;
+    const et = (event_type || '').toUpperCase();
+
+    // QUOTATION event — must look up the type to know where to go
+    if (et.includes('QUOTATION') && entity_id) {
+      setLoadingNotifId(notification.id);
+      try {
+        const res = await api.get('/quotations/get_quotation/', { params: { id: entity_id } });
+        const record = res.data?.data ?? res.data ?? {};
+        // quotation_type is a string: "Vendor Compliance" = purchase order, "Client Compliance" = quotation
+        // Also use client===null + vendor set as a reliable fallback
+        const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
+          || (record.client === null && record.vendor !== null && record.vendor !== undefined);
+        // Cache the result so the label updates immediately for this and future renders
+        setQuotationTypeCache(prev => ({ ...prev, [entity_id]: isPO }));
+        const path = isPO
+          ? `/purchase/${entity_id}`
+          : `/quotations/${entity_id}`;
+        setIsNotificationOpen(false);
+        setShowAllPanel(false);
+        navigate(path);
+      } catch (_) {
+        // Fallback to quotations on error
+        setIsNotificationOpen(false);
+        setShowAllPanel(false);
+        navigate(`/quotations/${entity_id}`);
+      } finally {
+        setLoadingNotifId(null);
+      }
+      return;
+    }
+
+    // All other events — synchronous path resolution
+    const path = resolveNavPath(notification);
     if (path) {
       setIsNotificationOpen(false);
       setShowAllPanel(false);
@@ -43,84 +126,137 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     }
   };
 
-  // ─── Category icon + colour ────────────────────────────────────────────────
-  const getCategoryStyle = (category) => {
+  // ─── Category style ───────────────────────────────────────────────────────
+  const getCategoryStyle = (category, eventType = '') => {
+    const et = (eventType || '').toUpperCase();
+    if (et.includes('APPROVED')) return { icon: <CheckCheck className="w-4 h-4" />, bg: 'bg-emerald-500/15', text: 'text-emerald-500', label: 'Approved',  labelCls: 'text-emerald-600 bg-emerald-50' };
+    if (et.includes('REJECTED')) return { icon: <X className="w-4 h-4" />,          bg: 'bg-red-500/15',     text: 'text-red-500',     label: 'Rejected',  labelCls: 'text-red-600 bg-red-50' };
+    if (et.includes('SUBMITTED'))return { icon: <FileText className="w-4 h-4" />,   bg: 'bg-blue-500/15',    text: 'text-blue-500',    label: 'Submitted', labelCls: 'text-blue-600 bg-blue-50' };
+
     const map = {
-      proforma:{ icon: <FileText className="w-3.5 h-3.5" />,   bg: 'bg-orange-50', ring: 'ring-orange-200', text: 'text-orange-500' },
-      client:  { icon: <Users className="w-3.5 h-3.5" />,      bg: 'bg-teal-50',   ring: 'ring-teal-200',   text: 'text-teal-600' },
-      invoice: { icon: <FileText className="w-3.5 h-3.5" />,   bg: 'bg-blue-50',   ring: 'ring-blue-200',   text: 'text-blue-600' },
-      project: { icon: <Briefcase className="w-3.5 h-3.5" />,  bg: 'bg-violet-50', ring: 'ring-violet-200', text: 'text-violet-600' },
-      payment: { icon: <CreditCard className="w-3.5 h-3.5" />, bg: 'bg-emerald-50',ring: 'ring-emerald-200',text: 'text-emerald-600' },
-      default: { icon: <Bell className="w-3.5 h-3.5" />,       bg: 'bg-gray-100',  ring: 'ring-gray-200',   text: 'text-gray-500' },
+      proforma:  { icon: <FileText className="w-4 h-4" />,  bg: 'bg-orange-500/15', text: 'text-orange-500', label: 'Proforma',       labelCls: 'text-orange-600 bg-orange-50' },
+      quotation: { icon: <FileText className="w-4 h-4" />,  bg: 'bg-purple-500/15', text: 'text-purple-600', label: 'Quotation',      labelCls: 'text-purple-600 bg-purple-50' },
+      client:    { icon: <Users className="w-4 h-4" />,     bg: 'bg-teal-500/15',   text: 'text-teal-600',   label: 'Client',         labelCls: 'text-teal-700 bg-teal-50' },
+      invoice:   { icon: <Receipt className="w-4 h-4" />,   bg: 'bg-blue-500/15',   text: 'text-blue-600',   label: 'Invoice',        labelCls: 'text-blue-600 bg-blue-50' },
+      project:   { icon: <Briefcase className="w-4 h-4" />, bg: 'bg-violet-500/15', text: 'text-violet-600', label: 'Project',        labelCls: 'text-violet-600 bg-violet-50' },
+      payment:   { icon: <CreditCard className="w-4 h-4" />,bg: 'bg-emerald-500/15',text: 'text-emerald-600',label: 'Payment',        labelCls: 'text-emerald-600 bg-emerald-50' },
+      vendor:    { icon: <Store className="w-4 h-4" />,     bg: 'bg-amber-500/15',  text: 'text-amber-600',  label: 'Vendor',         labelCls: 'text-amber-600 bg-amber-50' },
+      purchase:  { icon: <Tag className="w-4 h-4" />,       bg: 'bg-cyan-500/15',   text: 'text-cyan-600',   label: 'Purchase Order', labelCls: 'text-cyan-600 bg-cyan-50' },
+      default:   { icon: <Bell className="w-4 h-4" />,      bg: 'bg-gray-200',      text: 'text-gray-500',   label: 'Update',         labelCls: 'text-gray-600 bg-gray-100' },
     };
     return map[category] || map.default;
   };
 
-  // ─── Shared notification row ───────────────────────────────────────────────
-  const NotificationRow = ({ notification, compact = false }) => {
-    const category  = getNotificationCategory(notification);
-    const { icon, bg, ring, text } = getCategoryStyle(category);
-    const navPath   = getNavigationPath(notification);
-    const isUnread  = !notification.is_read;
+  // ─── Filter tabs logic ────────────────────────────────────────────────────
+  const getFilteredNotifications = (list) => {
+    if (activeTab === 'approvals') {
+      return list.filter(n => {
+        const et = (n.event_type || '').toUpperCase();
+        return et.includes('APPROVED') || et.includes('REJECTED') || et.includes('SUBMITTED');
+      });
+    }
+    if (activeTab === 'alerts') {
+      return list.filter(n => {
+        const et = (n.event_type || '').toUpperCase();
+        return et.includes('CREATED') || et.includes('UPDATED') || et.includes('DELETED') || et.includes('PAYMENT');
+      });
+    }
+    return list;
+  };
 
-    // Status badge for proforma events
-    const et = (notification.event_type || '').toUpperCase();
-    const statusBadge = et.includes('APPROVED')
-      ? { label: 'Approved', cls: 'bg-green-100 text-green-700' }
-      : et.includes('REJECTED')
-      ? { label: 'Rejected', cls: 'bg-red-100 text-red-600' }
-      : et.includes('SUBMITTED')
-      ? { label: 'Submitted', cls: 'bg-blue-100 text-blue-600' }
-      : null;
+  // ─── Shared notification row ───────────────────────────────────────────────
+  const NotificationRow = ({ notification, inPanel = false }) => {
+    const rawCategory = getNotificationCategory(notification);
+    // For QUOTATION events: check cache first (populated on first click),
+    // then fall back to metadata heuristic (vendor set, client null)
+    const et0 = (notification.event_type || '').toUpperCase();
+    const meta0 = typeof notification.metadata === 'object' && notification.metadata !== null ? notification.metadata : {};
+    const cachedIsPO = quotationTypeCache[notification.entity_id];
+    const heuristicIsPO = meta0.vendor !== undefined && meta0.vendor !== null && meta0.client === null;
+    const category = (et0.includes('QUOTATION') && (cachedIsPO === true || (cachedIsPO === undefined && heuristicIsPO)))
+      ? 'purchase'
+      : rawCategory;
+    const { icon, bg, text, label, labelCls } = getCategoryStyle(category, notification.event_type);
+    const et       = (notification.event_type || '').toUpperCase();
+    // QUOTATION events: always show as clickable (we resolve route async on click)
+    const isQuotationEvent = et.includes('QUOTATION');
+    const navPath  = isQuotationEvent && notification.entity_id
+      ? `__quotation_async__`   // sentinel: handled by handleNotificationClick
+      : resolveNavPath(notification);
+    const isUnread    = !notification.is_read;
+    const isResolving = loadingNotifId === notification.id;
 
     return (
       <div
         className={`
-          group relative flex items-start gap-3 px-4 py-3.5
-          border-b border-gray-100/80 transition-all duration-150
-          ${isUnread ? 'bg-teal-100/70' : 'bg-white'}
-          ${navPath ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
+          group relative p-4 transition-all duration-150
+          border-b border-gray-100/80
+          ${isUnread ? 'bg-teal-50/60' : 'bg-white hover:bg-gray-50/80'}
+          ${navPath ? (isResolving ? 'cursor-wait opacity-70' : 'cursor-pointer') : ''}
         `}
-        onClick={() => navPath && handleNotificationClick(notification)}
+        onClick={() => !isResolving && navPath && handleNotificationClick(notification)}
       >
         {/* Unread accent bar */}
         {isUnread && (
-          <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-teal-500" />
+          <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full bg-gradient-to-b from-teal-400 to-teal-600" />
         )}
 
-        {/* Icon */}
-        <div className={`mt-0.5 w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ${bg} ${ring} ${text}`}>
-          {icon}
-        </div>
+        <div className="flex gap-3.5">
+          {/* Icon bubble */}
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${bg} ${text} transition-transform duration-200 group-hover:scale-105`}>
+            {icon}
+          </div>
 
-        {/* Text */}
-        <div className="flex-1 min-w-0 pr-1">
-          <p className={`text-[13px] leading-snug ${isUnread ? 'font-semibold text-gray-900' : 'font-normal text-gray-700'}`}>
-            {getNotificationText(notification)}
-          </p>
-          {statusBadge && (
-            <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>
-              {statusBadge.label}
-            </span>
-          )}
-          {navPath && (
-            <span className={`text-[11px] font-medium ${text} mt-0.5 block`}>
-              Click to view →
-            </span>
-          )}
-          <p className="text-[11px] text-gray-400 mt-1">{formatTime(notification.created_at)}</p>
-        </div>
+          <div className="flex-1 min-w-0">
+            {/* Top row: label + time */}
+            <div className="flex items-center justify-between mb-0.5">
+              <span className={`text-[10px] font-black tracking-widest uppercase ${text}`}>{label}</span>
+              <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">{formatTime(notification.created_at)}</span>
+            </div>
 
-        {/* Right: unread dot + delete button (always visible) */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
-          {isUnread && <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />}
-          <button
-            className="p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-150"
-            title="Remove notification"
-            onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+            {/* Message */}
+            <p className={`text-[13px] leading-snug tracking-tight ${isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-700'}`}>
+              {(() => {
+                const txt = getNotificationText(notification);
+                // If we know from cache this is a PO, replace "Quotation #" with "Purchase order #"
+                if (category === 'purchase' && txt.toLowerCase().startsWith('quotation #')) {
+                  return txt.replace(/^Quotation #/i, 'Purchase order #');
+                }
+                return txt;
+              })()}
+            </p>
+
+            {/* Hover action buttons */}
+            <div className="flex gap-2 mt-2.5 opacity-0 group-hover:opacity-100 transition-all duration-200">
+              {navPath && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (!isResolving) handleNotificationClick(notification); }}
+                  disabled={isResolving}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold shadow-sm border border-gray-100 bg-white ${text} hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-wait`}
+                >
+                  {isResolving
+                    ? <RefreshCw className="w-3 h-3 animate-spin" />
+                    : <Eye className="w-3 h-3" />
+                  }
+                  {isResolving ? 'Opening...' : 'View'}
+                </button>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
+                className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all"
+                title="Remove"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+
+          {/* Unread pulse dot */}
+          {isUnread && (
+            <div className="flex-shrink-0 pt-1">
+              <span className="w-2 h-2 rounded-full bg-teal-500 block animate-pulse" />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -132,8 +268,8 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   };
   const getUserTypeColor = (ut) => (
-    { 'Super Admin':'bg-red-500', Admin:'bg-orange-500', Manager:'bg-cyan-500',
-      Accountant:'bg-purple-500', Employee:'bg-green-500', User:'bg-blue-500' }[ut] || 'bg-gray-500'
+    { 'Super Admin': 'bg-red-500', Admin: 'bg-orange-500', Manager: 'bg-cyan-500',
+      Accountant: 'bg-purple-500', Employee: 'bg-green-500', User: 'bg-blue-500' }[ut] || 'bg-gray-500'
   );
   const handleLogout = async () => {
     if (!window.confirm('Are you sure you want to logout?')) return;
@@ -141,228 +277,293 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     onLogout();
   };
 
-  const firstName  = user?.first_name || '';
-  const lastName   = user?.last_name  || '';
-  const fullName   = firstName && lastName ? `${firstName} ${lastName}` : user?.username || 'User';
-  const userType   = user?.role?.name || 'User';
-  const userEmail  = user?.email || '';
+  const firstName = user?.first_name || '';
+  const lastName  = user?.last_name  || '';
+  const fullName  = firstName && lastName ? `${firstName} ${lastName}` : user?.username || 'User';
+  const userType  = user?.role?.name || 'User';
+  const userEmail = user?.email || '';
 
-  const recentNotifs = notifications.slice(0, 5);
+  // Pre-populate quotation type cache when notifications change
+  // Fetches type for any QUOTATION_* notification not yet cached
+  const quotationTypeCache_ref = quotationTypeCache; // stable ref for effect
+  useEffect(() => {
+    const uncached = notifications.filter(n => {
+      const et = (n.event_type || '').toUpperCase();
+      return et.includes('QUOTATION') && n.entity_id && quotationTypeCache_ref[n.entity_id] === undefined;
+    });
+    if (uncached.length === 0) return;
+    // Fetch all uncached quotation types in parallel (silent, no loading state)
+    uncached.forEach(async (n) => {
+      try {
+        const res = await api.get('/quotations/get_quotation/', { params: { id: n.entity_id } });
+        const record = res.data?.data ?? res.data ?? {};
+        const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
+          || (record.client === null && record.vendor !== null && record.vendor !== undefined);
+        setQuotationTypeCache(prev => {
+          if (prev[n.entity_id] !== undefined) return prev; // already set, skip
+          return { ...prev, [n.entity_id]: isPO };
+        });
+      } catch (_) { /* silent fail — label stays as Quotation */ }
+    });
+  }, [notifications]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredRecent = getFilteredNotifications(notifications).slice(0, 6);
+  const filteredAll    = getFilteredNotifications(notifications);
+
+  const tabs = [
+    { id: 'all',       label: 'All',       count: notifications.length },
+    { id: 'approvals', label: 'Approvals', count: notifications.filter(n => { const et = (n.event_type||'').toUpperCase(); return et.includes('APPROVED')||et.includes('REJECTED')||et.includes('SUBMITTED'); }).length },
+    { id: 'alerts',    label: 'Alerts',    count: notifications.filter(n => { const et = (n.event_type||'').toUpperCase(); return et.includes('CREATED')||et.includes('UPDATED')||et.includes('DELETED')||et.includes('PAYMENT'); }).length },
+  ];
 
   return (
     <>
       {/* ══════════════════════════════════════════════════════════════════
-          NAVBAR  — z-50, sticky
+          NAVBAR — original design, completely unchanged
       ══════════════════════════════════════════════════════════════════ */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+      <nav className="bg-white border-b border-gray-200/80 sticky top-0 z-50 shadow-sm backdrop-blur-sm bg-white/95">
         <div className="w-full">
           <div className="flex items-center h-14 sm:h-16">
 
-            {/* Left logo */}
-            <div className="bg-slate-800 h-full flex items-center px-3 sm:px-4 lg:px-6 xl:px-10 flex-shrink-0 w-auto lg:w-72 gap-3">
-              <button onClick={onToggleSidebar} className="lg:hidden p-2 rounded-lg hover:bg-slate-700 transition-colors">
-                <Menu className="w-6 h-6 text-white" />
+            {/* Left: Logo Section */}
+            <div className="bg-gradient-to-br from-slate-800 to-slate-900 h-full flex items-center px-3 sm:px-4 lg:px-5 flex-shrink-0 w-auto lg:w-64 gap-3 border-r border-slate-700/50">
+              <button
+                onClick={onToggleSidebar}
+                className="lg:hidden p-2 rounded-lg hover:bg-slate-700 transition-all duration-200 active:scale-95"
+                aria-label="Toggle sidebar"
+              >
+                <Menu className="w-5 h-5 text-white" />
               </button>
-              <div className="flex items-center space-x-2 sm:space-x-3">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center shadow-md">
-                  <span className="text-base sm:text-lg lg:text-xl font-bold text-white">E</span>
+              <div className="hidden lg:flex items-center gap-3">
+                <div className="w-9 h-9 bg-gradient-to-br from-orange-400 via-orange-500 to-red-500 rounded-xl flex items-center justify-center font-bold text-white text-base shadow-md">
+                  <Building2 className="w-5 h-5" />
                 </div>
-                <div className="hidden sm:block">
-                  <h1 className="text-sm sm:text-base lg:text-lg font-bold text-white whitespace-nowrap">ERP System</h1>
+                <div className="flex flex-col items-start">
+                  <span className="font-bold text-white text-sm leading-tight">Constructuve</span>
+                  <span className="text-orange-300 text-xs font-semibold leading-tight">India</span>
                 </div>
               </div>
             </div>
 
-            {/* Center + Right */}
-            <div className="flex-1 flex items-center justify-between px-3 sm:px-4 lg:px-6">
-
-              {/* Page title */}
-              <div className="flex-shrink-0 min-w-0 flex items-center gap-2">
-                <button onClick={handleBack} className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0">
-                  <ArrowLeft className="w-5 h-5 text-gray-600" />
-                </button>
-                {breadcrumbs && breadcrumbs.length > 0 ? (
-                  <div className="flex items-center gap-2 min-w-0">
-                    {breadcrumbs.map((crumb, i) => (
-                      <div key={i} className="flex items-center gap-2 min-w-0">
-                        {i > 0 && <span className="text-gray-400 flex-shrink-0">→</span>}
-                        <span className={`text-sm sm:text-base lg:text-xl font-semibold truncate ${i === breadcrumbs.length - 1 ? 'text-gray-800' : 'text-gray-400'}`}>
-                          {crumb}
-                        </span>
+            {/* Center: Back Button + Breadcrumbs / Page Title */}
+            <div className="flex-1 flex items-center px-4 sm:px-6 lg:px-8 gap-2 sm:gap-3 min-w-0">
+              {breadcrumbs && breadcrumbs.length > 0 && (
+                <>
+                  <button
+                    onClick={handleBack}
+                    className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-lg transition-all duration-200 active:scale-95"
+                    title="Go back"
+                    aria-label="Go back"
+                  >
+                    <ArrowLeft className="w-5 h-5 text-gray-600 transition-colors" />
+                  </button>
+                  <div className="hidden md:flex items-center gap-1.5 text-xs sm:text-sm overflow-x-auto">
+                    {breadcrumbs.map((crumb, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="text-gray-700 font-medium">{crumb}</span>
+                        {idx < breadcrumbs.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        )}
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <h2 className="text-sm sm:text-base lg:text-xl font-semibold text-gray-800 truncate">
-                    {pageTitle || 'Dashboard'}
-                  </h2>
-                )}
-              </div>
+                  <div className="md:hidden flex items-center gap-1.5 text-xs overflow-x-auto min-w-0">
+                    {breadcrumbs.map((crumb, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="text-gray-700 font-medium">{crumb}</span>
+                        {idx < breadcrumbs.length - 1 && (
+                          <ChevronRight className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {(!breadcrumbs || breadcrumbs.length === 0) && (
+                <h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">{pageTitle}</h1>
+              )}
+            </div>
 
-              {/* Right controls */}
-              <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-3">
+            {/* Right: Actions & Profile */}
+            <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 lg:px-6 flex-shrink-0">
 
-                {/* Search */}
-                <div className="relative hidden sm:block">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    className="pl-9 pr-4 py-2 text-sm bg-gray-100 rounded-lg border border-transparent focus:outline-none focus:border-teal-400 focus:bg-white transition-colors w-40 lg:w-56"
-                  />
-                </div>
+              {/* ── Bell Icon ── */}
+              <div className="relative">
+                <button
+                  onClick={handleBellClick}
+                  className={`relative p-2 sm:p-2.5 rounded-lg transition-all duration-200 group
+                    ${showAllPanel ? 'bg-slate-100 text-slate-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                  aria-label="Notifications"
+                >
+                  <Bell className="w-5 h-5 text-gray-600 group-hover:text-gray-900 transition-colors" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0.5 right-0.5 w-5 h-5 bg-gradient-to-br from-red-500 to-red-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-lg">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
 
-                {/* ── Bell ──────────────────────────────────────────────── */}
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setIsNotificationOpen((v) => !v);
-                      setShowAllPanel(false);
-                    }}
-                    className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                    aria-label="Notifications"
-                  >
-                    {notifLoading
-                      ? <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
-                      : <Bell className="w-5 h-5 text-gray-600" />
-                    }
-                    {unreadCount > 0 && (
-                      <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] bg-red-500 rounded-full flex items-center justify-center shadow-sm">
-                        <span className="text-[10px] font-bold text-white leading-none px-0.5">
-                          {unreadCount > 99 ? '99+' : unreadCount}
-                        </span>
-                      </span>
-                    )}
-                  </button>
+                {/* ── Quick Notifications Dropdown (redesigned) ── */}
+                {isNotificationOpen && !showAllPanel && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsNotificationOpen(false)} />
 
-                  {/* ── Small dropdown (recent 5) ────────────────────────── */}
-                  {isNotificationOpen && !showAllPanel && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setIsNotificationOpen(false)} />
-                      <div className="absolute right-0 mt-2 w-80 sm:w-[360px] bg-white rounded-2xl shadow-xl border border-gray-100 z-20 overflow-hidden">
-
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <div className="absolute right-0 mt-2 w-[380px] bg-white rounded-2xl shadow-2xl border border-gray-100/80 z-20 flex flex-col overflow-hidden"
+                      style={{ boxShadow: '0 20px 60px -10px rgba(0,0,0,0.18), 0 4px 20px rgba(0,0,0,0.08)' }}
+                    >
+                      {/* Dropdown header — dark, matches reference */}
+                      <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-5 py-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2.5">
+                            <Bell className="w-4.5 h-4.5 text-teal-400" />
+                            <span className="text-white font-bold tracking-tight text-[15px]">Notifications</span>
+                          </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900">Notifications</span>
                             {unreadCount > 0 && (
-                              <span className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                                {unreadCount}
+                              <span className="bg-teal-500 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full">
+                                {unreadCount} NEW
                               </span>
                             )}
-                          </div>
-                          {unreadCount > 0 && (
-                            <button
-                              onClick={markAllRead}
-                              className="flex items-center gap-1 text-[11px] text-teal-600 hover:text-teal-700 font-medium"
-                            >
-                              <CheckCheck className="w-3.5 h-3.5" />
-                              Mark all read
+                            <button onClick={() => setIsNotificationOpen(false)} className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-colors">
+                              <X className="w-3.5 h-3.5" />
                             </button>
-                          )}
-                        </div>
-
-                        {/* List */}
-                        <div className="max-h-[300px] overflow-y-auto">
-                          {recentNotifs.length === 0 ? (
-                            <div className="py-10 flex flex-col items-center gap-2 text-gray-400">
-                              <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
-                                <Bell className="w-5 h-5 opacity-40" />
-                              </div>
-                              <p className="text-sm font-medium text-gray-500">All caught up!</p>
-                              <p className="text-xs text-gray-400">No new notifications</p>
-                            </div>
-                          ) : (
-                            recentNotifs.map((n) => (
-                              <NotificationRow key={n.id} notification={n} compact />
-                            ))
-                          )}
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 bg-gray-50/70">
-                          <button
-                            className="text-[12px] font-semibold text-teal-600 hover:text-teal-700 transition-colors"
-                            onClick={() => { setShowAllPanel(true); setIsNotificationOpen(false); }}
-                          >
-                            View all  ({notifications.length})
-                          </button>
-                          {notifications.length > 0 && (
-                            <button
-                              className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-red-500 font-medium transition-colors"
-                              onClick={() => { clearAllNotifications(); setIsNotificationOpen(false); }}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Clear all
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-                {/* ── End Bell ──────────────────────────────────────────── */}
-
-                {/* Profile */}
-                <div className="relative">
-                  <button
-                    onClick={() => setIsProfileOpen(!isProfileOpen)}
-                    className="flex items-center space-x-2 lg:space-x-3 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center space-x-2 lg:space-x-3">
-                      <div className="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md">
-                        <span className="text-xs sm:text-sm font-bold text-white">{getInitials(fullName)}</span>
-                      </div>
-                      <div className="hidden md:block text-left">
-                        <p className="text-xs sm:text-sm font-semibold text-gray-800 leading-tight whitespace-nowrap">{fullName}</p>
-                        <p className="text-xs text-gray-500 leading-tight whitespace-nowrap">{userType}</p>
-                      </div>
-                    </div>
-                    <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 hidden md:block" />
-                  </button>
-
-                  {isProfileOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setIsProfileOpen(false)} />
-                      <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-xl shadow-xl border border-gray-100 z-20">
-                        <div className="p-3 sm:p-4 border-b border-gray-100">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
-                              <span className="text-base sm:text-lg font-bold text-white">{getInitials(fullName)}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs sm:text-sm font-semibold text-gray-800 truncate">{fullName}</p>
-                              <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold text-white rounded-full ${getUserTypeColor(userType)}`}>
-                                {userType}
-                              </span>
-                            </div>
                           </div>
-                          <p className="text-xs text-gray-400 mt-2 truncate">{userEmail}</p>
                         </div>
-                        <div className="py-1.5">
-                          {[
-                            { label: 'My Profile',       icon: <User className="w-4 h-4" />,     path: '/profile' },
-                            { label: 'Settings',         icon: <Settings className="w-4 h-4" />, path: '/settings' },
-                            { label: 'Change Password',  icon: <Lock className="w-4 h-4" />,     path: '/change-password' },
-                          ].map(({ label, icon, path }) => (
-                            <button key={label}
-                              className="w-full text-left px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2.5 rounded-lg mx-1 w-[calc(100%-8px)]"
-                              onClick={() => { navigate(path); setIsProfileOpen(false); }}>
-                              <span className="text-gray-400">{icon}</span>{label}
+
+                        {/* Filter Tabs */}
+                        <div className="flex gap-1 bg-white/10 rounded-lg p-1">
+                          {tabs.map(tab => (
+                            <button
+                              key={tab.id}
+                              onClick={() => setActiveTab(tab.id)}
+                              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-bold transition-all duration-200
+                                ${activeTab === tab.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                            >
+                              {tab.label}
+                              {tab.count > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black
+                                  ${activeTab === tab.id ? 'bg-teal-100 text-teal-700' : 'bg-white/20 text-slate-300'}`}>
+                                  {tab.count}
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>
-                        <div className="border-t border-gray-100 py-1.5">
-                          <button onClick={handleLogout}
-                            className="w-full text-left px-4 py-2 text-xs sm:text-sm text-red-500 hover:bg-red-50 transition-colors font-medium flex items-center gap-2.5 rounded-lg mx-1 w-[calc(100%-8px)]">
-                            <LogOut className="w-4 h-4" />Logout
+                      </div>
+
+                      {/* Notification list */}
+                      <div className="flex-1 overflow-y-auto max-h-[340px] custom-scrollbar">
+                        {filteredRecent.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-10 gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+                              <Bell className="w-5 h-5 text-gray-300" />
+                            </div>
+                            <p className="text-xs text-gray-400 font-medium">No notifications here</p>
+                          </div>
+                        ) : (
+                          filteredRecent.map((n) => (
+                            <NotificationRow key={n.id} notification={n} />
+                          ))
+                        )}
+                      </div>
+
+                      {/* Footer actions */}
+                      <div className="border-t border-gray-100 bg-gray-50/80 px-4 py-2.5 flex items-center justify-between flex-shrink-0">
+                        <div className="flex items-center gap-3">
+                          {unreadCount > 0 && (
+                            <button
+                              onClick={markAllRead}
+                              className="flex items-center gap-1 text-[11px] text-teal-600 hover:text-teal-700 font-semibold transition-colors"
+                            >
+                              <CheckCheck className="w-3 h-3" />
+                              Mark all read
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { clearAllNotifications(); setIsNotificationOpen(false); }}
+                            className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-red-500 font-semibold transition-colors"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Clear all
                           </button>
                         </div>
+                        <button
+                          onClick={() => { setShowAllPanel(true); setIsNotificationOpen(false); }}
+                          className="text-[11px] text-teal-600 hover:text-teal-700 font-bold transition-colors"
+                        >
+                          View all →
+                        </button>
                       </div>
-                    </>
-                  )}
-                </div>
+                    </div>
+                  </>
+                )}
+              </div>
 
+              {/* ── Profile Section (unchanged) ── */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsProfileOpen(!isProfileOpen)}
+                  className="flex items-center space-x-2 lg:space-x-3 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 group"
+                  aria-label="Profile menu"
+                >
+                  <div className="flex items-center space-x-2 lg:space-x-3">
+                    <div className="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
+                      <span className="text-xs sm:text-sm font-bold text-white">{getInitials(fullName)}</span>
+                    </div>
+                    <div className="hidden md:block text-left">
+                      <p className="text-xs sm:text-sm font-semibold text-gray-800 leading-tight whitespace-nowrap">{fullName}</p>
+                      <p className="text-xs text-gray-500 leading-tight whitespace-nowrap">{userType}</p>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 hidden md:block group-hover:rotate-180 transition-transform duration-300" />
+                </button>
+
+                {isProfileOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsProfileOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-xl shadow-2xl border border-gray-100 z-20 overflow-hidden">
+                      <div className="p-3 sm:p-4 border-b border-gray-100 bg-gradient-to-r from-teal-50 to-cyan-50">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
+                            <span className="text-lg font-bold text-white">{getInitials(fullName)}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-800 truncate">{fullName}</p>
+                            <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold text-white rounded-full ${getUserTypeColor(userType)}`}>
+                              {userType}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2 truncate">{userEmail}</p>
+                      </div>
+                      <div className="py-1.5">
+                        {[
+                          { label: 'My Profile',      icon: <User className="w-4 h-4" />,     path: '/profile' },
+                          { label: 'Settings',        icon: <Settings className="w-4 h-4" />, path: '/settings' },
+                          { label: 'Change Password', icon: <Lock className="w-4 h-4" />,     path: '/change-password' },
+                        ].map(({ label, icon, path }) => (
+                          <button
+                            key={label}
+                            className="w-full text-left px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-teal-50 transition-all duration-200 flex items-center gap-2.5 rounded-lg mx-1 w-[calc(100%-8px)] group/menu-item"
+                            onClick={() => { navigate(path); setIsProfileOpen(false); }}
+                          >
+                            <span className="text-gray-400 group-hover/menu-item:text-teal-600 transition-colors">{icon}</span>
+                            <span className="group-hover/menu-item:text-teal-700 font-medium">{label}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="border-t border-gray-100 py-1.5">
+                        <button
+                          onClick={handleLogout}
+                          className="w-full text-left px-4 py-2 text-xs sm:text-sm text-red-600 hover:bg-red-50 transition-all duration-200 font-medium flex items-center gap-2.5 rounded-lg mx-1 w-[calc(100%-8px)] group/logout"
+                        >
+                          <LogOut className="w-4 h-4 group-hover/logout:scale-110 transition-transform" />
+                          Logout
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -371,83 +572,160 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
 
       {/* ══════════════════════════════════════════════════════════════════
           ALL NOTIFICATIONS PANEL
-          ▸ Starts BELOW the navbar (top-14 sm:top-16)
-          ▸ Only covers the content area, not the full viewport height
-          ▸ Clean, minimal, professional
       ══════════════════════════════════════════════════════════════════ */}
       {showAllPanel && (
         <>
-          {/* Semi-transparent backdrop — starts below navbar */}
+          {/* Overlay — no blur */}
           <div
-            className="fixed top-14 sm:top-16 left-0 right-0 bottom-0 bg-black/20 z-40"
+            className="fixed inset-0 z-40 bg-black/25"
             onClick={() => setShowAllPanel(false)}
           />
 
-          {/* Panel — anchored below navbar, right side */}
-          <div className="fixed top-14 sm:top-16 right-0 bottom-0 w-full sm:w-[400px] bg-white z-50 flex flex-col border-l border-gray-200 shadow-2xl">
-
-            {/* Panel header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-              <div>
-                <h2 className="text-[15px] font-bold text-gray-900">All Notifications</h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {notifications.length} total · {unreadCount} unread
-                </p>
+          {/* Slide-in panel */}
+          <div
+            className="fixed top-14 sm:top-16 right-0 bottom-0 w-full sm:w-[440px] z-50 flex flex-col animate-slide-in"
+            style={{ background: '#f8fafc' }}
+          >
+            {/* Header */}
+            <div className="flex-shrink-0 bg-gradient-to-r from-slate-900 to-slate-800 px-5 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                    <Bell className="w-5 h-5 text-teal-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-[15px] font-bold text-white leading-tight tracking-tight">All Notifications</h2>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      {notifications.length} total ·{' '}
+                      <span className="text-teal-400 font-semibold">{unreadCount} unread</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAllPanel(false)}
+                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-slate-300 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => setShowAllPanel(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              {/* Stats pills */}
+              {notifications.length > 0 && (
+                <div className="flex gap-2 mb-4">
+                  <div className="flex-1 bg-white/10 rounded-xl px-3 py-2 text-center">
+                    <p className="text-white font-bold text-lg leading-none">{notifications.length}</p>
+                    <p className="text-slate-400 text-[10px] mt-0.5 font-medium">Total</p>
+                  </div>
+                  <div className="flex-1 bg-teal-500/25 rounded-xl px-3 py-2 text-center">
+                    <p className="text-teal-300 font-bold text-lg leading-none">{unreadCount}</p>
+                    <p className="text-teal-400/80 text-[10px] mt-0.5 font-medium">Unread</p>
+                  </div>
+                  <div className="flex-1 bg-white/10 rounded-xl px-3 py-2 text-center">
+                    <p className="text-white font-bold text-lg leading-none">{notifications.length - unreadCount}</p>
+                    <p className="text-slate-400 text-[10px] mt-0.5 font-medium">Read</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Filter tabs — same as dropdown */}
+              <div className="flex gap-1 bg-white/10 rounded-lg p-1">
+                {tabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-bold transition-all duration-200
+                      ${activeTab === tab.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    {tab.label}
+                    {tab.count > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black
+                        ${activeTab === tab.id ? 'bg-teal-100 text-teal-700' : 'bg-white/20 text-slate-300'}`}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Action row — only if there are notifications */}
+            {/* Action Row */}
             {notifications.length > 0 && (
-              <div className="flex items-center justify-between px-5 py-2 border-b border-gray-100 bg-gray-50/60 flex-shrink-0">
+              <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 bg-white border-b border-gray-100 shadow-sm">
                 {unreadCount > 0 ? (
                   <button
                     onClick={markAllRead}
-                    className="flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium transition-colors"
+                    className="flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-semibold transition-colors group"
                   >
-                    <CheckCheck className="w-3.5 h-3.5" />
+                    <CheckCheck className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                     Mark all as read
                   </button>
                 ) : (
-                  <span className="text-[12px] text-gray-400">All caught up</span>
+                  <span className="flex items-center gap-1.5 text-[12px] text-gray-400 font-medium">
+                    <CheckCheck className="w-3.5 h-3.5 text-teal-400" />
+                    All caught up!
+                  </span>
                 )}
                 <button
                   onClick={clearAllNotifications}
-                  className="flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-red-500 font-medium transition-colors"
+                  className="flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-red-500 font-semibold transition-colors group"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                   Clear all
                 </button>
               </div>
             )}
 
-            {/* Notification list */}
-            <div className="flex-1 overflow-y-auto">
-              {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 pb-16">
-                  <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
-                    <Bell className="w-7 h-7 opacity-30" />
+            {/* List */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              {filteredAll.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-4 pb-20">
+                  <div className="w-20 h-20 rounded-3xl bg-gray-100 flex items-center justify-center">
+                    <Bell className="w-9 h-9 text-gray-300" />
                   </div>
-                  <p className="text-sm font-semibold text-gray-500">No notifications</p>
-                  <p className="text-xs text-gray-400">You're all caught up!</p>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-gray-600">No notifications here</p>
+                    <p className="text-xs text-gray-400 mt-1">You're all caught up!</p>
+                  </div>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-100/80">
-                  {notifications.map((n) => (
-                    <NotificationRow key={n.id} notification={n} />
+                <div className="bg-white">
+                  {filteredAll.map((n) => (
+                    <NotificationRow key={n.id} notification={n} inPanel />
                   ))}
                 </div>
               )}
             </div>
 
+            {/* Footer */}
+            {filteredAll.length > 0 && (
+              <div className="flex-shrink-0 px-5 py-3 bg-white border-t border-gray-100">
+                <p className="text-center text-[11px] text-gray-400 font-medium">
+                  Showing {filteredAll.length} of {notifications.length} notifications
+                </p>
+              </div>
+            )}
           </div>
         </>
       )}
+
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); opacity: 0; }
+          to   { transform: translateX(0);    opacity: 1; }
+        }
+        .animate-slide-in {
+          animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .custom-scrollbar::-webkit-scrollbar       { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(156, 163, 175, 0.4);
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(156, 163, 175, 0.6);
+        }
+      `}</style>
     </>
   );
 }

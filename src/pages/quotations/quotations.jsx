@@ -1239,6 +1239,7 @@ export default function Quotations({ onUpdateNavigation }) {
         const updatePayload = {
           id:               parseInt(editQuotation.id),
           client:           clientId,
+          vendor:           editQuotation.vendor ? parseInt(editQuotation.vendor) : null,
           project:          projectId,
           gst_rate:         String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
           discount_rate:    discountRateStr,
@@ -1273,6 +1274,7 @@ export default function Quotations({ onUpdateNavigation }) {
       const quotationData = {
         quotation_number:  parseInt(quotationNum),
         client:            parseInt(clientId),
+        vendor:            null,   // null for client quotations; vendor id for purchase orders
         project:           parseInt(projectId),
         gst_rate:          String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
         discount_rate:     discountRateStr,

@@ -1,5 +1,16 @@
 import React from 'react';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, Plus } from 'lucide-react';
+
+/**
+ * ============================================================================
+ * COMPACT INLINE LIST HEADER COMPONENT
+ * ============================================================================
+ * Modern, compact inline header with:
+ * - Single row layout (all controls inline)
+ * - Curvy, modern search bar
+ * - Clean, professional appearance
+ * - Fixed Note styling (only behind text, not full width)
+ */
 
 const ListHeader = ({
   title,
@@ -16,118 +27,51 @@ const ListHeader = ({
   note,
 }) => {
   return (
-    <div className="p-4 sm:p-6 border-b-2 border-gray-300">
-
-      {/* ── Mobile Layout ── */}
-      <div className="block lg:hidden space-y-3">
-
-        {/* Title row */}
-        <div className="flex items-center gap-3">
+    <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 border-b border-gray-200/80 space-y-2.5">
+      {/* ── INLINE HEADER (All controls in one row) ── */}
+      <div className="flex items-center gap-3 sm:gap-4">
+        {/* Title */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           {Icon && (
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-teal-600 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0">
+              <Icon className="w-5 h-5 sm:w-5 sm:h-5 text-white" />
             </div>
           )}
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{title}</h2>
-            {totalCount !== undefined && (
-              <p className="text-xs sm:text-sm text-gray-600 font-medium">
-                Total {totalCount.toLocaleString()}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Search */}
-        {showSearch && (
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => onSearch && onSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 text-sm text-gray-800 placeholder-gray-400"
-            />
-          </div>
-        )}
-
-        {/* Filter + Add */}
-        <div className="flex gap-2">
-          {showFilter && (
-            <button
-              onClick={onFilterToggle}
-              className={`flex-1 px-4 py-2 border-2 rounded-lg transition-colors flex items-center justify-center gap-2 font-semibold text-sm ${
-                filterActive
-                  ? 'border-teal-600 bg-teal-50 text-teal-700'
-                  : 'border-gray-300 hover:bg-gray-100 text-gray-700'
-              }`}
-            >
-              <Filter className="w-4 h-4" />
-              Filter
-            </button>
-          )}
-          {onAdd && addButtonLabel && (
-            <button
-              onClick={onAdd}
-              className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 active:bg-teal-800 transition-colors flex items-center justify-center gap-2 font-semibold text-sm"
-            >
-              {Icon && <Icon className="w-4 h-4" />}
-              {addButtonLabel}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Desktop Layout ── */}
-      <div className={`hidden lg:flex items-center gap-4 ${note ? 'mb-4' : ''}`}>
-
-        {/* Title + icon */}
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {Icon && (
-            <div className="w-12 h-12 bg-teal-600 rounded-xl flex items-center justify-center">
-              <Icon className="w-6 h-6 text-white" />
-            </div>
-          )}
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 whitespace-nowrap">{title}</h2>
-            {totalCount !== undefined && (
-              <p className="text-sm text-gray-600 font-medium whitespace-nowrap">
-                Total {totalCount.toLocaleString()}
-              </p>
-            )}
+          <div className="flex-shrink-0">
+            <h2 className="text-base sm:text-lg font-bold text-gray-900 whitespace-nowrap">{title}</h2>
           </div>
         </div>
 
         {/* Spacer */}
-        <div className="flex-1"></div>
+        <div className="flex-1 hidden sm:block" />
 
-        {/* Search */}
+        {/* Search Bar - Modern Curvy */}
         {showSearch && (
-          <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+          <div className="relative flex-1 sm:flex-initial sm:min-w-64 max-w-xs">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 flex-shrink-0" />
             <input
               type="text"
               placeholder="Search..."
               value={searchTerm}
               onChange={(e) => onSearch && onSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 text-gray-800 placeholder-gray-400"
+              className="w-full pl-11 pr-4 py-2.5 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-full text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent focus:bg-white transition-all duration-300 shadow-sm hover:border-gray-400"
             />
           </div>
         )}
 
-        {/* Filter */}
+        {/* Filter Button */}
         {showFilter && (
           <button
             onClick={onFilterToggle}
-            className={`px-6 py-2.5 border-2 rounded-lg transition-colors flex items-center gap-2 font-semibold flex-shrink-0 ${
+            className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 border flex-shrink-0 ${
               filterActive
-                ? 'border-teal-600 bg-teal-50 text-teal-700'
-                : 'border-gray-300 hover:bg-gray-100 text-gray-700'
+                ? 'border-teal-600 bg-teal-50 text-teal-700 shadow-sm'
+                : 'border-gray-300 text-gray-700 hover:border-gray-400 hover:bg-gray-50'
             }`}
+            title="Filter options"
           >
-            <Filter className="w-5 h-5" />
-            Filter
+            <Filter className="w-4 h-4 flex-shrink-0" />
+            <span className="hidden sm:inline text-sm">Filter</span>
           </button>
         )}
 
@@ -135,21 +79,23 @@ const ListHeader = ({
         {onAdd && addButtonLabel && (
           <button
             onClick={onAdd}
-            className="px-6 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 active:bg-teal-800 transition-colors flex items-center gap-2 font-semibold flex-shrink-0"
+            className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 bg-gradient-to-br from-teal-500 to-teal-600 text-white rounded-lg font-medium text-sm hover:from-teal-600 hover:to-teal-700 active:scale-95 transition-all duration-200 shadow-sm flex-shrink-0"
+            title={addButtonLabel}
           >
-            {Icon && <Icon className="w-5 h-5" />}
-            {addButtonLabel}
+            <Plus className="w-4 h-4 flex-shrink-0" />
+            <span className="hidden sm:inline text-sm">Add</span>
           </button>
         )}
       </div>
 
-      {/* Note */}
+      {/* Note (Compact - only behind text) */}
       {note && (
-        <div className="text-sm text-red-600 mt-3 lg:mt-0 font-medium">
-          <span className="font-bold">Note:</span> {note}
+        <div className="inline-block">
+          <div className="text-sm font-medium text-red-700 bg-red-100 rounded-lg px-3 py-1.5 border border-red-300">
+            <span className="font-bold">Note:</span> {note}
+          </div>
         </div>
       )}
-
     </div>
   );
 };

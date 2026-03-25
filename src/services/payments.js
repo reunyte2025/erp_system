@@ -76,14 +76,21 @@ export const createPayment = async (paymentData) => {
     serviceLogger.log('[Payment Service] Creating payment:', paymentData);
 
     if (!paymentData.invoice_id) throw new Error('Invoice ID is required');
-    if (!paymentData.client_id)  throw new Error('Client ID is required');
+    // Exactly one of client_id or vendor_id must be a real number; the other must be null.
+    // Do NOT merge them — the backend differentiates client invoices from vendor invoices
+    // by which field is populated.
+    const clientId = paymentData.client_id ? Number(paymentData.client_id) : null;
+    const vendorId = paymentData.vendor_id ? Number(paymentData.vendor_id) : null;
+    if (!clientId && !vendorId)
+      throw new Error('Either client_id or vendor_id is required');
     if (!paymentData.amount || parseFloat(paymentData.amount) <= 0)
       throw new Error('A valid payment amount is required');
     if (!paymentData.payment_date) throw new Error('Payment date is required');
 
     const payload = {
       invoice_id:     Number(paymentData.invoice_id),
-      client_id:      Number(paymentData.client_id),
+      client_id:      clientId,   // null for vendor invoices
+      vendor_id:      vendorId,   // null for client invoices
       payment_date:   new Date(paymentData.payment_date).toISOString(),
       payment_method: Number(paymentData.payment_method),
       reference:      String(paymentData.reference ?? '').trim(),

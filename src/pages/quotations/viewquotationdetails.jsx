@@ -6,17 +6,16 @@ import {
   Building2, User, MapPin, Hash, Calendar,
   Tag, Percent, ChevronRight, Mail, Paperclip, X,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Search, ChevronDown, Edit,
+  Search, ChevronDown, Edit, Phone, CreditCard,
 } from 'lucide-react';
 import {
   getQuotationById, generateQuotationPdf, sendQuotationToClient,
 } from '../../services/quotation';
 import { getComplianceByCategory } from '../../services/proforma';
-import { getClientById } from '../../services/clients';
-import { getProjects } from '../../services/projects';
+import { getClientById, getClientProjects } from '../../services/clients';
 
 import api from '../../services/api';
-  import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
+import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -534,17 +533,36 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       const q = res.data;
       setQuotation(q);
 
+      // Fetch full client details
       if (q.client) {
-        try { const cr = await getClientById(q.client); if (cr.status === 'success' && cr.data) setClient(cr.data); } catch {}
+        try {
+          const cr = await getClientById(q.client);
+          if (cr.status === 'success' && cr.data) setClient(cr.data);
+        } catch {}
       }
+
+      // Fetch project using client-scoped projects API — much more efficient
+      // than loading all 500 projects. Falls back to a broad search if needed.
       if (q.project) {
         try {
-          const pr  = await getProjects({ page: 1, page_size: 500 });
-          const all = pr?.data?.results || pr?.results || [];
-          const found = all.find(p => String(p.id) === String(q.project));
+          let found = null;
+          if (q.client) {
+            const pr = await getClientProjects(q.client);
+            const results = pr?.data?.results || pr?.results || [];
+            found = results.find(p => String(p.id) === String(q.project)) || null;
+          }
+          // Fallback: if not found via client-scoped call, try direct project fetch
+          if (!found) {
+            const fallback = await api.get('/projects/get_all_Project/', {
+              params: { page: 1, page_size: 500 },
+            });
+            const allProjects = fallback.data?.data?.results || fallback.data?.results || [];
+            found = allProjects.find(p => String(p.id) === String(q.project)) || null;
+          }
           if (found) setProject(found);
         } catch {}
       }
+
       if (q.created_by) {
         try {
           const ur = await api.get('/users/get_user/', { params: { id: q.created_by } });
@@ -776,6 +794,17 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     finally { setPdfLoading(false); }
   };
 
+  // ── Shared helpers ────────────────────────────────────────────────────────────
+  const extractTrailing = (numStr) => {
+    if (!numStr) return '';
+    const s = String(numStr);
+    const last = s.lastIndexOf('-');
+    return last >= 0 ? s.substring(last + 1) : s;
+  };
+
+  const dismissProformaModal = () =>
+    setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' });
+
   const handleGenerateProforma = async () => {
     if (proformaLoading) return;
     setProformaLoading(true);
@@ -785,28 +814,17 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       });
       const data = response.data;
       const proformaId  = data?.id || data?.data?.id;
-      const proformaNum = data?.proforma_number || data?.data?.proforma_number || '';
-      const fmtNum = (n) => {
-        if (!n) return '';
-        if (String(n).startsWith('PF-')) return String(n);
-        const s = String(n);
-        if (s.length >= 8) return `PF-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-        return `PF-2026-${String(n).padStart(5, '0')}`;
-      };
-      setProformaModal({ open: true, proformaId: proformaId || null, proformaNum: fmtNum(proformaNum), alreadyExists: false });
-
-      // Re-fetch the quotation directly from the backend so we get the exact
-      // updated status (no guessing — backend sets it authoritatively).
+      // Display proforma number exactly as API returns it
+      const proformaNum = String(data?.proforma_number || data?.data?.proforma_number || '');
+      setProformaModal({ open: true, proformaId: proformaId || null, proformaNum, alreadyExists: false, genericError: '' });
       try {
         const refreshed = await getQuotationById(id);
         if (refreshed.status === 'success' && refreshed.data) {
           setQuotation(refreshed.data);
         } else {
-          // Fallback: set status optimistically if re-fetch structure differs
           setQuotation(prev => prev ? { ...prev, status: '3', status_display: 'sent' } : prev);
         }
       } catch {
-        // Fallback if re-fetch fails
         setQuotation(prev => prev ? { ...prev, status: '3', status_display: 'sent' } : prev);
       }
     } catch (e) {
@@ -817,22 +835,22 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         String(errMsg).toLowerCase().includes('already generated') ||
         e?.response?.status === 400;
       if (isAlreadyExists) {
-        // Try to fetch the existing proforma for this quotation so we can link to it
-        let existingId = null;
+        let existingId  = null;
         let existingNum = '';
         try {
-          const res = await api.get('/proformas/get_all_proformas/', { params: { quotation: Number(id), page: 1, page_size: 1 } });
-          const existing = res.data?.data?.results?.[0] || res.data?.results?.[0] || null;
+          const quotationTrailing = extractTrailing(quotation.quotation_number || String(id));
+          const res = await api.get('/proformas/get_all_proformas/', { params: { quotation: Number(id), page: 1, page_size: 50 } });
+          const results = res.data?.data?.results || res.data?.results || [];
+          let existing = results[0] || null;
+          if (!existing && quotationTrailing) {
+            existing = results.find(p => extractTrailing(p.proforma_number) === quotationTrailing) || null;
+          }
           if (existing) {
             existingId  = existing.id;
-            const n = existing.proforma_number || '';
-            existingNum = String(n).startsWith('PF-') ? String(n)
-              : n && String(n).length >= 8
-                ? `PF-${String(n).substring(0,4)}-${String(n).substring(4).padStart(5,'0')}`
-                : n ? `PF-2026-${String(n).padStart(5,'0')}` : '';
+            existingNum = String(existing.proforma_number || '');
           }
-        } catch { /* silently ignore — View Proforma button just won't appear */ }
-        setProformaModal({ open: true, proformaId: existingId, proformaNum: existingNum, alreadyExists: true });
+        } catch { /* silently ignore */ }
+        setProformaModal({ open: true, proformaId: existingId, proformaNum: existingNum, alreadyExists: true, genericError: '' });
       } else {
         setProformaModal({ open: true, proformaId: null, proformaNum: '', alreadyExists: true, genericError: errMsg || 'Failed to generate proforma.' });
       }
@@ -1048,11 +1066,19 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                     <CheckCircle size={13} /> Proforma Generated
                   </div>
                 )}
-                <button className="vqd-btn-proforma" onClick={handleGenerateProforma} disabled={proformaLoading}>
+
+                {/* Generate Proforma — always available on quotation */}
+                <button
+                  className="vqd-btn-proforma"
+                  onClick={handleGenerateProforma}
+                  disabled={proformaLoading}
+                  title="Generate Proforma from this Quotation"
+                >
                   {proformaLoading
                     ? <><Loader2 size={14} className="vqd-spin" /> Generating…</>
                     : <><FileText size={14} /> Generate Proforma</>}
                 </button>
+
                 <button className="vqd-btn-o" onClick={() => setSendModal(true)}>
                   <Mail size={14} /> Send to Client
                 </button>
@@ -1143,8 +1169,27 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-plabel">Billed To</div>
               <div className="vqd-pavatar">{clientName.charAt(0).toUpperCase()}</div>
               <div className="vqd-pname">{clientName}</div>
-              {client?.email && <div className="vqd-pdetail"><User size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
-              {client?.phone_number && <div className="vqd-pdetail"><Hash size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
+              {client?.email && <div className="vqd-pdetail"><Mail size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
+              {client?.phone_number && <div className="vqd-pdetail"><Phone size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
+              {(client?.city || client?.state) && (
+                <div className="vqd-pdetail">
+                  <MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />
+                  {[client.city, client.state].filter(Boolean).join(', ')}
+                  {client.pincode ? ` – ${client.pincode}` : ''}
+                </div>
+              )}
+              {client?.address && (
+                <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                  <MapPin size={10} style={{ opacity: .3, flexShrink: 0 }} />
+                  {client.address}
+                </div>
+              )}
+              {client?.gst_number && (
+                <div className="vqd-pdetail" style={{ marginTop: 4 }}>
+                  <CreditCard size={11} style={{ opacity: .45, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>GST: {client.gst_number}</span>
+                </div>
+              )}
             </div>
             <div className="vqd-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
             <div className="vqd-party vqd-party--proj">
@@ -1152,7 +1197,9 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-picon"><Building2 size={20} color="#0f766e" /></div>
               <div className="vqd-pname">{projName}</div>
               {projLoc && <div className="vqd-pdetail"><MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />{projLoc}</div>}
-              {project?.address && <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{project.address}</div>}
+              {project?.address && <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}><MapPin size={10} style={{ opacity: .3, flexShrink: 0 }} />{project.address}</div>}
+              {project?.pincode && <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8' }}><Hash size={10} style={{ opacity: .3, flexShrink: 0 }} />PIN: {project.pincode}</div>}
+              {project?.project_type && <div className="vqd-pdetail" style={{ marginTop: 4 }}><Tag size={10} style={{ opacity: .35, flexShrink: 0 }} /><span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>{project.project_type}</span></div>}
             </div>
             <div className="vqd-party vqd-party--rates">
               <div className="vqd-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
@@ -1516,46 +1563,38 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
           background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06)',
           display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px',
-          maxWidth: 360, width: '100%',
+          maxWidth: 380, width: '100%',
           animation: 'vqd_toast_in .3s cubic-bezier(.16,1,.3,1)',
           borderLeft: '4px solid #f59e0b',
+          fontFamily: "'Outfit', sans-serif",
         }}>
-          {/* Icon */}
           <div style={{ width: 34, height: 34, borderRadius: 10, background: '#fffbeb', border: '1.5px solid #fcd34d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <FileText size={16} color="#d97706" />
           </div>
-          {/* Text */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Proforma Already Exists</div>
             <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 10 }}>A proforma has already been generated for this quotation.</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {proformaModal.proformaId && (
                 <button
-                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate(`/proforma/${proformaModal.proformaId}`); }}
+                  onClick={() => { dismissProformaModal(); navigate(`/proforma/${proformaModal.proformaId}`); }}
                   style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#059669,#0891b2)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <FileText size={11} /> {proformaModal.proformaNum ? `View ${proformaModal.proformaNum}` : 'View Proforma'}
                 </button>
               )}
               <button
-                onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate('/proforma'); }}
+                onClick={() => { dismissProformaModal(); navigate('/proforma'); }}
                 style={{ padding: '5px 12px', background: '#0f766e', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
               >
                 <FileText size={11} /> View Proforma List
               </button>
-              <button
-                onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
+              <button onClick={dismissProformaModal}
                 style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Dismiss
-              </button>
+              >Dismiss</button>
             </div>
           </div>
-          {/* Close X */}
-          <button
-            onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}
-          >
+          <button onClick={dismissProformaModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}>
             <X size={14} />
           </button>
         </div>
@@ -1568,8 +1607,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             @keyframes vqd_modal_in{from{opacity:0;transform:scale(.92) translateY(16px)}to{opacity:1;transform:scale(1) translateY(0)}}
             @keyframes vqd_pulse_ring{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
           `}</style>
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}
-            onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })} />
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={dismissProformaModal} />
           <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 24, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 400, overflow: 'hidden', animation: 'vqd_modal_in .32s cubic-bezier(.16,1,.3,1)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ height: 5, background: 'linear-gradient(90deg,#0f766e,#0d9488,#14b8a6)' }} />
@@ -1590,19 +1628,19 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               {!proformaModal.proformaNum && <div style={{ marginBottom: 24 }} />}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button
-                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate(`/proforma/${proformaModal.proformaId}`); }}
+                  onClick={() => { dismissProformaModal(); navigate(`/proforma/${proformaModal.proformaId}`); }}
                   style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#0f766e,#0d9488)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
                 >
                   <FileText size={15} /> View Proforma
                 </button>
                 <button
-                  onClick={() => { setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' }); navigate('/proforma'); }}
+                  onClick={() => { dismissProformaModal(); navigate('/proforma'); }}
                   style={{ width: '100%', padding: '12px 20px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12, color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Go to Proforma List
                 </button>
                 <button
-                  onClick={() => setProformaModal({ open: false, proformaId: null, proformaNum: '', alreadyExists: false, genericError: '' })}
+                  onClick={dismissProformaModal}
                   style={{ width: '100%', padding: '10px 20px', background: 'none', border: 'none', borderRadius: 12, color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Stay on this Quotation
@@ -1613,7 +1651,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         </div>
       )}
 
-      {/* ── Success toast ── */}
+      {/* ── Save Success toast ── */}
       {saveSuccess && (
         <div className="vqd-success-toast">
           <CheckCircle size={17} />

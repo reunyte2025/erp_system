@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import {
   FileText, Download, Send, Edit, Building2, MapPin, Mail, Phone,
   Clock, CheckCircle, User, ChevronDown, X,
@@ -7,436 +7,10 @@ import {
 } from 'lucide-react';
 
 // ============================================================================
-// GIVE WORKORDER MODAL
-// ============================================================================
-// NOTE: vendor list and selectedVendor will be replaced with API data later.
-// handleNext will trigger the workorder creation API call.
-
-const GiveWorkorderModal = ({ isOpen, onClose, onCreateVendor }) => {
-  const [selectedVendor, setSelectedVendor] = useState('ABC Infra');
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
-  // Placeholder vendor list — replace with API response later
-  // e.g. const [vendors, setVendors] = useState([]); useEffect(() => fetchVendors(), []);
-  const vendors = ['ABC Infra', 'XYZ Builders', 'PQR Contractors', 'LMN Works'];
-
-  useEffect(() => {
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleNext = () => {
-    // TODO: integrate with workorder creation API
-    // e.g. createWorkorder({ vendorId: selectedVendorId, invoiceId: selectedInvoice.id })
-    console.log('Proceeding with vendor:', selectedVendor);
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}
-    >
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ width: '100vw', height: '100vh', position: 'fixed' }}
-        onClick={onClose}
-      />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-scaleIn"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between rounded-t-2xl">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-5 h-5" />
-              <h2 className="text-base font-semibold">Give Workorder</h2>
-            </div>
-            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Body */}
-          <div className="p-5 space-y-5">
-            <div>
-              <p className="text-sm font-medium text-gray-800 mb-1">Select Vendor</p>
-              <p className="text-xs text-gray-500 mb-3">Please select vendor u wants to give workorder</p>
-
-              {/* Vendor Dropdown */}
-              <div className="relative">
-                <button
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-300 rounded-lg bg-white hover:border-teal-400 transition-colors text-sm"
-                >
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-800">{selectedVendor}</span>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {dropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 overflow-hidden">
-                    {vendors.map((vendor) => (
-                      <button
-                        key={vendor}
-                        onClick={() => { setSelectedVendor(vendor); setDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-teal-50 transition-colors flex items-center gap-2 ${
-                          selectedVendor === vendor ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'
-                        }`}
-                      >
-                        <User className="w-4 h-4 text-gray-400" />
-                        {vendor}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Next Button */}
-            <button
-              onClick={handleNext}
-              className="w-full py-2.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium text-sm transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Next
-            </button>
-
-            {/* Divider */}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 border-t border-gray-200" />
-              <span className="text-xs text-gray-400 font-medium">OR</span>
-              <div className="flex-1 border-t border-gray-200" />
-            </div>
-
-            {/* Create New Vendor */}
-            <button
-              onClick={onCreateVendor}
-              className="w-full py-2.5 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-teal-400 transition-all duration-200 font-medium text-sm transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Create New Vendor
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// CREATE VENDOR MODAL
-// ============================================================================
-// NOTE: onSubmit will be replaced with createVendor() API call later.
-// Form fields map directly to the vendor creation API payload.
-
-const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState({
-    vendorName: '',
-    vendorCategory: '',
-    phoneNumber: '',
-    address: '',
-    gstNumber: '',
-    emailAddress: '',
-  });
-
-  useEffect(() => {
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = () => {
-    // TODO: replace with API call
-    // e.g. const created = await createVendor(formData); onSuccess(created);
-    onSuccess(formData);
-  };
-
-  const handleCancel = () => {
-    setFormData({ vendorName: '', vendorCategory: '', phoneNumber: '', address: '', gstNumber: '', emailAddress: '' });
-    onClose();
-  };
-
-  const inputClass =
-    'w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent transition-all';
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}
-    >
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ width: '100vw', height: '100vh', position: 'fixed' }}
-        onClick={onClose}
-      />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-scaleIn overflow-hidden"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              <h2 className="text-base font-semibold">Create Vendor</h2>
-            </div>
-            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Scrollable Body */}
-          <div className="p-5 overflow-y-auto max-h-[65vh]">
-            <div className="flex items-center gap-2 mb-4">
-              <Building2 className="w-4 h-4 text-teal-600" />
-              <span className="text-sm font-semibold text-gray-800">Vendor Details</span>
-            </div>
-
-            <div className="space-y-4">
-              {/* Vendor Name */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Vendor Name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    name="vendorName"
-                    value={formData.vendorName}
-                    onChange={handleChange}
-                    placeholder="ABC Infra"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-
-              {/* Vendor Category */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Vendor Category</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    name="vendorCategory"
-                    value={formData.vendorCategory}
-                    onChange={handleChange}
-                    placeholder="Plumbing"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-
-              {/* Phone Number */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Phone Number</label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="tel"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
-                    onChange={handleChange}
-                    placeholder="123456789"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-
-              {/* Address */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Address</label>
-                <div className="relative">
-                  <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    placeholder="abc, xyz, 234 567"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-
-              {/* GST Number */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">GST Number</label>
-                <div className="relative">
-                  <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    name="gstNumber"
-                    value={formData.gstNumber}
-                    onChange={handleChange}
-                    placeholder="1234556"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-
-              {/* Email Address */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Email Address</label>
-                <div className="relative">
-                  <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="email"
-                    name="emailAddress"
-                    value={formData.emailAddress}
-                    onChange={handleChange}
-                    placeholder="Contact@acme.in"
-                    className={`${inputClass} pl-10`}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer Buttons */}
-          <div className="px-5 pb-5 pt-2 flex gap-3 border-t border-gray-100">
-            <button
-              onClick={handleSubmit}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium text-sm transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <User className="w-4 h-4" />
-              Create Vendor
-            </button>
-            <button
-              onClick={handleCancel}
-              className="flex-1 py-2.5 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium text-sm transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// VENDOR SUCCESS MODAL
-// ============================================================================
-// Matches exactly the SuccessModal pattern from projects.jsx
-
-const VendorSuccessModal = ({ isOpen, onClose, onProceedToPurchaseOrder }) => {
-  useEffect(() => {
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
-    >
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ width: '100vw', height: '100vh', top: 0, left: 0, position: 'fixed', overflow: 'hidden' }}
-        onClick={onClose}
-      />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-6 flex justify-center">
-            <div className="w-20 h-20 bg-teal-100 rounded-full flex items-center justify-center animate-bounce">
-              <CheckCircle className="w-12 h-12 text-teal-600" />
-            </div>
-          </div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">Successfully</h3>
-          <p className="text-xl font-semibold text-gray-800 mb-8">Created Vendor</p>
-          <div className="space-y-3">
-            <button
-              onClick={onProceedToPurchaseOrder}
-              className="w-full px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Proceed To Purchase Order
-            </button>
-            <button
-              onClick={onClose}
-              className="w-full px-6 py-3 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
 // MAIN INVOICES COMPONENT
 // ============================================================================
 
 export default function Invoices({ onUpdateNavigation }) {
-  const navigate = useNavigate();
   const location = useLocation();
 
   // State passed from InvoicesList 3-step modal via navigate('/invoices/generate', { state: ... })
@@ -520,38 +94,8 @@ export default function Invoices({ onUpdateNavigation }) {
 
   const [selectedInvoice, setSelectedInvoice] = useState(invoices[0]);
 
-  // ── Modal state ──
-  const [showWorkorderModal, setShowWorkorderModal] = useState(false);
-  const [showCreateVendorModal, setShowCreateVendorModal] = useState(false);
-  const [showVendorSuccessModal, setShowVendorSuccessModal] = useState(false);
-
   const calculateSectionTotal = (section) =>
     section.items.reduce((total, item) => total + item.amount, 0);
-
-  // Both top & bottom "Proceed to Workorder" buttons open GiveWorkorder modal
-  const handleProceedToWorkorder = () => {
-    setShowWorkorderModal(true);
-  };
-
-  // GiveWorkorder → "Create New Vendor" → open CreateVendor
-  const handleOpenCreateVendor = () => {
-    setShowWorkorderModal(false);
-    setShowCreateVendorModal(true);
-  };
-
-  // CreateVendor submitted → show success
-  const handleVendorCreated = (vendorData) => {
-    // vendorData will eventually be the API response object
-    setShowCreateVendorModal(false);
-    setShowVendorSuccessModal(true);
-  };
-
-  // Success → "Proceed To Purchase Order"
-  const handleProceedToPurchaseOrder = () => {
-    setShowVendorSuccessModal(false);
-    // Navigate to Purchase Order page
-    navigate('/purchase-order');
-  };
 
   const handleDownloadPDF = () => {
     // TODO: integrate with PDF generation / download API
@@ -583,8 +127,9 @@ export default function Invoices({ onUpdateNavigation }) {
                 <span className="hidden sm:inline">PDF</span>
               </button>
               <button
-                onClick={handleProceedToWorkorder}
-                className="px-3 sm:px-6 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium"
+                disabled
+                className="px-3 sm:px-6 py-2 bg-gray-200 text-gray-400 rounded-lg cursor-not-allowed flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium"
+                title="Coming soon"
               >
                 Proceed to work-order
               </button>
@@ -815,8 +360,9 @@ export default function Invoices({ onUpdateNavigation }) {
                 Track Payment
               </button>
               <button
-                onClick={handleProceedToWorkorder}
-                className="w-full sm:w-auto px-6 py-2.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors font-medium text-sm"
+                disabled
+                className="w-full sm:w-auto px-6 py-2.5 bg-gray-200 text-gray-400 rounded-lg cursor-not-allowed font-medium text-sm"
+                title="Coming soon"
               >
                 Proceed to Workorder
               </button>
@@ -839,30 +385,7 @@ export default function Invoices({ onUpdateNavigation }) {
         </div>
       </div>
 
-      {/* ══════════════ MODALS ══════════════ */}
-
-      {/* Step 1: Give Workorder — select existing vendor or create new */}
-      <GiveWorkorderModal
-        isOpen={showWorkorderModal}
-        onClose={() => setShowWorkorderModal(false)}
-        onCreateVendor={handleOpenCreateVendor}
-      />
-
-      {/* Step 2: Create New Vendor form */}
-      <CreateVendorModal
-        isOpen={showCreateVendorModal}
-        onClose={() => setShowCreateVendorModal(false)}
-        onSuccess={handleVendorCreated}
-      />
-
-      {/* Step 3: Vendor created successfully */}
-      <VendorSuccessModal
-        isOpen={showVendorSuccessModal}
-        onClose={() => setShowVendorSuccessModal(false)}
-        onProceedToPurchaseOrder={handleProceedToPurchaseOrder}
-      />
-
-      {/* Animations — identical to projects.jsx */}
+      {/* Animations */}
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; }

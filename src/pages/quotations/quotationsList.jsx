@@ -537,12 +537,14 @@ export default function QuotationsList() {
 
     try {
       // Always send sort_by + sort_order so the backend sorts all pages correctly
+      // type=1 → client quotations list
       const response = await getQuotations({
         page:       currentPage,
         page_size:  pageSize,
         search:     searchTerm,
         sort_by:    sortBy,
         sort_order: sortOrder,
+        type:       1,
       });
 
       if (response.status === 'success' && response.data) {
@@ -569,24 +571,13 @@ export default function QuotationsList() {
         setTotalPages(apiData.total_pages   || 1);
         setTotalCount(apiData.total_count   || 0);
 
-        // Compute draft count from ALL quotations (fetch with large page_size so we get everything)
-        // Under Review and Completed are not yet implemented → always 0
-        try {
-          const allRes = await getQuotations({ page: 1, page_size: 9999, sort_by: 'created_at', sort_order: 'desc' });
-          const allItems = allRes?.data?.results || [];
-          const draftCount = allItems.filter(q => {
-            const s = String(q.status || q.status_display || '').toLowerCase();
-            return s === 'draft' || s === '1';
-          }).length;
-          setStats({
-            total:     apiData.total_count || allItems.length || 0,
-            draft:     draftCount,
-            review:    0,
-            completed: 0,
-          });
-        } catch {
-          setStats({ total: apiData.total_count || 0, draft: 0, review: 0, completed: 0 });
-        }
+        // Use counts provided directly by the API — no second fetch needed
+        setStats({
+          total:     apiData.total_count        || 0,
+          draft:     apiData.draft_count        || 0,
+          review:    apiData.under_review_count || 0,
+          completed: apiData.completed_count    || 0,
+        });
       } else {
         setQuotations([]);
         setError('Failed to load quotations');

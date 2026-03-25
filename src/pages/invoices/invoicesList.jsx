@@ -116,10 +116,8 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId }) => {
 
   const formatNumber = (number) => {
     if (!number) return 'N/A';
-    if (String(number).startsWith('IN-')) return number;
-    const s = String(number);
-    if (s.length >= 8) return `IN-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-    return `IN-2026-${String(number).padStart(5, '0')}`;
+    // Return exactly as the API provides — backend already formats it (e.g. INV-202603-3075444)
+    return String(number);
   };
 
   const formatCurrency = (amount) => {

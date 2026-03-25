@@ -8,9 +8,10 @@ import api from './api';
  * Bearer token is auto-attached by the api.js interceptor.
  *
  * API Endpoints:
- * - GET  /api/usernotification/get_all_notifications/   → fetch all
- * - PUT  /api/usernotification/read_notification/?id=   → mark single as read
+ * - GET    /api/usernotification/get_all_notifications/   → fetch all
+ * - PUT    /api/usernotification/read_notification/?id=   → mark single as read
  * - DELETE /api/usernotification/remove_notification/?id= → remove single
+ * - DELETE /api/usernotification/remove_all_notifications/ → clear all (bulk)
  *
  * Response shape from backend:
  * {
@@ -47,18 +48,16 @@ export function useNotifications() {
       const response = await api.get('/usernotification/get_all_notifications/');
       if (!isMounted.current) return;
 
-      // FIX: Backend returns { status, data: { notification: [...], unread_count: N } }
-      // We must read response.data.data.notification
       const raw = response.data?.data;
 
       const data = Array.isArray(raw?.notification)
-        ? raw.notification                         // ✅ correct path
+        ? raw.notification
         : Array.isArray(raw)
-        ? raw                                      // flat array fallback
+        ? raw
         : Array.isArray(raw?.results)
-        ? raw.results                              // paginated fallback
+        ? raw.results
         : Array.isArray(response.data)
-        ? response.data                            // bare array fallback
+        ? response.data
         : [];
 
       setNotifications(data);
@@ -88,13 +87,7 @@ export function useNotifications() {
   }, [fetchNotifications]);
 
   // ─── MARK SINGLE AS READ ──────────────────────────────────────────────────
-  /**
-   * Marks a notification as read on the backend.
-   * API: PUT /api/usernotification/read_notification/?id=<id>
-   * Optimistic: update UI immediately, revert on failure.
-   */
   const markAsRead = useCallback(async (id) => {
-    // Optimistic update
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
@@ -104,7 +97,6 @@ export function useNotifications() {
       });
     } catch (err) {
       console.error('Failed to mark notification as read:', err.message);
-      // Revert on failure
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: false } : n))
       );
@@ -112,9 +104,6 @@ export function useNotifications() {
   }, []);
 
   // ─── MARK ALL AS READ ─────────────────────────────────────────────────────
-  /**
-   * Marks ALL unread notifications as read — calls PUT for each one in parallel.
-   */
   const markAllRead = useCallback(async () => {
     const unreadIds = notifications
       .filter((n) => !n.is_read)
@@ -122,32 +111,22 @@ export function useNotifications() {
 
     if (unreadIds.length === 0) return;
 
-    // Optimistic update
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
 
     try {
       await Promise.all(
         unreadIds.map((id) =>
-          api.put('/usernotification/read_notification/', null, {
-            params: { id },
-          })
+          api.put('/usernotification/read_notification/', null, { params: { id } })
         )
       );
     } catch (err) {
       console.error('Failed to mark all as read:', err.message);
-      // Revert on failure — refetch from server
       fetchNotifications();
     }
   }, [notifications, fetchNotifications]);
 
   // ─── REMOVE SINGLE ────────────────────────────────────────────────────────
-  /**
-   * Permanently deletes a single notification.
-   * API: DELETE /api/usernotification/remove_notification/?id=<id>
-   * Optimistic: remove from UI immediately, refetch on failure.
-   */
   const removeNotification = useCallback(async (id) => {
-    // Optimistic removal
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
       await api.delete('/usernotification/remove_notification/', {
@@ -155,34 +134,40 @@ export function useNotifications() {
       });
     } catch (err) {
       console.error('Failed to remove notification:', err.message);
-      // Revert on failure — refetch from server
       fetchNotifications();
     }
   }, [fetchNotifications]);
 
-  // ─── CLEAR ALL ────────────────────────────────────────────────────────────
+  // ─── CLEAR ALL — uses bulk endpoint ───────────────────────────────────────
   /**
-   * Permanently deletes ALL notifications one by one (API only supports single id).
-   * Optimistic — clears UI immediately, refetches if any fail.
+   * Uses DELETE /api/usernotification/remove_all_notifications/
+   * which is available per the API docs screenshot.
+   * Falls back to individual deletes if the bulk endpoint fails.
    */
   const clearAllNotifications = useCallback(async () => {
-    const ids = notifications.map((n) => n.id);
-    if (ids.length === 0) return;
+    if (notifications.length === 0) return;
 
     // Optimistic clear
+    const backup = [...notifications];
     setNotifications([]);
 
     try {
-      await Promise.all(
-        ids.map((id) =>
-          api.delete('/usernotification/remove_notification/', {
-            params: { id },
-          })
-        )
-      );
+      await api.delete('/usernotification/remove_all_notifications/');
     } catch (err) {
-      console.error('Failed to clear all notifications:', err.message);
-      fetchNotifications(); // sync with server on failure
+      console.error('Bulk clear failed, trying individual deletes:', err.message);
+      // Fallback: delete one by one
+      try {
+        await Promise.all(
+          backup.map((n) =>
+            api.delete('/usernotification/remove_notification/', { params: { id: n.id } })
+          )
+        );
+      } catch (fallbackErr) {
+        console.error('Individual clear also failed:', fallbackErr.message);
+        // Restore on total failure
+        setNotifications(backup);
+        fetchNotifications();
+      }
     }
   }, [notifications, fetchNotifications]);
 
@@ -190,40 +175,46 @@ export function useNotifications() {
 
   /**
    * Build a human-readable notification message from event_type + metadata.
-   *
-   * Handles all event types seen in production:
-   *   PROFORMA_APPROVED, PROFORMA_SUBMITTED, PROFORMA_REJECTED
-   *   client_created, client_updated, client_deleted
-   *   invoice_created, invoice_updated, payment_received
-   *   project_created
+   * Handles all event types including Quotation, Vendor, Purchase Order.
    */
   const getNotificationText = (notification) => {
     const { event_type, entity_type, metadata } = notification;
     const meta = typeof metadata === 'object' && metadata !== null ? metadata : {};
-
     const et = (event_type || '').toUpperCase();
 
     // ── Proforma events ────────────────────────────────────────────────────
     if (et === 'PROFORMA_APPROVED') {
       const num = meta.proforma_number || '';
       const by  = meta.by || '';
-      return num
-        ? `Proforma #${num} approved${by ? ` by ${by}` : ''}`
-        : 'Proforma was approved';
+      return num ? `Proforma #${num} approved${by ? ` by ${by}` : ''}` : 'Proforma was approved';
     }
     if (et === 'PROFORMA_SUBMITTED') {
       const num = meta.proforma_number || '';
       const by  = meta.by || '';
-      return num
-        ? `Proforma #${num} submitted${by ? ` by ${by}` : ''}`
-        : 'Proforma was submitted';
+      return num ? `Proforma #${num} submitted${by ? ` by ${by}` : ''}` : 'Proforma was submitted';
     }
     if (et === 'PROFORMA_REJECTED') {
       const num = meta.proforma_number || '';
       const by  = meta.by || '';
-      return num
-        ? `Proforma #${num} rejected${by ? ` by ${by}` : ''}`
-        : 'Proforma was rejected';
+      return num ? `Proforma #${num} rejected${by ? ` by ${by}` : ''}` : 'Proforma was rejected';
+    }
+    if (et === 'PROFORMA_CREATED') {
+      const num = meta.proforma_number || '';
+      return num ? `Proforma #${num} created` : 'New proforma created';
+    }
+
+    // ── Quotation events ───────────────────────────────────────────────────
+    if (et === 'QUOTATION_CREATED' || et === 'QUOTATION_GENERATED') {
+      const num = meta.quotation_number || meta.reference || '';
+      return num ? `Quotation #${num} created` : 'New quotation created';
+    }
+    if (et === 'QUOTATION_UPDATED') {
+      const num = meta.quotation_number || '';
+      return num ? `Quotation #${num} updated` : 'Quotation updated';
+    }
+    if (et === 'QUOTATION_APPROVED') {
+      const num = meta.quotation_number || '';
+      return num ? `Quotation #${num} approved` : 'Quotation approved';
     }
 
     // ── Client events ──────────────────────────────────────────────────────
@@ -256,6 +247,33 @@ export function useNotifications() {
       const name = meta.project_name || meta.name || '';
       return name ? `New project: ${name}` : 'New project created';
     }
+    if (et === 'PROJECT_UPDATED') {
+      const name = meta.project_name || meta.name || '';
+      return name ? `Project updated: ${name}` : 'Project updated';
+    }
+
+    // ── Vendor events ──────────────────────────────────────────────────────
+    if (et === 'VENDOR_CREATED') {
+      const name = meta.vendor_name || meta.name || '';
+      return name ? `New vendor added: ${name}` : 'New vendor added';
+    }
+    if (et === 'VENDOR_UPDATED') {
+      const name = meta.vendor_name || meta.name || '';
+      return name ? `Vendor updated: ${name}` : 'Vendor updated';
+    }
+
+    // ── Purchase Order events ──────────────────────────────────────────────
+    if (et === 'PURCHASE_ORDER_CREATED' || et === 'PURCHASE_CREATED') {
+      const num = meta.po_number || meta.purchase_number || meta.reference || '';
+      return num ? `Purchase order created: ${num}` : 'New purchase order created';
+    }
+    if (et === 'PURCHASE_ORDER_APPROVED' || et === 'PURCHASE_APPROVED') {
+      const num = meta.po_number || '';
+      return num ? `Purchase order #${num} approved` : 'Purchase order approved';
+    }
+    if (et === 'PURCHASE_ORDER_UPDATED' || et === 'PURCHASE_UPDATED') {
+      return 'Purchase order updated';
+    }
 
     // ── Generic fallback ───────────────────────────────────────────────────
     if (meta.client_name) return `${entity_type || 'Update'}: ${meta.client_name}`;
@@ -270,15 +288,31 @@ export function useNotifications() {
 
   /**
    * Get category string for icon/colour selection.
-   * Returns: 'proforma' | 'client' | 'invoice' | 'project' | 'payment' | 'default'
+   * Returns: 'proforma' | 'quotation' | 'client' | 'invoice' | 'project' |
+   *          'payment' | 'vendor' | 'purchase' | 'default'
    */
   const getNotificationCategory = (notification) => {
     const et = (notification.event_type || '').toUpperCase();
     if (et.includes('PROFORMA'))  return 'proforma';
+    // If the backend sets entity_type='Purchase' on the notification, it's a PO
+    if (et.includes('QUOTATION')) return notification.entity_type === 'Purchase' ? 'purchase' : 'quotation';
     if (et.includes('CLIENT'))    return 'client';
     if (et.includes('INVOICE'))   return 'invoice';
     if (et.includes('PROJECT'))   return 'project';
     if (et.includes('PAYMENT'))   return 'payment';
+    if (et.includes('VENDOR'))    return 'vendor';
+    if (et.includes('PURCHASE'))  return 'purchase';
+
+    // Fallback to entity_type
+    const etype = (notification.entity_type || '').toLowerCase();
+    if (etype.includes('proforma'))  return 'proforma';
+    if (etype.includes('quotation')) return 'quotation';
+    if (etype.includes('client'))    return 'client';
+    if (etype.includes('invoice'))   return 'invoice';
+    if (etype.includes('project'))   return 'project';
+    if (etype.includes('vendor'))    return 'vendor';
+    if (etype.includes('purchase'))  return 'purchase';
+
     return 'default';
   };
 
@@ -295,6 +329,8 @@ export function useNotifications() {
       Project:  `/projects/${entity_id}`,
       Proforma: `/proforma/${entity_id}`,
       Purchase: `/purchase/${entity_id}`,
+      Vendor:   `/vendors/${entity_id}`,
+      Quotation:`/quotations/${entity_id}`,
     };
 
     return typeMap[entity_type] || null;
