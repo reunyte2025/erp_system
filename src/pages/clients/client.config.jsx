@@ -224,13 +224,24 @@ const baseColumns = [
     },
   },
 
-  // ── Total Outstanding ─────────────────────────────────────────────────
+  // ── GST Number ────────────────────────────────────────────────────────
   {
-    key: 'outstanding',
-    label: 'Total Outstanding',
-    width: '140px',
-    align: 'center',
-    render: () => <span className="text-gray-400 block text-center text-sm">—</span>,
+    key: 'gst_number',
+    label: 'GST Number',
+    width: '160px',
+    headerAlign: 'center',
+    render: (row) => {
+      const gst = row.gst_number;
+      if (!gst) return <span className="text-gray-400 block text-center text-sm">—</span>;
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-mono font-medium tracking-wide"
+          title={gst}
+        >
+          {gst.length > 18 ? gst.substring(0, 18) + '…' : gst}
+        </span>
+      );
+    },
   },
 
   // ── Date ──────────────────────────────────────────────────────────────

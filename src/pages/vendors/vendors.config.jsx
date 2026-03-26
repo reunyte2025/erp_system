@@ -63,15 +63,14 @@ export const formatVendorName = (name) => {
 export const getStatusIconColor = (status) => {
   const s = Number(status);
   const colors = {
-    1: 'text-teal-600',    // Active
-    2: 'text-yellow-600',  // Inactive
-    3: 'text-red-600',     // Blacklisted
+    1: 'text-teal-600',
+    2: 'text-yellow-600',
+    3: 'text-red-600',
   };
   return colors[s] || 'text-gray-600';
 };
 
 export const getStatusBadge = (status, isActive) => {
-  // is_active=false → show Deactive badge regardless of status integer
   if (isActive === false) {
     return { text: 'Deactive', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: 'D' };
   }
@@ -100,22 +99,121 @@ export const formatDate = (dateString) => {
   } catch { return 'N/A'; }
 };
 
-export const formatCategoryList = (categories) => {
-  if (!categories || categories.length === 0) return 'N/A';
+/**
+ * Parse vendor categories string or array into an array of label strings.
+ * Handles:
+ *  - Array of numbers:  [1, 2, 3]
+ *  - Comma-separated string: "Plumbing, Electrical, Civil"
+ *  - Single string: "Plumbing"
+ */
+export const parseCategoryLabels = (categories) => {
+  if (!categories) return [];
+
+  // Already an array of numeric IDs
   if (Array.isArray(categories)) {
-    const labels = categories.map(cat => {
+    return categories.map(cat => {
       const catNum = Number(cat);
       return VENDOR_CATEGORIES[catNum] || `Category ${cat}`;
     });
-    return labels.join(', ');
   }
-  return String(categories);
+
+  // Comma-separated string from vendor_categories_display
+  if (typeof categories === 'string' && categories.trim()) {
+    return categories.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  return [];
+};
+
+export const formatCategoryList = (categories) => {
+  const labels = parseCategoryLabels(categories);
+  if (labels.length === 0) return 'N/A';
+  return labels.join(', ');
 };
 
 export const truncateText = (text, maxLength = 30) => {
   if (!text) return '-';
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength) + '...';
+};
+
+// ============================================================================
+// CATEGORY PILLS COMPONENT
+// ============================================================================
+/**
+ * Smart category display:
+ *  - Shows the FIRST category as a teal pill (same style as Quotation Type)
+ *  - If there are more categories, shows a compact "+N" grey chip
+ *  - Hovering the "+N" chip shows a tooltip with all remaining categories
+ *
+ * Design rationale:
+ *  - One pill keeps the column narrow and consistent
+ *  - "+N" is instantly informative without cluttering
+ *  - Tooltip on "+N" gives full info on demand, no extra space needed
+ */
+const CategoryPills = ({ categoriesRaw }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const labels = parseCategoryLabels(categoriesRaw);
+
+  if (labels.length === 0) {
+    return <span className="text-gray-400 text-sm">—</span>;
+  }
+
+  const first = labels[0];
+  const rest  = labels.slice(1);
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {/* First category — teal pill matching Quotation Type style */}
+      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200 whitespace-nowrap">
+        {first}
+      </span>
+
+      {/* Overflow chip — shown only when there are additional categories */}
+      {rest.length > 0 && (
+        <div className="relative">
+          <span
+            className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold
+                       bg-gray-100 text-gray-500 border border-gray-200 cursor-default
+                       hover:bg-gray-200 hover:text-gray-700 transition-colors whitespace-nowrap"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+          >
+            +{rest.length}
+          </span>
+
+          {/* Tooltip with remaining categories */}
+          {showTooltip && (
+            <div
+              className="absolute bottom-full left-1/2 mb-2 z-50 pointer-events-none"
+              style={{ transform: 'translateX(-50%)' }}
+            >
+              <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                <div className="font-semibold mb-1 text-gray-300 text-[10px] uppercase tracking-wide">
+                  Also in:
+                </div>
+                {rest.map((label, i) => (
+                  <div key={i} className="flex items-center gap-1.5 py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />
+                    {label}
+                  </div>
+                ))}
+                {/* Tooltip arrow */}
+                <div
+                  className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+                  style={{
+                    borderLeft: '5px solid transparent',
+                    borderRight: '5px solid transparent',
+                    borderTop: '5px solid #111827',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ============================================================================
@@ -260,19 +358,15 @@ const baseColumns = [
   },
 
   // ── Category ────────────────────────────────────────────────────────────
+  // ✅ FIX: Now shows first category as a teal pill + "+N" overflow chip with tooltip
   {
     key: 'vendor_categories_display',
     label: 'Category',
-    width: '140px',
+    width: '180px',
     headerAlign: 'center',
-    render: (row) => {
-      const categories = row.vendor_categories_display || '';
-      return (
-        <span className="text-gray-700 text-xs max-w-[130px] block truncate" title={categories || 'N/A'}>
-          {categories || '-'}
-        </span>
-      );
-    },
+    render: (row) => (
+      <CategoryPills categoriesRaw={row.vendor_categories_display || row.vendor_categories} />
+    ),
   },
 
   // ── Date — sortable ─────────────────────────────────────────────────────
@@ -289,7 +383,6 @@ const baseColumns = [
   },
 
   // ── Status — sortable ───────────────────────────────────────────────────
-  // 1 = Active  |  2 = Inactive  |  3 = Blacklisted
   {
     key: 'status',
     label: 'Status',

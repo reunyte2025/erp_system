@@ -128,6 +128,32 @@ const detectExistingGroupType = (items = []) => {
   return null;
 };
 
+/**
+ * Determine compliance type from items
+ * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
+ */
+const getComplianceType = (items = []) => {
+  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
+  const hasExec  = items.some(it => [3, 4].includes(it.compliance_category));
+  if (hasCerts && hasExec) return 'mixed';
+  if (hasCerts) return 'certificates';
+  if (hasExec)  return 'execution';
+  return 'none';
+};
+
+/**
+ * Get display text for compliance type
+ */
+const getComplianceTypeLabel = (items = []) => {
+  const type = getComplianceType(items);
+  switch (type) {
+    case 'certificates': return 'Certificates (Construction & Occupational)';
+    case 'execution':    return 'Execution (Water Main & STP)';
+    case 'mixed':        return 'Mixed Compliance (Certificates & Execution)';
+    default:             return 'No Compliance Items';
+  }
+};
+
 // ─── Number to words ──────────────────────────────────────────────────────────
 function numberToWords(n) {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -1170,26 +1196,6 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-pavatar">{clientName.charAt(0).toUpperCase()}</div>
               <div className="vqd-pname">{clientName}</div>
               {client?.email && <div className="vqd-pdetail"><Mail size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
-              {client?.phone_number && <div className="vqd-pdetail"><Phone size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
-              {(client?.city || client?.state) && (
-                <div className="vqd-pdetail">
-                  <MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />
-                  {[client.city, client.state].filter(Boolean).join(', ')}
-                  {client.pincode ? ` – ${client.pincode}` : ''}
-                </div>
-              )}
-              {client?.address && (
-                <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
-                  <MapPin size={10} style={{ opacity: .3, flexShrink: 0 }} />
-                  {client.address}
-                </div>
-              )}
-              {client?.gst_number && (
-                <div className="vqd-pdetail" style={{ marginTop: 4 }}>
-                  <CreditCard size={11} style={{ opacity: .45, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>GST: {client.gst_number}</span>
-                </div>
-              )}
             </div>
             <div className="vqd-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
             <div className="vqd-party vqd-party--proj">
@@ -1197,9 +1203,6 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-picon"><Building2 size={20} color="#0f766e" /></div>
               <div className="vqd-pname">{projName}</div>
               {projLoc && <div className="vqd-pdetail"><MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />{projLoc}</div>}
-              {project?.address && <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}><MapPin size={10} style={{ opacity: .3, flexShrink: 0 }} />{project.address}</div>}
-              {project?.pincode && <div className="vqd-pdetail" style={{ fontSize: 11, color: '#94a3b8' }}><Hash size={10} style={{ opacity: .3, flexShrink: 0 }} />PIN: {project.pincode}</div>}
-              {project?.project_type && <div className="vqd-pdetail" style={{ marginTop: 4 }}><Tag size={10} style={{ opacity: .35, flexShrink: 0 }} /><span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>{project.project_type}</span></div>}
             </div>
             <div className="vqd-party vqd-party--rates">
               <div className="vqd-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
@@ -1242,6 +1245,38 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
           {/* ══════════ LINE ITEMS ══════════ */}
           <div className="vqd-items">
+
+            {/* ══════════ QUOTATION TYPE INDICATOR ══════════ */}
+            {quotation.quotation_type && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 10,
+                marginBottom: 12,
+                padding: '8px 14px',
+                background: '#f0fdf4',
+                border: '1.5px solid #bbf7d0',
+                borderRadius: 20,
+              }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#0d6360',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}>
+                  Quotation Type
+                </span>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#059669',
+                }}>
+                  {quotation.quotation_type}
+                </span>
+              </div>
+            )}
+
             <div className="vqd-sec-hdr">
               <FileText size={15} color="#0f766e" />
               Services &amp; Compliance Items

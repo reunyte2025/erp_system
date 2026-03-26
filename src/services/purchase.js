@@ -30,6 +30,7 @@ const serviceLogger = {
 
 const ENDPOINTS = {
   GET_ALL_PROJECTS: '/projects/get_all_Project/',
+  GENERATE_PDF: '/quotations/generate_pdf/',
 };
 
 // ============================================================================
@@ -75,10 +76,54 @@ export const getProjectsForPurchaseOrder = async (params = {}) => {
   }
 };
 
+/**
+ * Generate and download PDF for a Purchase Order
+ * Uses the same endpoint as quotation PDF (POs share the quotation model, type=2)
+ *
+ * @param {number} id - Purchase Order (quotation) ID
+ * @param {string} [poNumber] - PO number used as the download filename (optional)
+ * @throws {Error} If PDF generation or download fails
+ */
+export const generatePurchaseOrderPdf = async (id, poNumber) => {
+  try {
+    if (!id) {
+      throw new Error('Purchase Order ID is required');
+    }
+
+    serviceLogger.log(`Generating PDF for purchase order ${id}...`);
+
+    const response = await api.post(
+      ENDPOINTS.GENERATE_PDF,
+      {},
+      { params: { id }, responseType: 'blob' }
+    );
+
+    // Create blob URL and trigger browser download
+    const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    const downloadName = poNumber ? `${poNumber}.pdf` : `PurchaseOrder_${id}.pdf`;
+    link.setAttribute('download', downloadName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Release object URL memory after a short delay
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    serviceLogger.log(`PDF downloaded: ${downloadName}`);
+  } catch (error) {
+    const errorMessage = handleApiError(error) || normalizeError(error);
+    serviceLogger.error(`generatePurchaseOrderPdf(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 // ============================================================================
 // EXPORTS
 // ============================================================================
 
 export default {
   getProjectsForPurchaseOrder,
+  generatePurchaseOrderPdf,
 };

@@ -368,22 +368,15 @@ const SelectVendorProjectModal = ({ isOpen, onClose, onProceed }) => {
 
 const StatCard = ({ icon, count, label, subLabel, bgColor, textColor }) => (
   <div className={`${bgColor} rounded-2xl p-4 sm:p-5 shadow-sm relative overflow-hidden`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-2 sm:gap-3">
-        <div className={`${textColor} bg-white/20 rounded-full p-2 sm:p-2.5 flex-shrink-0`}>
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 truncate">{count}</h3>
-          <p className="text-white/90 font-medium text-xs sm:text-sm truncate">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1 truncate">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-2 sm:gap-3">
+      <div className={`${textColor} bg-white/20 rounded-full p-2 sm:p-2.5 flex-shrink-0`}>
+        {icon}
       </div>
-      <button className="text-white/80 hover:text-white flex-shrink-0 p-1 -mr-1">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
-        </svg>
-      </button>
+      <div className="min-w-0">
+        <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 truncate">{count}</h3>
+        <p className="text-white/90 font-medium text-xs sm:text-sm truncate">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1 truncate">{subLabel}</p>}
+      </div>
     </div>
   </div>
 );

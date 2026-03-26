@@ -10,6 +10,7 @@ import {
   Search, ChevronDown, Edit, Receipt,
 } from 'lucide-react';
 import { getQuotationById } from '../../services/quotation';
+import { generatePurchaseOrderPdf } from '../../services/purchase';
 import { getComplianceByCategory } from '../../services/proforma';
 import { getProjects } from '../../services/projects';
 import { createInvoice } from '../../services/invoices';
@@ -207,6 +208,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const [loading,       setLoading]       = useState(true);
   const [fetchError,    setFetchError]    = useState('');
   const [pdfLoading,    setPdfLoading]    = useState(false);
+  const [pdfError,      setPdfError]      = useState('');
   const [visible,       setVisible]       = useState(false);
 
   // ── Edit mode state — mirrors viewquotationdetails exactly ──────────────────
@@ -576,23 +578,21 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
   const handleDownload = async () => {
     if (pdfLoading) return;
+    setPdfError('');
     try {
       setPdfLoading(true);
+      // If the server has already generated a PDF URL, open it directly
       if (po?.quotation_url) {
         window.open(po.quotation_url, '_blank');
-      } else {
-        const response = await api.get(`/quotations/${id}/generate_pdf/`, { responseType: 'blob' });
-        const url  = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `${fmtPONum(po?.quotation_number)}.pdf`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
+        return;
       }
+      // Otherwise call the service which POSTs to /quotations/generate_pdf/?id=<id>
+      await generatePurchaseOrderPdf(po.id, fmtPONum(po?.quotation_number));
     } catch (e) {
       console.error('PDF download failed:', e);
+      setPdfError(e.message || 'Failed to generate PDF. Please try again.');
+      // Auto-clear error after 5 s
+      setTimeout(() => setPdfError(''), 5000);
     } finally {
       setPdfLoading(false);
     }
@@ -1607,6 +1607,31 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           <button
             onClick={dismissInvoiceModal}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── PDF Error toast ── */}
+      {pdfError && (
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, display: 'flex', alignItems: 'center', gap: 10,
+          background: '#fef2f2', color: '#dc2626',
+          border: '1.5px solid #fca5a5',
+          padding: '12px 20px', borderRadius: 12,
+          fontSize: 13, fontWeight: 600,
+          boxShadow: '0 8px 24px rgba(220,38,38,.18)',
+          animation: 'vpod_toast_in .3s cubic-bezier(.16,1,.3,1)',
+          fontFamily: "'Outfit', sans-serif",
+          maxWidth: 420,
+        }}>
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
+          {pdfError}
+          <button
+            onClick={() => setPdfError('')}
+            style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', lineHeight: 1, padding: 0 }}
           >
             <X size={14} />
           </button>

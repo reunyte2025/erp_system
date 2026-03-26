@@ -17,7 +17,7 @@ import api, { normalizeError } from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = true; // TODO: set back to false in production
+const ENABLE_SERVICE_LOGGING = false;
 
 const serviceLogger = {
   log: (...args) => ENABLE_SERVICE_LOGGING && console.log(...args),
@@ -38,7 +38,9 @@ const ENDPOINTS = {
   UNDO:      '/clients/undo_client/',     // PATCH /clients/undo_client/?id=
   SEARCH:    '/clients/search/',
   EXPORT:    '/clients/export/',
-  TOGGLE_STAR: '/clients/change_star_client_status/', // PUT ?id=&is_star=
+  TOGGLE_STAR:  '/clients/change_star_client_status/', // PUT ?id=&is_star=
+  BULK_DELETE:  '/clients/bulk-delete/',
+  BULK_UPDATE:  '/clients/bulk-update/',
 };
 
 const NOTE_ENDPOINTS = {
@@ -388,7 +390,7 @@ export const bulkDeleteClients = async (ids) => {
       throw new Error('Client IDs array is required and cannot be empty');
     }
 
-    const response = await api.post('/clients/bulk-delete/', { ids });
+    const response = await api.post(ENDPOINTS.BULK_DELETE, { ids });
     return response.data;
 
   } catch (error) {
@@ -404,7 +406,7 @@ export const bulkUpdateClients = async (ids, updates) => {
       throw new Error('Client IDs array is required and cannot be empty');
     }
 
-    const response = await api.post('/clients/bulk-update/', { ids, updates });
+    const response = await api.post(ENDPOINTS.BULK_UPDATE, { ids, updates });
     return response.data;
 
   } catch (error) {

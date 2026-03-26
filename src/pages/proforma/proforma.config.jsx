@@ -1,4 +1,5 @@
-import { FileEdit, FileText, Clock, CheckCircle2, FileX, AlertCircle } from 'lucide-react';
+import { FileEdit, FileText, Clock, CheckCircle2, FileX, AlertCircle, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * ============================================================================
@@ -134,6 +135,99 @@ const truncateText = (text, maxLength = 30) => {
 };
 
 // ============================================================================
+// DELETE HELPERS  (used by proformaList.jsx)
+// ============================================================================
+
+/**
+ * Returns true when a proforma row is deleted.
+ * Checks status === 5, is_deleted flag, or is_active === false —
+ * same logic as isQuotationDeleted in quotation.config.jsx.
+ */
+export const isProformaDeleted = (row) => {
+  const status = String(row.status ?? '').toLowerCase();
+  return (
+    status === '5'       ||
+    status === 'deleted' ||
+    row.is_deleted === true  ||
+    row.is_active  === false
+  );
+};
+
+// ============================================================================
+// ACTIONS DROPDOWN MENU  (Admin / Manager only)
+// ============================================================================
+
+const ActionsMenu = ({ row, handlers }) => {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const deleted = isProformaDeleted(row);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  const handleDelete = (e) => {
+    e.stopPropagation();
+    setOpen(false);
+    handlers?.onDeleteProforma?.(row);
+  };
+
+  // Already-deleted rows show a plain label — no dropdown
+  if (deleted) {
+    return (
+      <div className="flex justify-center">
+        <span className="text-xs text-red-400 font-medium italic">Deleted</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex justify-center" ref={menuRef}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-150
+          ${open ? 'text-red-700 bg-red-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200'}`}
+        title="Actions"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3"  r="1.4" />
+          <circle cx="8" cy="8"  r="1.4" />
+          <circle cx="8" cy="13" r="1.4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-10 z-50 w-52 bg-white rounded-xl border border-gray-200 py-1.5 shadow-lg overflow-hidden"
+          style={{ animation: 'dropdownIn 0.15s ease-out' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleDelete}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors duration-100 rounded-lg"
+          >
+            <Trash2 className="w-4 h-4 flex-shrink-0" />
+            <span>Delete Proforma</span>
+          </button>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes dropdownIn {
+          from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+// ============================================================================
 // COLUMN DEFINITIONS
 // ============================================================================
 
@@ -189,11 +283,17 @@ const columns = [
   },
 
   {
-    key: 'notes',
-    label: 'Notes',
+    key: 'proforma_type',
+    label: 'Proforma Type',
     render: (row) => (
-      <div className="max-w-xs" title={row.notes || '—'}>
-        <span className="text-gray-700 text-sm">{row.notes ? truncateText(row.notes, 30) : '—'}</span>
+      <div className="max-w-xs">
+        {row.proforma_type ? (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">
+            {row.proforma_type}
+          </span>
+        ) : (
+          <span className="text-gray-400 text-sm">—</span>
+        )}
       </div>
     ),
   },
@@ -236,6 +336,15 @@ const columns = [
     },
     align: 'left',
   },
+
+  // Actions column — only rendered for Admin / Manager (adminOnly flag)
+  {
+    key: 'actions',
+    label: 'Actions',
+    adminOnly: true,
+    align: 'center',
+    render: (row, _index, handlers) => <ActionsMenu row={row} handlers={handlers} />,
+  },
 ];
 
 // ============================================================================
@@ -258,5 +367,13 @@ const proformaConfig = {
 };
 
 export default proformaConfig;
+
+/**
+ * Returns columns filtered by role.
+ *   isPrivileged = true  → Admin or Manager → sees Actions column
+ *   isPrivileged = false → Regular user     → Actions column hidden
+ */
+export const getColumns = (isPrivileged) =>
+  isPrivileged ? columns : columns.filter((col) => !col.adminOnly);
 
 export { formatCurrency, formatDate, formatTimestamp, getClientName, getStatusBadge, getStatusIconConfig, truncateText };
