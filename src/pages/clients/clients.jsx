@@ -29,24 +29,15 @@ const logger = {
 
 const StatCard = ({ icon, count, label, subLabel, bgColor, textColor }) => (
   <div className={`${bgColor} rounded-2xl p-4 sm:p-5 shadow-sm relative overflow-hidden`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-2 sm:gap-3">
-        <div className={`${textColor} bg-white/20 rounded-full p-2 sm:p-2.5 flex-shrink-0`}>
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 truncate">{count}</h3>
-          <p className="text-white/90 font-medium text-xs sm:text-sm truncate">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1 truncate">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-2 sm:gap-3">
+      <div className={`${textColor} bg-white/20 rounded-full p-2 sm:p-2.5 flex-shrink-0`}>
+        {icon}
       </div>
-      <button className="text-white/80 hover:text-white flex-shrink-0 p-1 -mr-1 touch-manipulation">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1" />
-          <circle cx="12" cy="5" r="1" />
-          <circle cx="12" cy="19" r="1" />
-        </svg>
-      </button>
+      <div className="min-w-0">
+        <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 truncate">{count}</h3>
+        <p className="text-white/90 font-medium text-xs sm:text-sm truncate">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1 truncate">{subLabel}</p>}
+      </div>
     </div>
   </div>
 );
@@ -65,18 +56,6 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
     gstNumber: ''
   });
 
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
-
-  // Sync local filter state with parent activeFilters whenever modal opens
   useEffect(() => {
     if (isOpen && currentFilters) {
       setFilters(currentFilters);
@@ -107,26 +86,18 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
+    <div
+      className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none"
+      style={{ position: 'fixed' }}
     >
-      <div 
-        className="absolute inset-0 bg-black/50"
-        style={{ 
-          width: '100vw', 
-          height: '100vh', 
-          top: 0, 
-          left: 0, 
-          position: 'fixed',
-          overflow: 'hidden'
-        }}
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4" style={{ height: '100vh' }}>
-        <div 
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn"
+      <div className="relative z-10 flex items-center justify-center p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -282,40 +253,21 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
 // ============================================================================
 
 const SuccessModal = ({ isOpen, onClose, onProceed, isDraft = false }) => {
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
+    <div
+      className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none"
+      style={{ position: 'fixed' }}
     >
-      <div 
-        className="absolute inset-0 bg-black/50"
-        style={{ 
-          width: '100vw', 
-          height: '100vh', 
-          top: 0, 
-          left: 0, 
-          position: 'fixed',
-          overflow: 'hidden'
-        }}
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
-        <div 
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8 text-center animate-scaleIn"
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8 text-center animate-scaleIn pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className={`w-16 h-16 mx-auto mb-4 rounded-full border-4 flex items-center justify-center ${isDraft ? 'border-orange-400' : 'border-teal-600'}`}>
@@ -361,23 +313,18 @@ const SuccessModal = ({ isOpen, onClose, onProceed, isDraft = false }) => {
 // ============================================================================
 
 const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, clientName, isLoading }) => {
-  useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = 'unset';
-    return () => { document.body.style.overflow = 'unset'; };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999]" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={!isLoading ? onClose : undefined}
       />
-      <div className="relative z-10 flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn"
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
@@ -660,28 +607,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
   };
 
   // Lock body scroll while modal is open
-  useEffect(() => {
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
+  useEffect(() => {}, [isOpen]);
 
   const isAnySubmitting = submitting || draftSubmitting;
 
@@ -689,22 +615,22 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
 
   return (
     <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
+      className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none"
+      style={{ position: 'fixed' }}
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50"
-        style={{ width: '100vw', height: '100vh', top: 0, left: 0, position: 'fixed', overflow: 'hidden' }}
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
 
-      {/* Centering wrapper — never scrolls, always full screen */}
-      <div className="relative z-10 flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+      {/* Centering wrapper */}
+      <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
 
-        {/* Modal card — fixed size, never grows with content */}
+        {/* Modal card — fixed size, internal scroll via overflow-hidden + flex-col */}
         <div
-          className="relative bg-white rounded-2xl shadow-2xl w-full animate-scaleIn flex flex-col overflow-hidden"
+          className="relative bg-white rounded-2xl shadow-2xl w-full animate-scaleIn flex flex-col overflow-hidden pointer-events-auto"
           style={{ maxWidth: '520px', maxHeight: 'calc(100vh - 48px)', margin: '0 16px' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1292,18 +1218,7 @@ export default function Clients() {
       )}
 
       <style>{`
-        body.modal-open {
-          overflow: hidden !important;
-          position: fixed !important;
-          width: 100% !important;
-          height: 100% !important;
-        }
-
-        body:has(.z-\\[9999\\]) {
-          overflow: hidden !important;
-          position: fixed !important;
-          width: 100% !important;
-        }
+        html { overflow-y: scroll; scrollbar-gutter: stable; }
 
         @keyframes fadeIn {
           from { opacity: 0; }

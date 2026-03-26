@@ -218,6 +218,36 @@ export const deleteProforma = async (id) => {
   }
 };
 
+/**
+ * Delete a proforma by ID using the dedicated delete endpoint.
+ *
+ * Endpoint:  DELETE /api/proformas/delete_proforma/?id=<id>
+ *
+ * On success the backend sets:
+ *   is_active  → false
+ *   is_deleted → true
+ *   status     → 5
+ *
+ * @param {number} id - Proforma ID to delete
+ * @returns {Promise<object>} { status: 'success', data: <response> }
+ * @throws {Error} If deletion fails
+ */
+export const deleteProformaById = async (id) => {
+  try {
+    if (!id) throw new Error('Proforma ID is required');
+    serviceLogger.log(`[Proforma Service] Deleting proforma ${id} via delete_proforma endpoint...`);
+    const response = await api.delete('/proformas/delete_proforma/', {
+      params: { id },
+    });
+    serviceLogger.log(`[Proforma Service] Proforma ${id} deleted successfully`);
+    return { status: 'success', data: response.data };
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`[Proforma Service] deleteProformaById(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 export const getProformaStats = async () => {
   try {
     const response = await getProformas({ page: 1, page_size: 1 });
@@ -323,6 +353,7 @@ export default {
   updateProforma,
   updateProformaFull,
   deleteProforma,
+  deleteProformaById,
   getProformaStats,
   getComplianceByCategory,
   sendProformaForApproval,

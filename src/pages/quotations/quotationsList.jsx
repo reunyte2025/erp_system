@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, User, X, CheckCircle, Loader2, Search } from 'lucide-react';
-import { getQuotations, getQuotationStats } from '../../services/quotation';
-import { getClientById, getClients, getClientProjects } from '../../services/clients';
+import { getQuotations, deleteQuotationById } from '../../services/quotation';
+import { getClients, getClientProjects } from '../../services/clients';
 import { getProjects } from '../../services/projects';
-import quotationConfig from './quotation.config';
+import { useRole } from '../../components/RoleContext';
+import quotationConfig, { getColumns, isQuotationDeleted } from './quotation.config';
 import DynamicList from '../../components/DynamicList/DynamicList';
 
 /**
@@ -38,24 +39,19 @@ const logger = {
 
 const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
   <div className={`${bgColor} rounded-2xl p-5 shadow-sm relative overflow-hidden`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3">
-        <div className="text-white bg-white/20 rounded-full p-2.5">
-          {icon}
-        </div>
-        <div>
-          <h3 className="text-2xl font-bold text-white mb-1">{count}</h3>
-          <p className="text-white/90 font-medium text-sm">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-3">
+      <div className="text-white bg-white/20 rounded-full p-2.5 flex-shrink-0">
+        {icon}
       </div>
-      <button className="text-white/80 hover:text-white">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1" />
-          <circle cx="12" cy="5"  r="1" />
-          <circle cx="12" cy="19" r="1" />
-        </svg>
-      </button>
+      <div className="flex-1 min-w-0">
+        <h3 className="font-bold text-white mb-1 leading-tight break-all"
+          style={{ fontSize: typeof count === 'string' && count.length > 14 ? '15px' : typeof count === 'string' && count.length > 10 ? '18px' : '24px' }}
+        >
+          {count}
+        </h3>
+        <p className="text-white/90 font-medium text-sm">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
+      </div>
     </div>
   </div>
 );
@@ -65,44 +61,18 @@ const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
 // ============================================================================
 
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
-  useEffect(() => {
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top      = `-${scrollY}px`;
-      document.body.style.width    = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
-    >
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ width: '100vw', height: '100vh', position: 'fixed', overflow: 'hidden' }}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn"
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mb-6 flex justify-center">
@@ -133,6 +103,76 @@ const SuccessModal = ({ isOpen, onClose, onProceed }) => {
 };
 
 // ============================================================================
+// DELETE CONFIRM MODAL
+// ============================================================================
+
+const DeleteConfirmModal = ({ isOpen, quotation, onConfirm, onCancel, deleting }) => {
+  if (!isOpen || !quotation) return null;
+
+  const qNum = quotation.quotation_number
+    ? (String(quotation.quotation_number).startsWith('QT-')
+        ? quotation.quotation_number
+        : `QT-${String(quotation.quotation_number)}`)
+    : `QT-${String(quotation.id || '').padStart(5, '0')}`;
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={!deleting ? onCancel : undefined}
+      />
+      <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-1">Delete Quotation?</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            <span className="font-semibold text-gray-700">{qNum}</span> will be permanently deleted.
+            This action cannot be undone.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onCancel}
+              disabled={deleting}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200
+                         text-gray-600 hover:bg-gray-50 transition-all
+                         disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={deleting}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white
+                         hover:bg-red-600 active:bg-red-700 transition-all
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         flex items-center justify-center gap-2"
+            >
+              {deleting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Deleting...
+                </>
+              ) : 'Yes, Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // SELECT CLIENT + PROJECT MODAL (2-Step)
 // ============================================================================
 
@@ -149,31 +189,13 @@ const SelectClientProjectModal = ({ isOpen, onClose, onProceed }) => {
 
   useEffect(() => {
     if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top      = `-${scrollY}px`;
-      document.body.style.width    = '100%';
-      document.body.style.overflow = 'hidden';
       setStep('client');
       setSelectedClient(null);
       setSelectedProject(null);
       setClientSearch('');
       setProjectSearch('');
       fetchClients();
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
     }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top      = '';
-      document.body.style.width    = '';
-      document.body.style.overflow = '';
-    };
   }, [isOpen]);
 
   const fetchClients = async () => {
@@ -251,16 +273,16 @@ const SelectClientProjectModal = ({ isOpen, onClose, onProceed }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
+    <div className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
         style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
 
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative w-full max-w-md overflow-hidden animate-scaleIn"
+          className="relative w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto"
           style={{ borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -485,6 +507,11 @@ const SelectClientProjectModal = ({ isOpen, onClose, onProceed }) => {
 
 export default function QuotationsList() {
   const navigate = useNavigate();
+  const { isAdmin, isManager } = useRole();
+
+  // Privileged = Admin or Manager → can see & use the Actions column
+  // isManager may not be provided by all RoleContext implementations — default false
+  const isPrivileged = isAdmin || (isManager ?? false);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [quotations,             setQuotations]             = useState([]);
@@ -500,6 +527,11 @@ export default function QuotationsList() {
   const [showSuccessModal,       setShowSuccessModal]       = useState(false);
   const [createdQuotation,       setCreatedQuotation]       = useState(null);
   const [stats,                  setStats]                  = useState({ total: 0, draft: 0, review: 0, completed: 0 });
+
+  // Delete state
+  const [deleteTarget,  setDeleteTarget]  = useState(null);  // quotation row to delete
+  const [deleting,      setDeleting]      = useState(false);
+  const [toast,         setToast]         = useState(null);  // { message, type }
 
   // ── Sorting state ─────────────────────────────────────────────────────────
   // sortBy: the API field name (e.g. 'created_at', 'status', 'grand_total')
@@ -609,6 +641,48 @@ export default function QuotationsList() {
   const handleFilterToggle = ()      => setShowFilter((prev) => !prev);
   const handleRetry        = ()      => { lastFetchParams.current = null; fetchQuotations(); };
 
+  // ── Delete handlers ──────────────────────────────────────────────────────
+  const handleDeleteQuotation = (quotation) => {
+    setDeleteTarget(quotation);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteQuotationById(deleteTarget.id);
+      setToast({ message: 'Quotation deleted successfully', type: 'success' });
+      setDeleteTarget(null);
+      // Optimistically update the row in the local list so the status badge
+      // flips to "Deleted" immediately without waiting for a re-fetch.
+      setQuotations((prev) =>
+        prev.map((q) =>
+          q.id === deleteTarget.id
+            ? { ...q, status: 5, is_deleted: true, is_active: false }
+            : q
+        )
+      );
+      // Refresh list to get latest data from server
+      lastFetchParams.current = null;
+      fetchQuotations();
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to delete quotation', type: 'error' });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    if (!deleting) setDeleteTarget(null);
+  };
+
+  // Auto-dismiss toast after 3 s
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   /**
    * Sort handler — called from DynamicList (ListTable) when a sortable column
    * header is clicked. Toggles direction for the same field; resets page to 1.
@@ -626,10 +700,11 @@ export default function QuotationsList() {
   }, [sortBy, sortOrder]);
 
   /**
-   * Navigate to the dedicated ViewQuotationDetails page
-   * instead of opening the old modal.
+   * Navigate to the dedicated ViewQuotationDetails page.
+   * Deleted quotations are not clickable.
    */
   const handleRowClick = (quotation) => {
+    if (isQuotationDeleted(quotation)) return; // disabled for deleted
     logger.log('Navigating to quotation details:', quotation.id);
     navigate(`/quotations/${quotation.id}`);
   };
@@ -658,8 +733,38 @@ export default function QuotationsList() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Toast notification — matches client ActionToast exactly */}
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 z-[99999] animate-slideUp"
+          style={{ transform: 'translateX(-50%)' }}
+        >
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold
+              ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-500'}`}
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+          >
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-1 opacity-70 hover:opacity-100 transition-opacity">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <DynamicList
-        config={quotationConfig}
+        config={{ ...quotationConfig, columns: getColumns(isPrivileged) }}
         data={quotations}
         loading={loading}
         error={error}
@@ -679,6 +784,16 @@ export default function QuotationsList() {
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
+        actionHandlers={isPrivileged ? { onDeleteQuotation: handleDeleteQuotation } : undefined}
+      />
+
+      {/* Delete confirmation modal */}
+      <DeleteConfirmModal
+        isOpen={!!deleteTarget}
+        quotation={deleteTarget}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        deleting={deleting}
       />
 
       {/* Select Client + Project before creating quotation */}
@@ -696,10 +811,7 @@ export default function QuotationsList() {
       />
 
       <style>{`
-        html {
-          overflow-y: scroll;
-          scrollbar-gutter: stable;
-        }
+        html { overflow-y: scroll; scrollbar-gutter: stable; }
         @keyframes fadeIn {
           from { opacity: 0; }
           to   { opacity: 1; }
@@ -708,8 +820,13 @@ export default function QuotationsList() {
           from { opacity: 0; transform: scale(0.95); }
           to   { opacity: 1; transform: scale(1); }
         }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
         .animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
         .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-slideUp { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
     </>
   );

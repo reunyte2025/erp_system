@@ -181,11 +181,17 @@ const columns = [
   },
 
   {
-    key: 'notes',
-    label: 'Notes',
+    key: 'invoice_type',
+    label: 'Invoice Type',
     render: (row) => (
-      <div className="max-w-xs" title={row.notes || '—'}>
-        <span className="text-gray-700 text-sm">{row.notes ? truncateText(row.notes, 30) : '—'}</span>
+      <div className="max-w-xs">
+        {row.invoice_type ? (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">
+            {row.invoice_type}
+          </span>
+        ) : (
+          <span className="text-gray-400 text-sm">—</span>
+        )}
       </div>
     ),
   },

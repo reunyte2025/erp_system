@@ -1,4 +1,4 @@
-import api, { handleApiError, normalizeError } from './api';
+import api, { normalizeError } from './api';
 
 /**
  * ============================================================================
@@ -39,16 +39,19 @@ const serviceLogger = {
 // ============================================================================
 
 const ENDPOINTS = {
-  GET_ALL: '/quotations/get_all_quotations/',
-  GET_BY_ID: '/quotations/get_quotation/',
-  CREATE: '/quotations/create_quotation/',
-  UPDATE: '/quotations/',
-  UPDATE_FULL: '/quotations/update_quotation/',
-  DELETE: '/quotations/',
-  SEARCH: '/quotations/search/',
-  EXPORT: '/quotations/export/',
+  GET_ALL:      '/quotations/get_all_quotations/',
+  GET_BY_ID:    '/quotations/get_quotation/',
+  CREATE:       '/quotations/create_quotation/',
+  UPDATE:       '/quotations/',
+  UPDATE_FULL:  '/quotations/update_quotation/',
+  DELETE:       '/quotations/',
+  DELETE_BY_ID: '/quotations/delete_quotation/',
+  SEARCH:       '/quotations/search/',
+  EXPORT:       '/quotations/export/',
   GENERATE_PDF: '/quotations/generate_pdf/',
-  SEND_EMAIL: '/notifications/send_email/',
+  SEND_EMAIL:   '/notifications/send_email/',
+  STATS:        '/quotations/stats/',
+  BULK_DELETE:  '/quotations/bulk_delete/',
 };
 
 // ============================================================================
@@ -66,22 +69,6 @@ const generateQuotationNumber = () => {
   // This ensures high probability of uniqueness within a month
   // Example: 3093529 → Backend formats as "QT-202603-3093529"
   return Math.floor(1000000 + Math.random() * 9000000);
-};
-
-/**
- * Calculate statistics from total quotation count
- * Used for dashboard statistics display
- * 
- * @param {number} totalCount - Total number of quotations
- * @returns {Object} Statistics breakdown (total, draft, review, completed)
- */
-const calculateStatsFromTotal = (totalCount) => {
-  return {
-    total: totalCount,
-    draft: Math.floor(totalCount * 0.30),
-    review: Math.floor(totalCount * 0.25),
-    completed: Math.floor(totalCount * 0.45),
-  };
 };
 
 /**
@@ -393,6 +380,36 @@ export const updateQuotation = async (id, quotationData) => {
 };
 
 /**
+ * Delete a quotation by ID using the dedicated delete endpoint.
+ * Endpoint: DELETE /quotations/delete_quotation/?id=<id>
+ *
+ * @param {number} id - Quotation ID to delete
+ * @returns {Promise<Object>} Deletion response
+ * @throws {Error} If deletion fails
+ */
+export const deleteQuotationById = async (id) => {
+  try {
+    if (!id) {
+      throw new Error('Quotation ID is required');
+    }
+
+    serviceLogger.log(`Deleting quotation ${id} via delete_quotation endpoint...`);
+
+    const response = await api.delete(`${ENDPOINTS.DELETE_BY_ID}`, {
+      params: { id },
+    });
+
+    serviceLogger.log(`Quotation ${id} deleted successfully`);
+    return { status: 'success', data: response.data };
+
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`deleteQuotationById(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+/**
  * Delete a quotation by ID
  * 
  * @param {number} id - Quotation ID to delete
@@ -488,7 +505,7 @@ export const getQuotationStats = async () => {
   try {
     serviceLogger.log('Fetching quotation statistics...');
 
-    const response = await api.get('/quotations/stats/');
+    const response = await api.get(ENDPOINTS.STATS);
 
     serviceLogger.log('Statistics fetched successfully');
     return response.data;
@@ -515,7 +532,7 @@ export const bulkDeleteQuotations = async (ids = []) => {
 
     serviceLogger.log('Bulk deleting quotations:', ids.length);
 
-    const response = await api.post('/quotations/bulk_delete/', { ids });
+    const response = await api.post(ENDPOINTS.BULK_DELETE, { ids });
 
     serviceLogger.log('Bulk deletion completed:', ids.length);
     return response.data;
@@ -832,6 +849,7 @@ export default {
   updateQuotation,
   updateQuotationFull,
   deleteQuotation,
+  deleteQuotationById,
   searchQuotations,
   exportQuotations,
   getQuotationStats,

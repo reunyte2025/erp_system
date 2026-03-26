@@ -30,22 +30,17 @@ const logger = {
 
 const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
   <div className={`${bgColor} rounded-2xl p-5 shadow-sm relative overflow-hidden`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3">
-        <div className="bg-white/20 rounded-full p-2.5">{icon}</div>
-        <div>
-          <h3 className="text-2xl font-bold text-white mb-1">{count}</h3>
-          <p className="text-white/90 font-medium text-sm">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-3">
+      <div className="bg-white/20 rounded-full p-2.5 flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <h3 className="font-bold text-white mb-1 leading-tight break-all"
+          style={{ fontSize: typeof count === 'string' && count.length > 14 ? '15px' : typeof count === 'string' && count.length > 10 ? '18px' : '24px' }}
+        >
+          {count}
+        </h3>
+        <p className="text-white/90 font-medium text-sm">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
       </div>
-      <button className="text-white/80 hover:text-white">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1" />
-          <circle cx="12" cy="5"  r="1" />
-          <circle cx="12" cy="19" r="1" />
-        </svg>
-      </button>
     </div>
   </div>
 );

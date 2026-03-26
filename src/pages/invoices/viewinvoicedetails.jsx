@@ -977,12 +977,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             </button>
             {/* Coming soon — solid slate buttons, not clickable */}
             <button className="vid-btn-soon"><Briefcase size={14} /> Proceed to Work Order</button>
-            {/* Create Purchase Order — visible only for Execution compliance */}
-            {hasExecutionCompliance(invoice.items || []) && (
+            {/* Create Purchase Order — visible only for client invoices (not vendor/Purchase Order invoices) */}
+            {!isVendorInvoice && (
               <button 
                 className="vid-btn-p" 
                 onClick={handleOpenCreatePOModal}
-                title="Create a purchase order for execution items (Water Main, STP)"
+                title="Create a purchase order for this invoice"
               >
                 <ShoppingCart size={14} /> Create Purchase Order
               </button>
@@ -1043,19 +1043,20 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               <div className="vid-pname">{billedToName}</div>
               {isVendorInvoice ? (
                 <>
+                  {/* Vendor ID hidden from UI but preserved in DOM for track payment & other functionality */}
                   {invoice.vendor && (
-                    <div className="vid-pdetail"><Truck size={11} style={{ opacity: .45, flexShrink: 0 }} />Vendor ID #{invoice.vendor}</div>
+                    <div style={{ display: 'none' }} data-vendor-id={invoice.vendor} />
                   )}
                   <div className="vid-pdetail" style={{ marginTop: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#0f766e', border: '1px solid #6ee7b7', borderRadius: 20, padding: '1px 7px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#0f766e', border: '1px solid #6ee7b7', borderRadius: 20, padding: '3px 9px 3px 7px' }}>
+                      <Truck size={11} style={{ color: '#0f766e', flexShrink: 0 }} />
                       Purchase Order Invoice
                     </span>
                   </div>
                 </>
               ) : (
                 <>
-                  {client?.email        && <div className="vid-pdetail"><User  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
-                  {client?.phone_number && <div className="vid-pdetail"><Hash  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
+                  {client?.email && <div className="vid-pdetail"><User  size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
                 </>
               )}
             </div>
@@ -1094,34 +1095,36 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
             {/* LEFT: Line Items */}
             <div className="vid-body-left">
-              {/* ══════════ COMPLIANCE TYPE INDICATOR ══════════ */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                marginBottom: 12,
-                padding: '10px 16px',
-                background: '#f0fdf4',
-                border: '1.5px solid #bbf7d0',
-                borderRadius: 8,
-              }}>
-                <span style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: '#0d6360',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
+              {/* ══════════ INVOICE TYPE INDICATOR ══════════ */}
+              {invoice.invoice_type && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  marginBottom: 12,
+                  padding: '8px 14px',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #bbf7d0',
+                  borderRadius: 20,
                 }}>
-                  Compliance Type
-                </span>
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: '#059669',
-                }}>
-                  {getComplianceTypeLabel(items)}
-                </span>
-              </div>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#0d6360',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                  }}>
+                    Invoice Type
+                  </span>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#059669',
+                  }}>
+                    {invoice.invoice_type}
+                  </span>
+                </div>
+              )}
 
               <div className="vid-sec-hdr">
                 <FileText size={15} color="#0f766e" />

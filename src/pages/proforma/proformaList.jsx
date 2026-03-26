@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  FileEdit, FileText, User, X, CheckCircle, Calendar, DollarSign,
-  Package, Loader2, ChevronRight, Search
+  FileEdit, FileText, X, CheckCircle,
+  Loader2, ChevronRight, Search
 } from 'lucide-react';
-import { getProformas, getProformaStats, getProformaById } from '../../services/proforma';
+import { getProformas, getProformaStats, deleteProformaById } from '../../services/proforma';
 import { getClients } from '../../services/clients';
 import { getQuotations } from '../../services/quotation';
-import { getClientById } from '../../services/clients';
-import api from '../../services/api';
-import proformaConfig from './proforma.config';
+import { useRole } from '../../components/RoleContext';
+import proformaConfig, { getColumns, isProformaDeleted } from './proforma.config';
 import DynamicList from '../../components/DynamicList/DynamicList';
 
 /**
@@ -24,252 +23,6 @@ const logger = {
   error: (...args) => console.error(...args),
 };
 
-// ============================================================================
-// PROFORMA DETAIL MODAL
-// ============================================================================
-
-const ProformaDetailModal = ({ isOpen, onClose, proformaId }) => {
-  const [loading, setLoading] = useState(true);
-  const [proforma, setProforma] = useState(null);
-  const [clientName, setClientName] = useState('');
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (isOpen && proformaId) {
-      
-      
-      
-      
-      
-      fetchProformaDetails();
-    } else {
-      
-      
-      
-      
-      
-      
-    }
-    return () => {
-      
-      
-      
-      
-    };
-  }, [isOpen, proformaId]);
-
-  const fetchProformaDetails = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await getProformaById(proformaId);
-      if (res.status === 'success' && res.data) {
-        setProforma(res.data);
-        if (res.data.client) {
-          try {
-            const clientRes = await getClientById(res.data.client);
-            if (clientRes.status === 'success' && clientRes.data) {
-              const c = clientRes.data;
-              setClientName(`${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown Client');
-            }
-          } catch { setClientName('Unknown Client'); }
-        }
-      } else {
-        setError('Failed to load proforma details');
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to load proforma details');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  const formatNumber = (number) => {
-    if (!number) return 'N/A';
-    if (String(number).startsWith('PF-')) return number;
-    const s = String(number);
-    if (s.length >= 8) return `PF-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-    return `PF-2026-${String(number).padStart(5, '0')}`;
-  };
-
-  const formatCurrency = (amount) => {
-    if (!amount && amount !== 0) return 'Rs. 0';
-    return `Rs. ${Number(amount).toLocaleString('en-IN')}`;
-  };
-
-  const formatDate = (ds) => {
-    if (!ds) return 'N/A';
-    try {
-      const d = new Date(ds);
-      return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
-    } catch { return 'N/A'; }
-  };
-
-  const getStatusBadge = (status) => {
-    const map = {
-      '1': { text: 'Draft', bg: 'bg-blue-100', tc: 'text-blue-700' },
-      '2': { text: 'Pending', bg: 'bg-yellow-100', tc: 'text-yellow-700' },
-      '3': { text: 'In Progress', bg: 'bg-yellow-100', tc: 'text-yellow-700' },
-      '4': { text: 'Verified', bg: 'bg-green-100', tc: 'text-green-700' },
-      '5': { text: 'Failed', bg: 'bg-red-100', tc: 'text-red-700' },
-    };
-    return map[String(status)] || map['1'];
-  };
-
-  return (
-    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
-      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" onClick={onClose} style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
-      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
-          {/* Header */}
-          <div className="bg-gradient-to-r from-teal-600 to-teal-700 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <FileEdit className="w-6 h-6" />
-              <div>
-                <h2 className="text-xl font-semibold">Proforma Details</h2>
-                <p className="text-teal-100 text-sm">{proforma ? formatNumber(proforma.proforma_number) : 'Loading...'}</p>
-              </div>
-            </div>
-            <button onClick={onClose} className="hover:bg-teal-600 p-2 rounded-lg transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
-            {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="text-center">
-                  <Loader2 className="w-12 h-12 text-teal-600 animate-spin mx-auto mb-4" />
-                  <p className="text-gray-600">Loading proforma details...</p>
-                </div>
-              </div>
-            ) : error ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <X className="w-8 h-8 text-red-600" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Error Loading Details</h3>
-                  <p className="text-gray-600">{error}</p>
-                  <button onClick={fetchProformaDetails} className="mt-4 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">Retry</button>
-                </div>
-              </div>
-            ) : proforma ? (
-              <div className="p-6 space-y-6">
-                {/* Basic Info */}
-                <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <FileEdit className="w-5 h-5 text-teal-600" /> Basic Information
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Proforma Number</label>
-                      <p className="text-base font-semibold text-gray-900 mt-1">{formatNumber(proforma.proforma_number)}</p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Status</label>
-                      <div className="mt-1">
-                        {(() => { const b = getStatusBadge(proforma.status); return <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${b.bg} ${b.tc}`}>{b.text}</span>; })()}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Client Name</label>
-                      <p className="text-base font-semibold text-gray-900 mt-1 flex items-center gap-2">
-                        <User className="w-4 h-4 text-gray-500" />{clientName || 'Loading...'}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Quotation ID</label>
-                      <p className="text-base font-semibold text-gray-900 mt-1">#{proforma.quotation}</p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Created Date</label>
-                      <p className="text-base font-semibold text-gray-900 mt-1 flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-gray-500" />{formatDate(proforma.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Financial Summary */}
-                <div className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-xl p-5 border border-teal-200">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <DollarSign className="w-5 h-5 text-teal-600" /> Financial Summary
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-white rounded-lg p-4 border border-teal-100">
-                      <label className="text-sm font-medium text-gray-600">Total Amount</label>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(proforma.total_amount)}</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-4 border border-teal-100">
-                      <label className="text-sm font-medium text-gray-600">GST Rate</label>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{proforma.gst_rate}%</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-4 border border-teal-100">
-                      <label className="text-sm font-medium text-gray-600">GST Amount</label>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(proforma.total_gst_amount)}</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-4 border border-teal-100">
-                      <label className="text-sm font-medium text-gray-600">Discount Rate</label>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{proforma.discount_rate}%</p>
-                    </div>
-                    <div className="md:col-span-2 bg-gradient-to-r from-teal-600 to-teal-700 text-white rounded-lg p-4">
-                      <label className="text-sm font-medium text-teal-100">Grand Total</label>
-                      <p className="text-3xl font-bold mt-1">{formatCurrency(proforma.grand_total)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <Package className="w-5 h-5 text-teal-600" /> Items ({proforma.items?.length || 0})
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-100 border-b border-gray-300">
-                          <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">#</th>
-                          <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Description</th>
-                          <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Qty</th>
-                          <th className="text-right px-4 py-3 text-sm font-semibold text-gray-700">Unit Price</th>
-                          <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Tax</th>
-                          <th className="text-right px-4 py-3 text-sm font-semibold text-gray-700">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {proforma.items && proforma.items.length > 0 ? proforma.items.map((item, idx) => (
-                          <tr key={item.id || idx} className="border-b border-gray-200 hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-600">{idx + 1}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">{item.description}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-center">{item.quantity}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-right">{formatCurrency(item.unit_price)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-center">{item.tax_rate}%</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">{formatCurrency(item.total)}</td>
-                          </tr>
-                        )) : (
-                          <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-500">No items found</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          {/* Footer */}
-          <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex justify-end gap-3">
-            <button onClick={onClose} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium">Close</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // STAT CARD COMPONENT
@@ -277,20 +30,17 @@ const ProformaDetailModal = ({ isOpen, onClose, proformaId }) => {
 
 const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
   <div className={`${bgColor} rounded-2xl p-5 shadow-sm relative overflow-hidden`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3">
-        <div className="bg-white/20 rounded-full p-2.5">{icon}</div>
-        <div>
-          <h3 className="text-2xl font-bold text-white mb-1">{count}</h3>
-          <p className="text-white/90 font-medium text-sm">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-3">
+      <div className="bg-white/20 rounded-full p-2.5 flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <h3 className="font-bold text-white mb-1 leading-tight break-all"
+          style={{ fontSize: typeof count === 'string' && count.length > 14 ? '15px' : typeof count === 'string' && count.length > 10 ? '18px' : '24px' }}
+        >
+          {count}
+        </h3>
+        <p className="text-white/90 font-medium text-sm">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
       </div>
-      <button className="text-white/80 hover:text-white">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
-        </svg>
-      </button>
     </div>
   </div>
 );
@@ -340,6 +90,71 @@ const SuccessModal = ({ isOpen, onClose, onProceed }) => {
           <div className="space-y-3">
             <button onClick={onProceed} className="w-full px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium">View Proforma</button>
             <button onClick={onClose} className="w-full px-6 py-3 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium">Skip</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// DELETE CONFIRM MODAL
+// ============================================================================
+
+const DeleteConfirmModal = ({ isOpen, proforma, onConfirm, onCancel, deleting }) => {
+  if (!isOpen || !proforma) return null;
+
+  const pfNum = proforma.proforma_number
+    ? (String(proforma.proforma_number).startsWith('PF-')
+        ? proforma.proforma_number
+        : `PF-${String(proforma.proforma_number)}`)
+    : `PF-${String(proforma.id || '').padStart(5, '0')}`;
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={!deleting ? onCancel : undefined}
+      />
+      <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-1">Delete Proforma?</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            <span className="font-semibold text-gray-700">{pfNum}</span> will be permanently deleted.
+            This action cannot be undone.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onCancel}
+              disabled={deleting}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={deleting}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white hover:bg-red-600 active:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {deleting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                  Deleting...
+                </>
+              ) : 'Yes, Delete'}
+            </button>
           </div>
         </div>
       </div>
@@ -650,6 +465,10 @@ const SelectClientQuotationModal = ({ isOpen, onClose, onProceed }) => {
 export default function ProformaList() {
   const navigate = useNavigate();
 
+  // Role-based access
+  const { isAdmin, isManager } = useRole();
+  const isPrivileged = isAdmin || (isManager ?? false);
+
   const [proformas, setProformas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -663,6 +482,11 @@ export default function ProformaList() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdProforma, setCreatedProforma] = useState(null);
   const [stats, setStats] = useState({ total: 0, draft: 0, under_review: 0, verified: 0 });
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting]         = useState(false);
+  const [toast, setToast]               = useState(null);
 
   const requestInProgress = useRef(false);
   const lastFetchParams = useRef(null);
@@ -690,7 +514,7 @@ export default function ProformaList() {
           if (statsResponse.status === 'success' && statsResponse.data) setStats(statsResponse.data);
         } catch {
           const total = apiData.total_count || (apiData.results || []).length;
-          setStats({ total, draft: Math.floor(total * 0.10), under_review: Math.floor(total * 0.30), verified: Math.floor(total * 0.60) });
+          setStats({ total: 0, draft: 0, under_review: 0, verified: 0 });
         }
       } else {
         setProformas([]);
@@ -719,6 +543,7 @@ export default function ProformaList() {
   const handleFilterToggle = () => setShowFilter(prev => !prev);
 
   const handleRowClick = (proforma) => {
+    if (isProformaDeleted(proforma)) return;
     navigate(`/proforma/${proforma.id}`);
   };
 
@@ -728,6 +553,43 @@ export default function ProformaList() {
       navigate(`/proforma/${createdProforma.id}`);
     }
   };
+
+  // Delete handlers
+  const handleDeleteProforma = (proforma) => setDeleteTarget(proforma);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteProformaById(deleteTarget.id);
+      setToast({ message: 'Proforma deleted successfully', type: 'success' });
+      setDeleteTarget(null);
+      // Optimistically update local state so badge flips to Deleted immediately
+      setProformas((prev) =>
+        prev.map((p) =>
+          p.id === deleteTarget.id
+            ? { ...p, status: 5, is_deleted: true, is_active: false }
+            : p
+        )
+      );
+      // Re-fetch from server
+      lastFetchParams.current = null;
+      fetchProformas();
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to delete proforma', type: 'error' });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleCancelDelete = () => { if (!deleting) setDeleteTarget(null); };
+
+  // Auto-dismiss toast after 3s
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const renderStatsCards = () => (
     <>
@@ -740,8 +602,28 @@ export default function ProformaList() {
 
   return (
     <>
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[99999] animate-slideUp" style={{ transform: 'translateX(-50%)' }}>
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-500'}`}
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+          >
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            )}
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-1 opacity-70 hover:opacity-100 transition-opacity">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <DynamicList
-        config={proformaConfig}
+        config={{ ...proformaConfig, columns: getColumns(isPrivileged) }}
         data={proformas}
         loading={loading}
         error={error}
@@ -758,6 +640,16 @@ export default function ProformaList() {
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
+        actionHandlers={isPrivileged ? { onDeleteProforma: handleDeleteProforma } : undefined}
+      />
+
+      {/* Delete confirmation modal */}
+      <DeleteConfirmModal
+        isOpen={!!deleteTarget}
+        proforma={deleteTarget}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        deleting={deleting}
       />
 
       <SelectClientQuotationModal
@@ -774,10 +666,12 @@ export default function ProformaList() {
 
       <style>{`
         html { overflow-y: scroll; scrollbar-gutter: stable; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+        .animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
         .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-slideUp { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
     </>
   );

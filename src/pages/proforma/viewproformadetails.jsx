@@ -108,6 +108,33 @@ const groupItemsByCategory = (items = []) => {
 };
 
 // ─── Number to words ──────────────────────────────────────────────────────────
+
+/**
+ * Determine compliance type from items
+ * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
+ */
+const getComplianceType = (items = []) => {
+  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
+  const hasExec  = items.some(it => [3, 4].includes(it.compliance_category));
+  if (hasCerts && hasExec) return 'mixed';
+  if (hasCerts) return 'certificates';
+  if (hasExec)  return 'execution';
+  return 'none';
+};
+
+/**
+ * Get display text for compliance type
+ */
+const getComplianceTypeLabel = (items = []) => {
+  const type = getComplianceType(items);
+  switch (type) {
+    case 'certificates': return 'Certificates (Construction & Occupational)';
+    case 'execution':    return 'Execution (Water Main & STP)';
+    case 'mixed':        return 'Mixed Compliance (Certificates & Execution)';
+    default:             return 'No Compliance Items';
+  }
+};
+
 function numberToWords(n) {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
     'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
@@ -1550,7 +1577,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <div className="vpd-pavatar">{clientName.charAt(0).toUpperCase()}</div>
               <div className="vpd-pname">{clientName}</div>
               {client?.email && <div className="vpd-pdetail"><User size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
-              {client?.phone_number && <div className="vpd-pdetail"><Hash size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone_number}</div>}
             </div>
             <div className="vpd-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
             <div className="vpd-party vpd-party--proj">
@@ -1558,7 +1584,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <div className="vpd-picon"><Building2 size={20} color="#0f766e" /></div>
               <div className="vpd-pname">{projName}</div>
               {projLoc && <div className="vpd-pdetail"><MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />{projLoc}</div>}
-              {project?.address && <div className="vpd-pdetail" style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{project.address}</div>}
             </div>
             <div className="vpd-party vpd-party--rates">
               <div className="vpd-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
@@ -1604,6 +1629,38 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
             {/* ── LEFT: Line Items ── */}
             <div className="vpd-body-left">
+
+              {/* ══════════ PROFORMA TYPE INDICATOR ══════════ */}
+              {proforma.proforma_type && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  marginBottom: 12,
+                  padding: '8px 14px',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #bbf7d0',
+                  borderRadius: 20,
+                }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#0d6360',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                  }}>
+                    Proforma Type
+                  </span>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#059669',
+                  }}>
+                    {proforma.proforma_type}
+                  </span>
+                </div>
+              )}
+
               <div className="vpd-sec-hdr">
                 <FileText size={15} color="#0f766e" />
                 Services &amp; Compliance Items
