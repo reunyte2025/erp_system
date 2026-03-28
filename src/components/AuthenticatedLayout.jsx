@@ -135,6 +135,11 @@ export default function AuthenticatedLayout({
     if (path.startsWith('/users/') && path !== '/users') {
       return ['Users', 'User Details'];
     }
+
+    // NOC routes — top-level page, no breadcrumb needed
+    if (path === '/noc') {
+      return null;
+    }
     
     // Return null for main pages (no breadcrumbs needed)
     return null;
@@ -157,6 +162,7 @@ export default function AuthenticatedLayout({
     if (path.startsWith('/invoices'))     return 'Invoices';
     if (path.startsWith('/vendors'))      return 'Vendors';
     if (path.startsWith('/purchase'))     return 'Purchase';
+    if (path.startsWith('/noc'))          return 'NOC';
     if (path.startsWith('/employees'))    return 'Employees';
     if (path.startsWith('/certificates')) return 'Certificates';
     if (path.startsWith('/reports'))      return 'Reports';

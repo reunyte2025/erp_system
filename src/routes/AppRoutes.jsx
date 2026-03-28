@@ -16,6 +16,7 @@ import ViewPODetails from '../pages/purchase/viewpodetails';
 import VendorsList from '../pages/vendors/vendorsList';
 import VendorProfile from '../pages/vendors/vendorProfile';
 import Projects from '../pages/projects/projects';
+import ViewProjectDetails from '../pages/projects/viewprojectdetails';
 import Clients from '../pages/clients/clients';
 import ClientProfile from '../pages/clients/clientsProfile';
 import Employees from '../pages/employees';
@@ -24,6 +25,7 @@ import Reports from '../pages/reports';
 import Settings from '../pages/settings';
 import Users from '../pages/user/users';
 import UserProfile from '../pages/user/userprofile';
+import Nocs from '../pages/nocs/nocs';
 import ProtectedRoute from '../routes/PrivateRoute';
 import AuthenticatedLayout from '../components/AuthenticatedLayout';
 
@@ -49,6 +51,7 @@ import AuthenticatedLayout from '../components/AuthenticatedLayout';
  *               → /invoices/:id → /invoices
  *  PURCHASE:    /purchase/form → /purchase/:id → /purchase
  *  CLIENTS:     /clients/:id → /clients
+ *  NOC:         /noc
  */
 
 export default function AppRoutes({
@@ -137,6 +140,17 @@ export default function AppRoutes({
       {/* ==================================================================
           PROJECTS
           ================================================================== */}
+
+      <Route
+        path="/projects/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <ViewProjectDetails onUpdateNavigation={setNavigationConfig} />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/projects"
@@ -317,6 +331,21 @@ export default function AppRoutes({
           <ProtectedRoute isLoggedIn={isLoggedIn}>
             <AuthenticatedLayout {...layoutProps}>
               <Purchase onUpdateNavigation={setNavigationConfig} />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ==================================================================
+          NOC (No Objection Certificate)
+          ================================================================== */}
+
+      <Route
+        path="/noc"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <Nocs />
             </AuthenticatedLayout>
           </ProtectedRoute>
         }

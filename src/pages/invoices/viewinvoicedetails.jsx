@@ -977,10 +977,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             </button>
             {/* Coming soon — solid slate buttons, not clickable */}
             <button className="vid-btn-soon"><Briefcase size={14} /> Proceed to Work Order</button>
-            {/* Create Purchase Order — visible only for client invoices (not vendor/Purchase Order invoices) */}
-            {!isVendorInvoice && (
-              <button 
-                className="vid-btn-p" 
+            {/* Create Purchase Order — only shown for Execution Compliance invoices.
+                Hidden for: vendor invoices, Vendor Compliance, and Construction & Occupational Compliance. */}
+            {!isVendorInvoice && invoice.invoice_type === 'Execution Compliance' && (
+              <button
+                className="vid-btn-p"
                 onClick={handleOpenCreatePOModal}
                 title="Create a purchase order for this invoice"
               >

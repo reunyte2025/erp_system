@@ -1,4 +1,4 @@
-import api, { handleApiError, normalizeError } from './api';
+import api from './api';
 
 /**
  * ============================================================================
@@ -30,10 +30,11 @@ const serviceLogger = {
 
 const ENDPOINTS = {
   GET_ALL: '/projects/get_all_Project/',
-  GET_BY_ID: '/projects/',
+  GET_BY_ID: '/projects/get_Project/',
   CREATE: '/projects/create_Project/',
-  UPDATE: '/projects/',
-  DELETE: '/projects/',
+  UPDATE: '/projects/update_Project/',
+  DELETE: '/projects/delete_Project/',
+  UNDO: '/projects/undo_Project/',
   GET_ALL_USERS: '/users/get_all_users/',
 };
 
@@ -67,8 +68,103 @@ const cleanPayload = (data) => {
 };
 
 /**
- * Validate project data before submission
+ * Parse API errors into user-friendly messages.
+ *
+ * Handles three error shapes from the backend:
+ *   1. Field-level validation errors:  { errors: { field: ["msg"] } }
+ *   2. Non-field / detail errors:      { errors: { non_field_errors: ["msg"] } }
+ *                                       { detail: "msg" }
+ *   3. Generic message string:         { message: "msg" }
+ *
+ * Falls back to `fallback` when none of the above are present.
  */
+const parseApiError = (error, fallback = 'Something went wrong. Please try again.') => {
+  // Network / no-response errors
+  if (!error.response) {
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      return 'Request timed out. Please check your connection and try again.';
+    }
+    if (error.message === 'Network Error') {
+      return 'Unable to reach the server. Please check your internet connection.';
+    }
+    return fallback;
+  }
+
+  const { status, data } = error.response;
+
+  // Map HTTP status codes to friendly messages first
+  const statusMessages = {
+    401: 'Your session has expired. Please log in again.',
+    403: 'You do not have permission to perform this action.',
+    404: 'The requested resource was not found.',
+    409: 'A conflict occurred. This record may already exist.',
+    413: 'The data you submitted is too large.',
+    429: 'Too many requests. Please wait a moment and try again.',
+    500: 'An internal server error occurred. Please try again later.',
+    502: 'Server is temporarily unavailable. Please try again later.',
+    503: 'Service is under maintenance. Please try again later.',
+  };
+
+  // Parse field-level / structured errors from response body
+  if (data) {
+    // Shape: { errors: { field: ["msg", ...], ... } }
+    if (data.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)) {
+      const fieldLabels = {
+        name: 'Project name',
+        assigned_user_id: 'Assigned user',
+        client_id: 'Client',
+        cts_number: 'CTS number',
+        address: 'Address',
+        city: 'City',
+        state: 'State',
+        pincode: 'Pincode',
+        start_date: 'Start date',
+        end_date: 'End date',
+        description: 'Description',
+        is_draft: null, // internal field — suppress from user-facing messages
+      };
+
+      const messages = [];
+      Object.entries(data.errors).forEach(([field, msgs]) => {
+        if (field === 'non_field_errors') {
+          // Non-field errors shown as-is
+          const list = Array.isArray(msgs) ? msgs : [msgs];
+          messages.push(...list);
+        } else {
+          const label = field in fieldLabels ? fieldLabels[field] : null;
+          if (label === null) return; // suppress internal/irrelevant fields
+          const displayLabel = label || field.replace(/_/g, ' ');
+          const list = Array.isArray(msgs) ? msgs : [String(msgs)];
+          messages.push(`${displayLabel}: ${list[0]}`);
+        }
+      });
+
+      if (messages.length > 0) {
+        return messages.join(' • ');
+      }
+    }
+
+    // Shape: { detail: "msg" }
+    if (data.detail && typeof data.detail === 'string') {
+      return data.detail;
+    }
+
+    // Shape: { message: "msg" }
+    if (data.message && typeof data.message === 'string') {
+      return data.message;
+    }
+
+    // Shape: { errors: "string" }
+    if (typeof data.errors === 'string') {
+      return data.errors;
+    }
+  }
+
+  // Fall back to HTTP-status message or generic fallback
+  return statusMessages[status] || fallback;
+};
+
+
 const validateProjectData = (data) => {
   const errors = [];
   
@@ -148,7 +244,7 @@ export const getProjects = async (params = {}) => {
 
     return response.data;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to load projects. Please try again.');
     serviceLogger.error('getProjects failed:', errorMessage);
     throw new Error(errorMessage);
   }
@@ -169,13 +265,15 @@ export const getProjectById = async (id) => {
 
     serviceLogger.log(`Fetching project ${id}`);
 
-    const response = await api.get(`${ENDPOINTS.GET_BY_ID}${id}/`);
+    const response = await api.get(ENDPOINTS.GET_BY_ID, {
+      params: { id },
+    });
     
     serviceLogger.log('Project fetched:', response.data);
     
     return response.data;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to load project details. Please try again.');
     serviceLogger.error(`getProjectById(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
   }
@@ -264,8 +362,8 @@ export const createProject = async (projectData) => {
       }
     }
 
-    // is_draft - required by API, defaults to false
-    payload.is_draft = projectData.is_draft === true || projectData.is_draft === 'true';
+    // is_draft - always false; field is required by the API
+    payload.is_draft = false;
 
     serviceLogger.log('Cleaned payload for API:', JSON.stringify(payload, null, 2));
     serviceLogger.log('Payload fields:', Object.keys(payload));
@@ -279,25 +377,12 @@ export const createProject = async (projectData) => {
     return response.data;
     
   } catch (error) {
-    // Enhanced error logging
-    serviceLogger.error('❌ createProject failed');
-    serviceLogger.error('Error type:', error.constructor.name);
-    serviceLogger.error('Error message:', error.message);
-    
+    serviceLogger.error('❌ createProject failed:', error.message);
     if (error.response) {
       serviceLogger.error('API Response Status:', error.response.status);
       serviceLogger.error('API Response Data:', JSON.stringify(error.response.data, null, 2));
-      serviceLogger.error('API Response Headers:', error.response.headers);
     }
-    
-    if (error.request) {
-      serviceLogger.error('Request made but no response received');
-    }
-    
-    const errorMessage = handleApiError(error) || normalizeError(error);
-    serviceLogger.error('Final error message:', errorMessage);
-    
-    throw new Error(errorMessage);
+    throw new Error(parseApiError(error, 'Failed to create project. Please try again.'));
   }
 };
 
@@ -315,23 +400,25 @@ export const updateProject = async (id, projectData) => {
       throw new Error('Project ID is required');
     }
 
-    // Clean the payload - remove empty values
-    const payload = cleanPayload(projectData);
-    
-    // Convert client_id to integer if present
-    if (payload.client_id) {
-      payload.client_id = parseInt(payload.client_id, 10);
-    }
+    const payload = {
+      id: Number(id),
+      name: projectData.name?.trim() || '',
+      cts_number: projectData.cts_number?.trim() || '',
+      address: projectData.address?.trim() || '',
+      city: projectData.city?.trim() || '',
+      state: projectData.state?.trim() || '',
+      pincode: projectData.pincode?.trim() || '',
+    };
 
     serviceLogger.log(`Updating project ${id} with payload:`, JSON.stringify(payload, null, 2));
 
-    const response = await api.patch(`${ENDPOINTS.UPDATE}${id}/`, payload);
+    const response = await api.put(ENDPOINTS.UPDATE, payload);
     
     serviceLogger.log('Project updated successfully:', response.data);
 
     return response.data;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to update project. Please try again.');
     serviceLogger.error(`updateProject(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
   }
@@ -352,14 +439,47 @@ export const deleteProject = async (id) => {
 
     serviceLogger.log(`Deleting project ${id}`);
 
-    const response = await api.delete(`${ENDPOINTS.DELETE}${id}/`);
+    const response = await api.delete(ENDPOINTS.DELETE, {
+      params: { id },
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
     
     serviceLogger.log('Project deleted successfully');
 
     return response.data;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to delete project. Please try again.');
     serviceLogger.error(`deleteProject(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+/**
+ * Restore a deleted project
+ *
+ * @param {number|string} id - Project ID
+ * @returns {Promise<Object>} Restore confirmation
+ * @throws {Error} Normalized error message if ID is missing or request fails
+ */
+export const undoProject = async (id) => {
+  try {
+    if (!id) {
+      throw new Error('Project ID is required');
+    }
+
+    serviceLogger.log(`Restoring project ${id}`);
+
+    const response = await api.delete(ENDPOINTS.UNDO, {
+      params: { id },
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    serviceLogger.log('Project restored successfully');
+
+    return response.data;
+  } catch (error) {
+    const errorMessage = parseApiError(error, 'Failed to restore project. Please try again.');
+    serviceLogger.error(`undoProject(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
   }
 };
@@ -389,7 +509,7 @@ export const getProjectStats = async () => {
 
     return stats;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to load project statistics.');
     serviceLogger.error('getProjectStats failed:', errorMessage);
     throw new Error(errorMessage);
   }
@@ -424,7 +544,7 @@ export const getUsers = async (params = {}) => {
 
     return response.data;
   } catch (error) {
-    const errorMessage = handleApiError(error) || normalizeError(error);
+    const errorMessage = parseApiError(error, 'Failed to load users. Please try again.');
     serviceLogger.error('getUsers failed:', errorMessage);
     throw new Error(errorMessage);
   }
@@ -440,6 +560,7 @@ export default {
   createProject,
   updateProject,
   deleteProject,
+  undoProject,
   getProjectStats,
   getUsers,
 };

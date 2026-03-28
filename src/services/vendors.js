@@ -35,6 +35,7 @@ const ENDPOINTS = {
   CREATE:     '/vendors/create_vendor/',
   UPDATE:     '/vendors/update_vendor/',      // PUT with id in body
   DELETE:     '/vendors/delete_vendor/',      // DELETE /vendors/delete_vendor/?id=
+  SEND_EMAIL: '/notifications/send_email/',
 };
 
 // ============================================================================
@@ -404,6 +405,76 @@ export const assignVendorToProject = async (vendorId, projectId) => {
   }
 };
 
+// ============================================================================
+// SEND VENDOR EMAIL
+// ============================================================================
+
+export const sendVendorEmail = async ({
+  recipientEmail,
+  subject = '',
+  body = '',
+  attachments = [],
+}) => {
+  try {
+    if (!recipientEmail?.trim()) throw new Error('Recipient email is required');
+
+    const formData = new FormData();
+    formData.append('recipients', recipientEmail.trim());
+    formData.append('subject', subject.trim());
+    formData.append('body', body.trim());
+    attachments.forEach((file) => formData.append('attachments', file));
+
+    const response = await api.post(ENDPOINTS.SEND_EMAIL, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    return response.data;
+  } catch (error) {
+    const responseData = error.response?.data;
+    let errorMessage = '';
+
+    if (error.response?.status === 400) {
+      const errors = responseData?.errors && typeof responseData.errors === 'object'
+        ? responseData.errors
+        : responseData && typeof responseData === 'object'
+          ? responseData
+          : {};
+
+      const missingSubject = Array.isArray(errors.subject) && errors.subject.length > 0;
+      const missingBody = Array.isArray(errors.body) && errors.body.length > 0;
+      const missingAttachments = Array.isArray(errors.attachments) && errors.attachments.length > 0;
+      const invalidRecipients = Array.isArray(errors.recipients) && errors.recipients.length > 0;
+
+      const missingParts = [];
+      if (missingSubject) missingParts.push('a subject');
+      if (missingBody) missingParts.push('a message');
+      if (missingAttachments) missingParts.push('at least one attachment');
+
+      const joinNatural = (parts) => {
+        if (parts.length === 0) return '';
+        if (parts.length === 1) return parts[0];
+        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+        return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+      };
+
+      if (invalidRecipients) {
+        errorMessage = 'Please enter a valid recipient email address before sending.';
+      } else if (missingParts.length > 0) {
+        errorMessage = `Please add ${joinNatural(missingParts)} before sending the email.`;
+      } else if (responseData?.message || responseData?.detail) {
+        errorMessage = responseData.message || responseData.detail;
+      } else {
+        errorMessage = 'Please check the email details and try again.';
+      }
+    } else {
+      errorMessage = normalizeError(error);
+    }
+
+    console.error('[Vendors Service] sendVendorEmail failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 export default {
   getVendors,
   getVendorById,
@@ -414,6 +485,7 @@ export default {
   getVendorProjects,
   assignVendorToProject,
   unassignVendorFromProject,
+  sendVendorEmail,
 };
 
 // ============================================================================
