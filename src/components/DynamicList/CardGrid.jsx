@@ -14,6 +14,7 @@ const CardGrid = ({
   columns = { sm: 1, md: 2, lg: 3 },
   gap = 6,
   onCardClick,
+  actionHandlers = {},
 }) => {
   const handleCardClick = (item) => {
     if (onCardClick && typeof onCardClick === 'function') {
@@ -44,7 +45,7 @@ const CardGrid = ({
       return null;
     }
 
-    return <CardComponent project={item} />;
+    return <CardComponent project={item} actionHandlers={actionHandlers} />;
   };
 
   const validData = data.filter(item => item != null);
@@ -55,9 +56,9 @@ const CardGrid = ({
 
   return (
     <div
-      className={`grid ${getGridClasses()} gap-${gap} items-start`}
+      className={`grid ${getGridClasses()} gap-${gap}`}
       style={{
-        alignItems: 'start',
+        alignItems: 'stretch',
       }}
     >
       {validData.map((item, index) => (
@@ -65,13 +66,11 @@ const CardGrid = ({
           key={item.id || `card-${index}`}
           onClick={() => handleCardClick(item)}
           className={`
+            flex flex-col
             transform-gpu
             transition-all duration-200
             ${onCardClick ? 'cursor-pointer' : ''}
           `}
-          style={{
-            minHeight: 'fit-content',
-          }}
         >
           {renderSingleCard(item, index)}
         </div>

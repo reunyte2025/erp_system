@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -14,15 +14,15 @@ import {
   AlertCircle,
   CheckCircle,
   ArrowLeft,
-  MoreVertical,
-  BarChart2,
   Settings,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Send,
+  Paperclip,
 } from "lucide-react";
-import { getVendorById, updateVendor, assignVendorToProject, getVendorProjects, unassignVendorFromProject } from "../../services/vendors";
+import { getVendorById, updateVendor, assignVendorToProject, getVendorProjects, unassignVendorFromProject, sendVendorEmail } from "../../services/vendors";
 import { getProjects } from "../../services/projects";
 import { VENDOR_CATEGORIES, VENDOR_CATEGORY_OPTIONS, VENDOR_STATUS_DISPLAY } from "./vendors.config";
 
@@ -170,6 +170,168 @@ const PaginationBar = ({ currentPage, totalPages, totalItems, pageSize, onPrev, 
   );
 };
 
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+const SendVendorEmailModal = ({ vendor, onClose }) => {
+  const defaultEmail = vendor?.email || "";
+
+  const [email, setEmail] = useState(defaultEmail);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  const totalAttachmentSize = attachments.reduce((sum, file) => sum + (file.size || 0), 0);
+  const remainingBytes = MAX_ATTACHMENT_BYTES - totalAttachmentSize;
+
+  const fmtSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleAddFiles = (e) => {
+    const newFiles = Array.from(e.target.files || []);
+    if (!newFiles.length) return;
+
+    const combined = [...attachments, ...newFiles];
+    const totalSize = combined.reduce((sum, file) => sum + (file.size || 0), 0);
+
+    if (totalSize > MAX_ATTACHMENT_BYTES) {
+      setError("Adding these files would exceed the 25 MB attachment limit.");
+      return;
+    }
+
+    setAttachments(combined);
+    setError("");
+    e.target.value = "";
+  };
+
+  const removeAttachment = (idx) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSend = async () => {
+    if (!email.trim()) {
+      setError("Recipient email is required.");
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(email.trim())) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    setError("");
+    setSending(true);
+    try {
+      await sendVendorEmail({
+        recipientEmail: email.trim(),
+        subject: subject.trim(),
+        body: body.trim(),
+        attachments,
+      });
+      setSent(true);
+    } catch (e) {
+      setError(e.message || "Failed to send email. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
+      <style>{`
+        @keyframes vqd_spin{to{transform:rotate(360deg)}}
+        @keyframes vqd_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+      `}</style>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.22)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vqd_in .25s ease' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Mail size={17} color="#fff" />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Send Email</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{vendor?.name || 'Vendor'}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+            <X size={15} />
+          </button>
+        </div>
+
+        {sent ? (
+          <div style={{ padding: '40px 24px', textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+              <CheckCircle size={28} color="#059669" />
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
+            <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
+              Email has been sent to<br /><strong>{email}</strong>
+            </div>
+            <button onClick={onClose} style={{ marginTop: 22, padding: '9px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+          </div>
+        ) : (
+          <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Recipient Email *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vendor@example.com" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Subject</label>
+              <input type="text" value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Message</label>
+              <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em' }}>Additional Attachments</label>
+                <span style={{ fontSize: 10, color: '#94a3b8' }}>~{fmtSize(Math.max(0, remainingBytes))} remaining</span>
+              </div>
+              {attachments.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
+                  {attachments.map((file, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', border: '1px solid #cbd5e1' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <Paperclip size={12} color="#64748b" />
+                        <span style={{ fontSize: 12, color: '#334155', fontWeight: 500 }}>{file.name}</span>
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>({fmtSize(file.size)})</span>
+                      </div>
+                      <button onClick={() => removeAttachment(i)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}><X size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1.5px dashed #94a3b8', background: '#f8fafc', color: '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
+                <Paperclip size={13} /> Add Attachment
+              </button>
+              <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
+              <p style={{ fontSize: 10, color: '#94a3b8', margin: '5px 0 0', textAlign: 'center' }}>Max total size: 25 MB</p>
+            </div>
+            {error && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 9, padding: '9px 12px' }}>
+                <AlertCircle size={14} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: '#dc2626', lineHeight: 1.5 }}>{error}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 9, marginTop: 2 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: 10, borderRadius: 10, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: 10, borderRadius: 10, background: sending ? '#94a3b8' : '#0f766e', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                {sending ? <><Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ============================================================================
 // STATUS BADGE
 // ============================================================================
@@ -195,6 +357,12 @@ const StatusBadge = ({ status }) => {
     </span>
   );
 };
+
+const VENDOR_STATUS_OPTIONS = [
+  { value: 1, label: "Active", description: "Available for regular work" },
+  { value: 2, label: "Inactive", description: "Temporarily not in use" },
+  { value: 3, label: "Blacklisted", description: "Blocked from future assignments" },
+];
 
 // ============================================================================
 // MULTI-SELECT DROPDOWN (for category picker in edit drawer)
@@ -349,7 +517,7 @@ export default function VendorProfile() {
   // UI State
   const [isEditVendorOpen, setIsEditVendorOpen] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-  const [attachmentSearchTerm, setAttachmentSearchTerm] = useState("");
+  const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
 
   // Edit form state
   const [editFormData, setEditFormData] = useState({
@@ -369,9 +537,6 @@ export default function VendorProfile() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [editFormError, setEditFormError] = useState("");
-
-  // Placeholder attachments (UI-only for now)
-  const [attachments] = useState(["GST Certificate", "PAN Card", "Trade License"]);
 
   // Projects state
   const [assignedProjects, setAssignedProjects] = useState([]);
@@ -725,12 +890,15 @@ export default function VendorProfile() {
 
   const fullAddress = [address, city, state, pincode].filter(Boolean).join(", ") || address;
 
-  const filteredAttachments = attachments.filter((a) =>
-    a.toLowerCase().includes(attachmentSearchTerm.toLowerCase())
-  );
-
   const createdDate = vendor.created_at
     ? new Date(vendor.created_at).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "N/A";
+  const updatedDate = vendor.updated_at
+    ? new Date(vendor.updated_at).toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
@@ -781,16 +949,31 @@ export default function VendorProfile() {
 
           {/* Vendor Information Card */}
           <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-1 h-5 bg-teal-600 rounded-full" />
-              <h2 className="text-lg font-bold text-gray-800">Vendor Information</h2>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-1 h-5 bg-teal-600 rounded-full" />
+                <h2 className="text-lg font-bold text-gray-800">Vendor Information</h2>
+              </div>
+              <button
+                onClick={handleEditVendor}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 flex-shrink-0"
+                title="Edit vendor"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-teal-600">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </span>
+                <span>Edit</span>
+              </button>
             </div>
 
             <div className="space-y-0 divide-y divide-gray-100">
               {/* Contact Person */}
               <div className="flex items-center gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <Building2 className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Contact Person</p>
@@ -800,8 +983,8 @@ export default function VendorProfile() {
 
               {/* Email */}
               <div className="flex items-center gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <Mail className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <Mail className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Email</p>
@@ -811,8 +994,8 @@ export default function VendorProfile() {
 
               {/* Phone */}
               <div className="flex items-center gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <Phone className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <Phone className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Phone Number</p>
@@ -822,8 +1005,8 @@ export default function VendorProfile() {
 
               {/* Address */}
               <div className="flex items-start gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <MapPin className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <MapPin className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Address</p>
@@ -834,8 +1017,8 @@ export default function VendorProfile() {
               {/* Website */}
               {website && (
                 <div className="flex items-center gap-3 py-3">
-                  <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                    <Globe className="w-4 h-4 text-teal-600" />
+                  <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                    <Globe className="w-4 h-4 text-teal-700" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Website</p>
@@ -853,8 +1036,8 @@ export default function VendorProfile() {
 
               {/* GST Number */}
               <div className="flex items-center gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">GST Number</p>
@@ -862,121 +1045,67 @@ export default function VendorProfile() {
                 </div>
               </div>
 
+              {/* Categories */}
+              <div className="flex items-start gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Settings className="w-4 h-4 text-teal-700" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Categories</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {categoryDisplay !== "N/A"
+                      ? categoryDisplay.split(",").map((cat, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center px-2.5 py-1 rounded-full bg-teal-100 text-teal-700 text-xs font-semibold"
+                          >
+                            {cat.trim()}
+                          </span>
+                        ))
+                      : <span className="text-sm text-gray-400">No categories assigned</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
               {/* Member Since */}
               <div className="flex items-center gap-3 py-3">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <Settings className="w-4 h-4 text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <Settings className="w-4 h-4 text-teal-700" />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Member Since</p>
                   <p className="text-sm text-gray-800 font-semibold">{createdDate}</p>
                 </div>
               </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 mt-4 pt-4 border-t-2 border-gray-200">
-              <button
-                onClick={() => window.location.href = `mailto:${email}`}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
-              >
-                <Mail className="w-4 h-4" />
-                Send Email
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-1.5 py-2 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition-colors">
-                <BarChart2 className="w-4 h-4" />
-                Analytics
-              </button>
-              <button
-                onClick={handleEditVendor}
-                className="p-2 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
-                title="Edit Vendor"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Attachments Card */}
-          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-5 bg-teal-600 rounded-full" />
-                <h2 className="text-lg font-bold text-gray-800">Attachments</h2>
-                {attachments.length > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-600 text-white text-xs font-bold">
-                    {attachments.length}
-                  </span>
-                )}
-              </div>
-              <button className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors">
-                <Plus className="w-3 h-3" />
-                Add
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search attachments..."
-                value={attachmentSearchTerm}
-                onChange={(e) => setAttachmentSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 text-sm transition-all"
-              />
-            </div>
-
-            {/* File List */}
-            {(() => {
-              const getFileStyle = (name) => {
-                const ext = name.toLowerCase();
-                if (ext.includes("gst"))    return { bg: "bg-green-100",  icon: "text-green-600",  label: "GST" };
-                if (ext.includes("pan"))    return { bg: "bg-blue-100",   icon: "text-blue-600",   label: "DOC" };
-                if (ext.includes("trade"))  return { bg: "bg-orange-100", icon: "text-orange-600", label: "LIC" };
-                if (ext.includes("bank"))   return { bg: "bg-purple-100", icon: "text-purple-600", label: "BANK" };
-                return                             { bg: "bg-gray-100",   icon: "text-gray-500",   label: "FILE" };
-              };
-
-              return (
-                <div className="space-y-2">
-                  {filteredAttachments.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
-                        <FileText className="w-6 h-6 text-gray-300" />
-                      </div>
-                      <p className="text-sm font-medium text-gray-500">No attachments found</p>
-                      <p className="text-xs text-gray-400 mt-1">Upload documents for this vendor</p>
-                    </div>
-                  ) : (
-                    filteredAttachments.map((attachment, index) => {
-                      const style = getFileStyle(attachment);
-                      return (
-                        <div
-                          key={index}
-                          className="group flex items-center gap-3 p-3 rounded-xl border-2 border-gray-100 hover:border-teal-300 hover:bg-teal-50/20 transition-all duration-150 cursor-pointer"
-                        >
-                          <div className={`w-10 h-10 rounded-xl ${style.bg} flex items-center justify-center flex-shrink-0`}>
-                            <FileText className={`w-5 h-5 ${style.icon}`} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-800 font-semibold truncate">{attachment}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">{style.label} Document</p>
-                          </div>
-                          <button className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all duration-150 flex-shrink-0">
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
+              {/* Last Updated */}
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-200 flex items-center justify-center flex-shrink-0">
+                  <Settings className="w-4 h-4 text-teal-700" />
                 </div>
-              );
-            })()}
+                <div className="flex-1">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Last Updated</p>
+                  <p className="text-sm text-gray-800 font-semibold">{updatedDate}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <button
+                onClick={() => setIsSendEmailOpen(true)}
+                className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-600/25 transition-colors hover:bg-teal-700 active:bg-teal-800"
+                title="Send email"
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-2xl bg-white/15 text-white">
+                  <Mail className="w-3.5 h-3.5" />
+                </span>
+                <span>Send Email</span>
+              </button>
+            </div>
+
           </div>
+
         </div>
 
         {/* ==================================================================
@@ -1002,64 +1131,6 @@ export default function VendorProfile() {
               bgColor="bg-pink-500"
               iconBg="bg-white/20"
             />
-          </div>
-
-          {/* Vendor Details Card */}
-          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-1 h-5 bg-teal-600 rounded-full" />
-              <h2 className="text-lg font-bold text-gray-800">Vendor Details</h2>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Vendor ID */}
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Vendor ID</p>
-                <p className="text-sm font-semibold text-gray-800">#{vendor.id}</p>
-              </div>
-
-              {/* Status */}
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Status</p>
-                <StatusBadge status={status} />
-              </div>
-
-              {/* Category */}
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-100 sm:col-span-2">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Categories</p>
-                <div className="flex flex-wrap gap-2">
-                  {categoryDisplay && categoryDisplay !== "N/A"
-                    ? categoryDisplay.split(",").map((cat, i) => (
-                        <span
-                          key={i}
-                          className="inline-flex items-center px-2.5 py-1 rounded-full bg-teal-100 text-teal-700 text-xs font-semibold"
-                        >
-                          {cat.trim()}
-                        </span>
-                      ))
-                    : <span className="text-sm text-gray-400">No categories assigned</span>
-                  }
-                </div>
-              </div>
-
-              {/* Created Date */}
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Created On</p>
-                <p className="text-sm font-semibold text-gray-800">{createdDate}</p>
-              </div>
-
-              {/* Updated Date */}
-              <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Last Updated</p>
-                <p className="text-sm font-semibold text-gray-800">
-                  {vendor.updated_at
-                    ? new Date(vendor.updated_at).toLocaleDateString("en-GB", {
-                        day: "2-digit", month: "short", year: "numeric",
-                      })
-                    : "N/A"}
-                </p>
-              </div>
-            </div>
           </div>
 
           {/* Projects Section */}
@@ -1715,16 +1786,54 @@ export default function VendorProfile() {
 
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">Status</label>
-                      <select
-                        value={editFormData.status}
-                        onChange={(e) => handleEditFormChange("status", Number(e.target.value))}
-                        disabled={isSaving}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all text-sm"
-                      >
-                        <option value={1}>Active</option>
-                        <option value={2}>Inactive</option>
-                        <option value={3}>Blacklisted</option>
-                      </select>
+                      <div className="grid grid-cols-1 gap-2">
+                        {VENDOR_STATUS_OPTIONS.map((option) => {
+                          const isSelected = Number(editFormData.status) === option.value;
+                          const cfg = getStatusBadgeConfig(option.value);
+
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => handleEditFormChange("status", option.value)}
+                              disabled={isSaving}
+                              className={`w-full text-left rounded-xl border px-3.5 py-3 transition-all duration-150 ${
+                                isSelected
+                                  ? "border-teal-500 bg-teal-50 shadow-sm shadow-teal-500/10"
+                                  : "border-gray-200 bg-white hover:border-teal-300 hover:bg-gray-50"
+                              } disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className={`text-sm font-semibold ${isSelected ? "text-teal-800" : "text-gray-800"}`}>
+                                    {option.label}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-0.5">{option.description}</p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${cfg.bg} ${cfg.textColor} text-xs font-semibold whitespace-nowrap`}
+                                  >
+                                    <span className={`w-2 h-2 rounded-full ${cfg.dot} flex-shrink-0`} />
+                                    {option.label}
+                                  </span>
+                                  <span
+                                    className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                      isSelected
+                                        ? "border-teal-600 bg-teal-600 text-white"
+                                        : "border-gray-300 bg-white text-transparent"
+                                    }`}
+                                  >
+                                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4A1 1 0 014.704 9.29L8 12.586l7.296-7.296a1 1 0 011.408 0z" clipRule="evenodd" />
+                                    </svg>
+                                  </span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1813,6 +1922,13 @@ export default function VendorProfile() {
             <p className="text-base sm:text-lg font-medium text-gray-700 mb-0">Vendor details updated</p>
           </div>
         </div>
+      )}
+
+      {isSendEmailOpen && (
+        <SendVendorEmailModal
+          vendor={vendor}
+          onClose={() => setIsSendEmailOpen(false)}
+        />
       )}
 
       {/* Animations */}

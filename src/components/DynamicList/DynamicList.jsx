@@ -37,6 +37,7 @@ const DynamicList = ({
   showFilter = false,
   statsCards = null,
   actionHandlers = {},
+  noBorder = false,
 }) => {
   if (!config) {
     return (
@@ -98,6 +99,7 @@ const DynamicList = ({
           columns={config.gridColumns || { sm: 1, md: 2, lg: 3 }}
           gap={config.gridGap || 6}
           onCardClick={onRowClick}
+          actionHandlers={actionHandlers}
         />
       );
     } else {
@@ -124,8 +126,8 @@ const DynamicList = ({
         </div>
       )}
 
-      {/* Main Content Container - Dark border for visibility */}
-      <div className="bg-white rounded-2xl shadow-sm border-2 border-gray-400 overflow-hidden">
+      {/* Main Content Container */}
+      <div className={`bg-white rounded-2xl shadow-sm overflow-hidden ${noBorder ? 'border-0 shadow-none rounded-none' : 'border-2 border-gray-400'}`}>
         <ListHeader
           title={config.title}
           icon={config.icon}

@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   FileText, FileEdit, Receipt, Briefcase, Users, Award, BarChart3,
   Settings, ChevronLeft, ChevronRight, UserCircle, Tag, Store,
-  Home, Layout
+  Home, Layout, ClipboardCheck
 } from 'lucide-react';
 
 export default function Sidebar({ activeItem, onCollapseChange, isMobileMenuOpen, setIsMobileMenuOpen, isAdminOrManager }) {
@@ -13,6 +13,28 @@ export default function Sidebar({ activeItem, onCollapseChange, isMobileMenuOpen
   const [activeIndicatorPos, setActiveIndicatorPos] = useState({ height: 0, top: 0 });
   const buttonRefs = useRef({});
   const location = useLocation();
+
+  // ✅ Wrapped in useCallback so it can be safely listed as a useEffect dependency
+  const getActiveItemId = useCallback(() => {
+    if (activeItem) return activeItem;
+    const path = location.pathname;
+    const pathMap = {
+      Clients:      '/clients',
+      Projects:     '/projects',
+      Quotations:   '/quotations',
+      Proforma:     '/proforma',
+      Invoices:     '/invoices',
+      Vendors:      '/vendors',
+      Purchase:     '/purchase',
+      NOC:          '/noc',
+      // Employees:    '/employees',
+      // Certificates: '/certificates',
+      // Reports:      '/reports',
+      // Settings:     '/settings',
+      Users:        '/users',
+    };
+    return Object.entries(pathMap).find(([, p]) => path.startsWith(p))?.[0] || null;
+  }, [activeItem, location.pathname]);
 
   useEffect(() => {
     if (onCollapseChange) {
@@ -34,21 +56,22 @@ export default function Sidebar({ activeItem, onCollapseChange, isMobileMenuOpen
         });
       }
     }
-  }, [activeItem, isCollapsed, location.pathname]);
+  }, [activeItem, isCollapsed, location.pathname, getActiveItemId]);
 
   const allMenuItems = [
-    { id: 'Clients',      label: 'Clients',      icon: UserCircle, path: '/clients' },
-    { id: 'Projects',     label: 'Projects',     icon: Briefcase,  path: '/projects' },
-    { id: 'Quotations',   label: 'Quotations',   icon: FileText,   path: '/quotations' },
-    { id: 'Proforma',     label: 'Proforma',     icon: FileEdit,   path: '/proforma' },
-    { id: 'Invoices',     label: 'Invoices',     icon: Receipt,    path: '/invoices' },
-    { id: 'Vendors',      label: 'Vendors',      icon: Store,      path: '/vendors' },
-    { id: 'Purchase',     label: 'Purchase',     icon: Tag,        path: '/purchase' },
-    { id: 'Employees',    label: 'Employees',    icon: Users,      path: '/employees' },
-    { id: 'Certificates', label: 'Certificates', icon: Award,      path: '/certificates' },
-    { id: 'Reports',      label: 'Reports',      icon: BarChart3,  path: '/reports' },
-    { id: 'Settings',     label: 'Settings',     icon: Settings,   path: '/settings' },
-    { id: 'Users',        label: 'Users',        icon: UserCircle, path: '/users', adminOnly: true },
+    { id: 'Clients',      label: 'Clients',      icon: UserCircle,     path: '/clients' },
+    { id: 'Projects',     label: 'Projects',     icon: Briefcase,      path: '/projects' },
+    { id: 'Quotations',   label: 'Quotations',   icon: FileText,       path: '/quotations' },
+    { id: 'Proforma',     label: 'Proforma',     icon: FileEdit,       path: '/proforma' },
+    { id: 'Invoices',     label: 'Invoices',     icon: Receipt,        path: '/invoices' },
+    { id: 'Vendors',      label: 'Vendors',      icon: Store,          path: '/vendors' },
+    { id: 'Purchase',     label: 'Purchase',     icon: Tag,            path: '/purchase' },
+    { id: 'NOC',          label: 'NOC',          icon: ClipboardCheck, path: '/noc' },
+    // { id: 'Employees',    label: 'Employees',    icon: Users,          path: '/employees' },
+    // { id: 'Certificates', label: 'Certificates', icon: Award,          path: '/certificates' },
+    // { id: 'Reports',      label: 'Reports',      icon: BarChart3,      path: '/reports' },
+    // { id: 'Settings',     label: 'Settings',     icon: Settings,       path: '/settings' },
+    { id: 'Users',        label: 'Users',        icon: UserCircle,     path: '/users', adminOnly: true },
   ];
 
   // Users tab is only visible to Admin and Manager
@@ -62,26 +85,6 @@ export default function Sidebar({ activeItem, onCollapseChange, isMobileMenuOpen
 
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed);
-  };
-
-  const getActiveItemId = () => {
-    if (activeItem) return activeItem;
-    const path = location.pathname;
-    const pathMap = {
-      Clients:      '/clients',
-      Projects:     '/projects',
-      Quotations:   '/quotations',
-      Proforma:     '/proforma',
-      Invoices:     '/invoices',
-      Vendors:      '/vendors',
-      Purchase:     '/purchase',
-      Employees:    '/employees',
-      Certificates: '/certificates',
-      Reports:      '/reports',
-      Settings:     '/settings',
-      Users:        '/users',
-    };
-    return Object.entries(pathMap).find(([, p]) => path.startsWith(p))?.[0] || null;
   };
 
   const handleMouseEnter = (itemId) => {

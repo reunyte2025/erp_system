@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  FolderKanban, Plus, CheckCircle, X, Loader2,
-  Building2, MapPin, Hash, FileText, Users, User, Mail, Send, 
-  FileCheck, PlayCircle, Clock, Calendar, Filter as FilterIcon
+  FolderKanban, CheckCircle, X, Loader2, AlertCircle,
+  Building2, MapPin, Hash, Users, User, Send, Calendar, Filter as FilterIcon,
+  TrendingUp, PowerOff
 } from 'lucide-react';
 
 // Import service layer
-import { getProjects, createProject, getUsers } from '../../services/projects';
+import { getProjects, createProject, getUsers, deleteProject, undoProject } from '../../services/projects';
 import { getClients } from '../../services/clients';
 
 // Import configuration
@@ -32,98 +33,124 @@ import DynamicList from '../../components/DynamicList/DynamicList';
 
 const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
   <div className={`${bgColor} rounded-2xl p-5 shadow-sm`}>
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3">
-        <div className="bg-white/20 rounded-full p-2.5">
-          {icon}
-        </div>
-        <div>
-          <h3 className="text-2xl font-bold text-white mb-1">{count}</h3>
-          <p className="text-white/90 font-medium text-sm">{label}</p>
-          {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
-        </div>
+    <div className="flex items-start gap-3">
+      <div className="bg-white/20 rounded-full p-2.5">
+        {icon}
       </div>
-      <button className="text-white/80 hover:text-white">
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-        </svg>
-      </button>
+      <div>
+        <h3 className="text-2xl font-bold text-white mb-1">{count}</h3>
+        <p className="text-white/90 font-medium text-sm">{label}</p>
+        {subLabel && <p className="text-white/70 text-xs mt-1">{subLabel}</p>}
+      </div>
     </div>
   </div>
 );
+
+const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, projectName, isLoading }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={!isLoading ? onClose : undefined}
+      />
+      <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center animate-scaleIn pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-1">Delete Project?</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            <span className="font-semibold text-gray-700">{projectName}</span> will be marked as deleted.
+            You can restore it later using Undo.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white hover:bg-red-600 active:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isLoading ? 'Deleting...' : 'Yes, Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ActionToast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 left-1/2 z-[99999] animate-slideUp" style={{ transform: 'translateX(-50%)' }}>
+      <div
+        className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold ${
+          type === 'success' ? 'bg-teal-600' : 'bg-red-500'
+        }`}
+      >
+        <span>{message}</span>
+        <button onClick={onClose} className="ml-1 opacity-70 hover:opacity-100 transition-opacity">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // SUCCESS MODAL COMPONENT
 // ============================================================================
 
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
-  useEffect(() => {
-    if (isOpen) {
-      
-      
-      
-      
-      
-    } else {
-      
-      
-      
-      
-      
-      if (scrollY) {
-        window.scrollTo(0, parseInt(scrollY || '0') * -1);
-      }
-    }
-    return () => {
-      
-      
-      
-      
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
-    >
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ 
-          width: '100vw', 
-          height: '100vh', 
-          top: 0, 
-          left: 0, 
-          position: 'fixed',
-          overflow: 'hidden'
-        }}
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      
       <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
-        <div 
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn"
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mb-6 flex justify-center">
-            <div className="w-20 h-20 bg-teal-100 rounded-full flex items-center justify-center animate-bounce">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center bg-teal-100">
               <CheckCircle className="w-12 h-12 text-teal-600" />
             </div>
           </div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">Successfully</h3>
+          <h3 className="text-2xl font-bold mb-2 text-gray-800">Successfully</h3>
           <p className="text-xl font-semibold text-gray-800 mb-8">Created Project</p>
           <div className="space-y-3">
             <button
               onClick={onProceed}
-              className="w-full px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium transform hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full px-6 py-3 text-white rounded-lg transition-all duration-200 font-medium bg-teal-500 hover:bg-teal-600"
             >
               Proceed To Project
             </button>
             <button
               onClick={onClose}
-              className="w-full px-6 py-3 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium transform hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full px-6 py-3 bg-white rounded-lg transition-all duration-200 font-medium text-gray-600 border border-gray-300 hover:bg-gray-50"
             >
               Skip
             </button>
@@ -144,7 +171,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
     dateTo: '',
     projectName: '',
     location: '',
-    surveyNumber: '',
+    ctsNumber: '',
   });
 
   // Sync with parent whenever modal opens
@@ -169,7 +196,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   };
 
   const handleClear = () => {
-    setFilters({ dateFrom: '', dateTo: '', projectName: '', location: '', surveyNumber: '' });
+    setFilters({ dateFrom: '', dateTo: '', projectName: '', location: '', ctsNumber: '' });
   };
 
   const handleApply = () => {
@@ -180,18 +207,15 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] animate-fadeIn"
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed', overflow: 'hidden' }}
-    >
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        style={{ width: '100vw', height: '100vh', top: 0, left: 0, position: 'fixed', overflow: 'hidden' }}
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
         onClick={onClose}
       />
-      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4" style={{ height: '100vh' }}>
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden"
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -261,17 +285,17 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
               </div>
             </div>
 
-            {/* Survey Number */}
+            {/* CTS Number */}
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">Survey Number</label>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">CTS Number</label>
               <div className="relative">
                 <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  name="surveyNumber"
-                  value={filters.surveyNumber}
+                  name="ctsNumber"
+                  value={filters.ctsNumber}
                   onChange={handleInputChange}
-                  placeholder="Enter survey number"
+                  placeholder="Enter CTS number"
                   className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                 />
               </div>
@@ -314,7 +338,17 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
 // CLIENT DROPDOWN COMPONENT (reused from quotationsList pattern)
 // ============================================================================
 
-const ClientDropdown = ({ value, onChange, disabled }) => {
+const getClientDisplayName = (client) => {
+  if (!client) return '';
+  return (
+    `${client.first_name || ''} ${client.last_name || ''}`.trim() ||
+    client.name ||
+    client.full_name ||
+    (client.id ? `Client #${client.id}` : '')
+  );
+};
+
+const ClientDropdown = ({ value, onChange, disabled, initialOption = null }) => {
   const [clients, setClients] = useState([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -325,6 +359,23 @@ const ClientDropdown = ({ value, onChange, disabled }) => {
   useEffect(() => {
     fetchClientList();
   }, []);
+
+  useEffect(() => {
+    if (!value) {
+      setSelectedClient(initialOption || null);
+      return;
+    }
+
+    const matchedClient = clients.find((client) => String(client.id) === String(value));
+    if (matchedClient) {
+      setSelectedClient(matchedClient);
+      return;
+    }
+
+    if (initialOption) {
+      setSelectedClient(initialOption);
+    }
+  }, [value, clients, initialOption]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -389,7 +440,7 @@ const ClientDropdown = ({ value, onChange, disabled }) => {
               <User className="w-4 h-4 text-teal-600" />
             </div>
             <span className="text-sm text-gray-800 truncate">
-              {selectedClient.first_name} {selectedClient.last_name}
+              {getClientDisplayName(selectedClient)}
             </span>
 
           </div>
@@ -450,7 +501,7 @@ const ClientDropdown = ({ value, onChange, disabled }) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-800 truncate">
-                      {client.first_name} {client.last_name}
+                      {getClientDisplayName(client)}
                     </div>
                     <div className="text-xs text-gray-500 truncate">{client.email}</div>
                   </div>
@@ -471,7 +522,18 @@ const ClientDropdown = ({ value, onChange, disabled }) => {
 // USER DROPDOWN COMPONENT
 // ============================================================================
 
-const UserDropdown = ({ value, onChange, disabled }) => {
+const getUserDisplayName = (user) => {
+  if (!user) return '';
+  return (
+    `${user.first_name || ''} ${user.last_name || ''}`.trim() ||
+    user.name ||
+    user.full_name ||
+    user.username ||
+    (user.id ? `User #${user.id}` : '')
+  );
+};
+
+const UserDropdown = ({ value, onChange, disabled, initialOption = null }) => {
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -482,6 +544,23 @@ const UserDropdown = ({ value, onChange, disabled }) => {
   useEffect(() => {
     fetchUserList();
   }, []);
+
+  useEffect(() => {
+    if (!value) {
+      setSelectedUser(initialOption || null);
+      return;
+    }
+
+    const matchedUser = users.find((user) => String(user.id) === String(value));
+    if (matchedUser) {
+      setSelectedUser(matchedUser);
+      return;
+    }
+
+    if (initialOption) {
+      setSelectedUser(initialOption);
+    }
+  }, [value, users, initialOption]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -544,7 +623,7 @@ const UserDropdown = ({ value, onChange, disabled }) => {
               <User className="w-4 h-4 text-teal-600" />
             </div>
             <span className="text-sm text-gray-800 truncate">
-              {selectedUser.first_name} {selectedUser.last_name || selectedUser.username}
+              {getUserDisplayName(selectedUser)}
             </span>
           </div>
         ) : (
@@ -601,7 +680,7 @@ const UserDropdown = ({ value, onChange, disabled }) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-800 truncate">
-                      {user.first_name} {user.last_name || user.username}
+                      {getUserDisplayName(user)}
                     </div>
                     <div className="text-xs text-gray-500 truncate">{user.email}</div>
                   </div>
@@ -622,9 +701,11 @@ const UserDropdown = ({ value, onChange, disabled }) => {
 // CREATE PROJECT MODAL COMPONENT
 // ============================================================================
 
-const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
+const CreateProjectModal = ({ isOpen, onClose, onSuccess, initialData = null }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [initialClientOption, setInitialClientOption] = useState(null);
+  const [initialUserOption, setInitialUserOption] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     client_id: '',
@@ -642,27 +723,11 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (isOpen) {
-      
-      
-      
-      
-      
-    } else {
-      
-      
-      
-      
-      
-      if (scrollY) {
-        window.scrollTo(0, parseInt(scrollY || '0') * -1);
-      }
+      setInitialClientOption(null);
+      setInitialUserOption(null);
+      resetForm();
     }
-    return () => {
-      
-      
-      
-      
-    };
+    setError('');
   }, [isOpen]);
 
   const handleInputChange = useCallback((e) => {
@@ -670,6 +735,38 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
     if (error) setError('');
   }, [error]);
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      client_id: '',
+      assigned_user_id: '',
+      cts_number: '',
+      address: '',
+      city: '',
+      state: '',
+      pincode: '',
+      start_date: '',
+      end_date: '',
+      description: '',
+      is_draft: false,
+    });
+  };
+
+  const buildPayload = () => ({
+    name: formData.name.trim(),
+    client_id: formData.client_id,
+    assigned_user_id: formData.assigned_user_id,
+    cts_number: formData.cts_number.trim(),
+    address: formData.address.trim(),
+    city: formData.city.trim(),
+    state: formData.state.trim(),
+    pincode: formData.pincode.trim(),
+    start_date: formData.start_date,
+    end_date: formData.end_date,
+    description: formData.description.trim(),
+    is_draft: false,
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -688,35 +785,17 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
     setSubmitting(true);
 
     try {
-      // Use service layer function instead of direct API call
-      const response = await createProject(formData);
+      const payload = buildPayload();
+      const response = await createProject(payload);
       
-      console.log('✅ Project created successfully:', response);
+      console.log('Project created successfully:', response);
       
-      // Reset form
-      setFormData({
-        name: '',
-        client_id: '',
-        assigned_user_id: '',
-        cts_number: '',
-        address: '',
-        city: '',
-        state: '',
-        pincode: '',
-        start_date: '',
-        end_date: '',
-        description: '',
-        is_draft: false,
-      });
-
-      // Call success callback
-      if (onSuccess) {
-        onSuccess(response);
-      }
+      resetForm();
+      onSuccess?.(response);
 
     } catch (err) {
-      console.error('❌ Error creating project:', err);
-      setError(err.message || 'Failed to create project');
+      console.error('Project save failed:', err);
+      setError(err.message || 'Failed to save project');
     } finally {
       setSubmitting(false);
     }
@@ -734,12 +813,12 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
 
       <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
         <div
-          className="relative w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto"
-          style={{ borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+          className="relative w-full max-w-[540px] overflow-hidden animate-scaleIn pointer-events-auto flex flex-col"
+          style={{ borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: 'calc(100vh - 56px)' }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* ── Header ── */}
-          <div className="bg-teal-700 px-6 py-5">
+          <div className="bg-teal-700 px-5 py-4 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
@@ -747,7 +826,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                 </div>
                 <div>
                   <p className="text-white font-semibold text-base leading-tight">Create New Project</p>
-                  <p className="text-teal-200 text-xs mt-0.5">Fill in the project details</p>
+                  <p className="text-xs mt-0.5 text-teal-200">Fill in the project details</p>
                 </div>
               </div>
               <button
@@ -761,15 +840,16 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
           </div>
 
           {/* ── Body ── */}
-          <form onSubmit={handleSubmit}>
-            <div className="bg-white p-5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+          <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+            <div className="bg-white px-5 py-4 overflow-y-auto min-h-0 flex-1">
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-slideDown">
-                  {error}
+                <div className="mb-4 flex items-start gap-2.5 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-slideDown">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>{error}</span>
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {/* Project Name */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
@@ -782,7 +862,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                     value={formData.name}
                     onChange={handleInputChange}
                     placeholder="Enter project name"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                     required
                     disabled={submitting}
                   />
@@ -796,6 +876,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                   </label>
                   <ClientDropdown
                     value={formData.client_id}
+                    initialOption={initialClientOption}
                     onChange={(clientId) => {
                       setFormData(prev => ({ ...prev, client_id: clientId }));
                       if (error) setError('');
@@ -812,39 +893,13 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                   </label>
                   <UserDropdown
                     value={formData.assigned_user_id}
+                    initialOption={initialUserOption}
                     onChange={(userId) => {
                       setFormData(prev => ({ ...prev, assigned_user_id: userId }));
                       if (error) setError('');
                     }}
                     disabled={submitting}
                   />
-                </div>
-
-                {/* Is Draft Toggle */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                    <FileText className="w-4 h-4" />
-                    Save as Draft
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, is_draft: !prev.is_draft }))}
-                      disabled={submitting}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
-                        formData.is_draft ? 'bg-teal-500' : 'bg-gray-200'
-                      } ${submitting ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                          formData.is_draft ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                    <span className="text-sm text-gray-500">
-                      {formData.is_draft ? 'Draft — will not be published' : 'Active — will be published immediately'}
-                    </span>
-                  </div>
                 </div>
 
                 {/* CTS Number */}
@@ -859,7 +914,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                     value={formData.cts_number}
                     onChange={handleInputChange}
                     placeholder="Enter CTS number"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                     disabled={submitting}
                   />
                 </div>
@@ -876,13 +931,13 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                     value={formData.address}
                     onChange={handleInputChange}
                     placeholder="Enter address"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                    className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                     disabled={submitting}
                   />
                 </div>
 
                 {/* City and State */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
                       <MapPin className="w-4 h-4" />
@@ -894,7 +949,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                       value={formData.city}
                       onChange={handleInputChange}
                       placeholder="Enter city"
-                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                       disabled={submitting}
                     />
                   </div>
@@ -909,38 +964,36 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
                       value={formData.state}
                       onChange={handleInputChange}
                       placeholder="Enter state"
-                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
                       disabled={submitting}
                     />
                   </div>
-                </div>
-
-                {/* Pincode */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
-                    <MapPin className="w-4 h-4" />
-                    Pincode
-                  </label>
-                  <input
-                    type="text"
-                    name="pincode"
-                    value={formData.pincode}
-                    onChange={handleInputChange}
-                    placeholder="Enter pincode"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
-                    disabled={submitting}
-                  />
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1.5">
+                      <MapPin className="w-4 h-4" />
+                      Pincode
+                    </label>
+                    <input
+                      type="text"
+                      name="pincode"
+                      value={formData.pincode}
+                      onChange={handleInputChange}
+                      placeholder="Enter pincode"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 text-sm text-gray-700 placeholder-gray-400 transition-all"
+                      disabled={submitting}
+                    />
+                  </div>
                 </div>
 
               </div>
             </div>
 
             {/* ── Footer ── */}
-            <div className="px-5 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+            <div className="px-5 py-4 bg-gray-50 border-t border-gray-300 flex items-center gap-3 flex-shrink-0">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 text-slate-600 hover:bg-gray-100 rounded-xl transition-colors text-sm font-medium"
+                className="flex-1 px-4 py-2.5 text-slate-600 hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors text-sm font-medium"
                 disabled={submitting}
               >
                 Cancel
@@ -948,7 +1001,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
               <button
                 type="submit"
                 disabled={submitting}
-                className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                className={`flex-1 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
                   submitting
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-teal-600 text-white hover:bg-teal-700'
@@ -979,6 +1032,7 @@ const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
 // ============================================================================
 
 export default function Projects() {
+  const navigate = useNavigate();
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
@@ -995,24 +1049,49 @@ export default function Projects() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdProject, setCreatedProject] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
+  const [toast, setToast] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [activeFilters, setActiveFilters] = useState({
     dateFrom: '',
     dateTo: '',
     projectName: '',
     location: '',
-    surveyNumber: '',
+    ctsNumber: '',
   });
   const [stats, setStats] = useState({
-    total: 7,
-    onHold: 0,
+    total: 0,
     active: 0,
+    deactive: 0,
     completed: 0,
   });
 
   // ============================================================================
   // DATA FETCHING
   // ============================================================================
+
+  // Fetch ALL projects (no filters, large page_size) just to compute stats.
+  // This runs separately from the paginated list fetch so counts are always
+  // accurate regardless of which page the user is on or what filters are active.
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await getProjects({ page: 1, page_size: 9999 });
+      if (response.status === 'success' && response.data) {
+        const all = (response.data.results || []).filter(p => p != null);
+        setStats({
+          total:     response.data.total_count || all.length,
+          active:    all.filter(p => Number(p?.status) === 2 && p?.is_active !== false).length,
+          deactive:  all.filter(p => p?.is_active === false || Number(p?.status) === 5).length,
+          completed: all.filter(p => Number(p?.status) === 3).length,
+        });
+      }
+    } catch (err) {
+      console.error('❌ Error fetching project stats:', err);
+    }
+  }, []);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -1028,34 +1107,18 @@ export default function Projects() {
         ...(activeFilters.dateTo && { date_to: activeFilters.dateTo }),
         ...(activeFilters.projectName?.trim() && { name: activeFilters.projectName.trim() }),
         ...(activeFilters.location?.trim() && { location: activeFilters.location.trim() }),
-        ...(activeFilters.surveyNumber?.trim() && { servey_number: activeFilters.surveyNumber.trim() }),
+        ...(activeFilters.ctsNumber?.trim() && { cts_number: activeFilters.ctsNumber.trim() }),
       });
-
-      console.log('📊 Full API Response:', response);
 
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
         const projectResults = apiData.results || [];
-
-        console.log('📋 Project Results:', projectResults);
-        console.log('📋 Number of projects:', projectResults.length);
-
-        // Filter out any null/undefined entries
         const validProjects = projectResults.filter(project => project != null);
-        console.log('✅ Valid projects:', validProjects);
 
         setProjects(validProjects);
         setCurrentPage(apiData.page || 1);
         setTotalPages(apiData.total_pages || 1);
         setTotalCount(apiData.total_count || 0);
-
-        const totalProjects = apiData.total_count || validProjects.length;
-        setStats({
-          total: totalProjects,
-          onHold: 0, // Update with actual data when available
-          active: 0,
-          completed: 0,
-        });
       } else {
         console.error('❌ Invalid response format:', response);
         setProjects([]);
@@ -1074,6 +1137,12 @@ export default function Projects() {
     fetchProjects();
   }, [fetchProjects]);
 
+  // Stats are fetched once on mount and refreshed whenever fetchStats identity
+  // changes (i.e. it has no deps so this only runs on mount).
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
   // ============================================================================
   // EVENT HANDLERS
   // ============================================================================
@@ -1089,8 +1158,19 @@ export default function Projects() {
 
   const handleProceedToProject = () => {
     setShowSuccessModal(false);
-    console.log('Navigate to project:', createdProject);
-    // Add navigation logic here
+    const projectId = createdProject?.id || createdProject?.data?.id;
+    if (projectId) {
+      navigate(`/projects/${projectId}`);
+    }
+  };
+
+  const handleProjectClick = async (project) => {
+    if (project?.is_active === false || Number(project?.status) === 5) {
+      return;
+    }
+    if (project?.id) {
+      navigate(`/projects/${project.id}`);
+    }
   };
 
   const handleSearch = (value) => {
@@ -1115,6 +1195,43 @@ export default function Projects() {
     fetchProjects();
   };
 
+  const handleDeleteProject = (project) => {
+    setProjectToDelete(project);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteProject(projectToDelete.id);
+      setShowDeleteModal(false);
+      setProjectToDelete(null);
+      fetchProjects();
+      fetchStats();
+      setToast({ message: 'Project deleted successfully', type: 'success' });
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to delete project', type: 'error' });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleUndoProject = async (project) => {
+    if (isUndoing) return;
+    setIsUndoing(true);
+    try {
+      await undoProject(project.id);
+      fetchProjects();
+      fetchStats();
+      setToast({ message: 'Project restored successfully', type: 'success' });
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to restore project', type: 'error' });
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
   // ============================================================================
   // STATS CARDS
   // ============================================================================
@@ -1125,28 +1242,28 @@ export default function Projects() {
         icon={<FolderKanban className="w-5 h-5" />}
         count={stats.total}
         label="Total Projects"
-        subLabel="2 added last 5 days"
+        subLabel="All projects in your workspace"
         bgColor="bg-teal-500"
       />
       <StatCard
-        icon={<Clock className="w-5 h-5" />}
-        count={stats.onHold}
-        label="On Hold"
-        subLabel="2 is successfully added from hold"
-        bgColor="bg-orange-600"
-      />
-      <StatCard
-        icon={<Clock className="w-5 h-5" />}
+        icon={<TrendingUp className="w-5 h-5" />}
         count={stats.active}
         label="Active Projects"
-        subLabel="0 Active Projects"
+        subLabel="Projects currently in progress"
         bgColor="bg-yellow-500"
+      />
+      <StatCard
+        icon={<PowerOff className="w-5 h-5" />}
+        count={stats.deactive}
+        label="Deactive Projects"
+        subLabel="Deleted or inactive projects"
+        bgColor="bg-red-500"
       />
       <StatCard
         icon={<CheckCircle className="w-5 h-5" />}
         count={stats.completed}
         label="Completed"
-        subLabel="0 Projects Completed"
+        subLabel="Projects marked as completed"
         bgColor="bg-green-500"
       />
     </>
@@ -1168,7 +1285,7 @@ export default function Projects() {
             project.name?.toLowerCase().includes(search) ||
             project.address?.toLowerCase().includes(search) ||
             project.city?.toLowerCase().includes(search) ||
-            project.servey_number?.toLowerCase().includes(search)
+            project.cts_number?.toLowerCase().includes(search)
           );
           if (!matchesSearch) return false;
         }
@@ -1176,8 +1293,8 @@ export default function Projects() {
         if (activeFilters.projectName?.trim()) {
           if (!project.name?.toLowerCase().includes(activeFilters.projectName.trim().toLowerCase())) return false;
         }
-        if (activeFilters.surveyNumber?.trim()) {
-          if (!project.servey_number?.toLowerCase().includes(activeFilters.surveyNumber.trim().toLowerCase())) return false;
+        if (activeFilters.ctsNumber?.trim()) {
+          if (!project.cts_number?.toLowerCase().includes(activeFilters.ctsNumber.trim().toLowerCase())) return false;
         }
         if (activeFilters.location?.trim()) {
           const loc = activeFilters.location.trim().toLowerCase();
@@ -1214,19 +1331,21 @@ export default function Projects() {
         totalPages={totalPages}
         totalCount={totalCount}
         onPageChange={handlePageChange}
-        onAdd={() => setShowCreateModal(true)}
+        onAdd={() => { setShowCreateModal(true); }}
         onSearch={handleSearch}
         onFilterToggle={handleFilterToggle}
+        onRowClick={handleProjectClick}
         onRetry={handleRetry}
         searchTerm={searchTerm}
         showFilter={showFilter}
         statsCards={renderStatsCards()}
+        actionHandlers={{ onDeleteProject: handleDeleteProject, onUndoProject: handleUndoProject }}
       />
 
       {/* Modals */}
       <CreateProjectModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => { setShowCreateModal(false); }}
         onSuccess={handleCreateSuccess}
       />
 
@@ -1242,6 +1361,22 @@ export default function Projects() {
         onApply={handleApplyFilters}
         currentFilters={activeFilters}
       />
+
+      <ConfirmDeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => { if (!isDeleting) { setShowDeleteModal(false); setProjectToDelete(null); } }}
+        onConfirm={handleConfirmDelete}
+        projectName={projectToDelete?.name || ''}
+        isLoading={isDeleting}
+      />
+
+      {toast && (
+        <ActionToast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
 
       {/* Custom CSS for animations */}
       <style>{`

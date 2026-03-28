@@ -1,8 +1,5 @@
-import { FolderKanban, Clock, ChevronDown, ChevronUp, MoreVertical } from 'lucide-react';
-import { useState } from 'react';
-import { 
-  FileText, FileCheck, Send, CheckCircle, PlayCircle 
-} from 'lucide-react';
+import { FolderKanban, Clock, ChevronDown, ChevronUp, MapPin, Hash, CalendarDays, BookOpen, RotateCcw, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * ============================================================================
@@ -22,8 +19,14 @@ import {
 /**
  * Status color mapping
  */
-const getStatusColor = (status) => {
+const getStatusColor = (status, isDraft = false) => {
+  if (isDraft || Number(status) === 1) {
+    return 'bg-orange-100 text-orange-700';
+  }
   const colors = {
+    2: 'bg-teal-100 text-teal-700',
+    3: 'bg-green-100 text-green-700',
+    4: 'bg-orange-100 text-orange-700',
     'in_progress': 'bg-yellow-100 text-yellow-700',
     'completed': 'bg-green-100 text-green-700',
     'on_hold': 'bg-orange-100 text-orange-700',
@@ -35,14 +38,93 @@ const getStatusColor = (status) => {
 /**
  * Format status text
  */
-const formatStatus = (status) => {
+const formatStatus = (status, isDraft = false) => {
+  if (isDraft || Number(status) === 1) {
+    return 'Draft';
+  }
   const statusMap = {
+    2: 'Active',
+    3: 'Completed',
+    4: 'On Hold',
     'in_progress': 'In Progress',
     'completed': 'Completed',
     'on_hold': 'On Hold',
     'planning': 'Planning',
   };
   return statusMap[status] || 'Planning';
+};
+
+const isDeletedProject = (project) => project?.is_active === false || Number(project?.status) === 5;
+
+const ProjectActionsMenu = ({ project, handlers }) => {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const isDeleted = isDeletedProject(project);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  return (
+    <div className="relative ml-2 flex-shrink-0" ref={menuRef}>
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 ${
+          open ? 'bg-teal-100 text-teal-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700'
+        }`}
+        title="Actions"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3" r="1.4" />
+          <circle cx="8" cy="8" r="1.4" />
+          <circle cx="8" cy="13" r="1.4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {isDeleted ? (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpen(false);
+                handlers?.onUndoProject?.(project);
+              }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-50"
+            >
+              <RotateCcw className="h-4 w-4 flex-shrink-0" />
+              <span>Restore Project</span>
+            </button>
+          ) : (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpen(false);
+                handlers?.onDeleteProject?.(project);
+              }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4 flex-shrink-0" />
+              <span>Delete Project</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ============================================================================
@@ -60,7 +142,7 @@ const formatStatus = (status) => {
  * - Ultra-smooth expand/collapse
  * - Staggered child animations
  */
-export const ProjectCard = ({ project }) => {
+export const ProjectCard = ({ project, actionHandlers = {} }) => {
   const [showDetails, setShowDetails] = useState(false);
 
   if (!project) {
@@ -68,56 +150,13 @@ export const ProjectCard = ({ project }) => {
     return null;
   }
 
-  const trackingSteps = [
-    { 
-      icon: FileText, 
-      text: 'Quotation Created', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50'
-    },
-    { 
-      icon: FileCheck, 
-      text: 'Revised to version 2 - update pricing', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50'
-    },
-    { 
-      icon: FileCheck, 
-      text: 'Proforma Generated', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-teal-600',
-      bgColor: 'bg-teal-50'
-    },
-    { 
-      icon: Send, 
-      text: 'Send to client via Email', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-green-600',
-      bgColor: 'bg-green-50'
-    },
-    { 
-      icon: CheckCircle, 
-      text: 'Client Approved Invoice Generated', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-green-600',
-      bgColor: 'bg-green-50'
-    },
-    { 
-      icon: PlayCircle, 
-      text: 'Project Started In Progress', 
-      timestamp: '01-01-2026, 09:30 AM by Mr. ABC',
-      color: 'text-yellow-600',
-      bgColor: 'bg-yellow-50'
-    }
-  ];
-
-  const members = [
-    { color: 'bg-red-400' },
-    { color: 'bg-green-400' },
-    { color: 'bg-blue-400' }
-  ];
+  const createdDate = project.created_at
+    ? new Date(project.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'N/A';
+  const updatedDate = project.updated_at
+    ? new Date(project.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'N/A';
+  const location = [project.address, project.city, project.state].filter(Boolean).join(', ');
 
   return (
     <div className="bg-white rounded-2xl border-2 border-gray-320 hover:border-gray-380 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden project-card">
@@ -134,19 +173,26 @@ export const ProjectCard = ({ project }) => {
               </h3>
             </div>
           </div>
-          <button className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all duration-200 ml-2 flex-shrink-0 p-1 rounded-lg">
-            <MoreVertical className="w-4 h-4" />
-          </button>
+          <ProjectActionsMenu project={project} handlers={actionHandlers} />
         </div>
 
         {/* Status Badge and Details Button - COMPACT */}
         <div className="flex items-center justify-between gap-2">
-          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status || 'planning')}`}>
-            <Clock className="w-3 h-3" />
-            {formatStatus(project.status || 'planning')}
+          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+            isDeletedProject(project)
+              ? 'bg-red-100 text-red-700'
+              : getStatusColor(project.status ?? 1, project.is_draft)
+          }`}>
+            {isDeletedProject(project)
+              ? <Trash2 className="w-3 h-3" />
+              : ((project.is_draft || Number(project.status) === 1) ? <BookOpen className="w-3 h-3" /> : <Clock className="w-3 h-3" />)}
+            {isDeletedProject(project) ? 'Deleted' : formatStatus(project.status ?? 1, project.is_draft)}
           </span>
           <button
-            onClick={() => setShowDetails(!showDetails)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowDetails(!showDetails);
+            }}
             className="text-teal-600 hover:text-teal-700 transition-all duration-200 flex items-center gap-0.5 text-xs font-medium"
           >
             {showDetails ? (
@@ -167,7 +213,7 @@ export const ProjectCard = ({ project }) => {
       {/* Project Description - COMPACT */}
       <div className="px-4 py-2.5 bg-gray-70 border-b border-gray-220">
         <p className="text-xs text-gray-700 line-clamp-2">
-          {project.description || 'we discuss abot some points at first meeting and the client had fpcused on xyz things so we need to do those AEAP'}
+          {location || 'Project location details will appear here.'}
         </p>
       </div>
 
@@ -188,36 +234,57 @@ export const ProjectCard = ({ project }) => {
         }}
       >
         <div className="p-4 bg-white border-t border-gray-220">
-          {/* Tracking Header */}
+          {/* Details Header */}
           <div className="flex items-center gap-1.5 mb-3">
             <Clock className="w-3.5 h-3.5 text-teal-600" />
-            <h4 className="font-semibold text-gray-900 text-xs uppercase tracking-wider">Tracking</h4>
+            <h4 className="font-semibold text-gray-900 text-xs uppercase tracking-wider">Project Details</h4>
           </div>
           
-          {/* Tracking Steps with Staggered Animation */}
-          <div className="space-y-2.5 mb-4">
-            {trackingSteps.map((step, index) => (
-              <div 
-                key={index} 
-                className="flex items-start gap-2.5"
-                style={{ 
+          <div className="grid grid-cols-1 gap-2.5 mb-4">
+            {[
+              {
+                icon: Hash,
+                label: 'CTS Number',
+                value: project.cts_number || 'Not added',
+                bgColor: 'bg-slate-50',
+                iconColor: 'text-slate-600',
+              },
+              {
+                icon: MapPin,
+                label: 'Location',
+                value: [project.city, project.state].filter(Boolean).join(', ') || location || 'Not added',
+                bgColor: 'bg-teal-50',
+                iconColor: 'text-teal-600',
+              },
+              {
+                icon: CalendarDays,
+                label: 'Record Status',
+                value: project.is_active ? 'Active record' : 'Inactive record',
+                bgColor: 'bg-emerald-50',
+                iconColor: 'text-emerald-600',
+              },
+            ].map((item, index) => (
+              <div
+                key={item.label}
+                className="flex items-start gap-2.5 rounded-xl border border-gray-200 bg-gray-50/70 px-3 py-2.5"
+                style={{
                   opacity: showDetails ? 1 : 0,
                   transform: showDetails ? 'translateX(0)' : 'translateX(-10px)',
                   transition: `opacity 400ms ease-out ${100 + index * 60}ms, transform 400ms ease-out ${100 + index * 60}ms`
                 }}
               >
-                <div className={`w-7 h-7 ${step.bgColor} rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
-                  <step.icon className={`w-3.5 h-3.5 ${step.color}`} />
+                <div className={`w-8 h-8 ${item.bgColor} rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
+                  <item.icon className={`w-4 h-4 ${item.iconColor}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-900">{step.text}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{step.timestamp}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{item.label}</p>
+                  <p className="text-xs font-semibold text-gray-900 break-words">{item.value}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Members and Dates Section */}
+          {/* Dates Section */}
           <div 
             className="pt-3 border-t border-gray-220"
             style={{
@@ -226,43 +293,15 @@ export const ProjectCard = ({ project }) => {
               transition: 'opacity 400ms ease-out 500ms, transform 400ms ease-out 500ms'
             }}
           >
-            <div className="grid grid-cols-3 gap-3">
-              {/* Members */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Members</p>
-                <div className="flex items-center gap-1">
-                  {members.map((member, index) => (
-                    <div 
-                      key={index} 
-                      className={`w-7 h-7 ${member.color} rounded-full border-2 border-white shadow-sm`}
-                      style={{
-                        opacity: showDetails ? 1 : 0,
-                        transform: showDetails ? 'scale(1)' : 'scale(0.8)',
-                        transition: `opacity 300ms ease-out ${600 + index * 80}ms, transform 300ms ease-out ${600 + index * 80}ms`
-                      }}
-                    />
-                  ))}
-                </div>
+                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Created</p>
+                <p className="text-xs text-gray-900 font-semibold">{createdDate}</p>
               </div>
 
-              {/* Start Date */}
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Start</p>
-                <p className="text-xs text-red-500 font-semibold">
-                  {project.start_date 
-                    ? new Date(project.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                    : '20 Jan'}
-                </p>
-              </div>
-
-              {/* End Date */}
               <div className="text-right">
-                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">End</p>
-                <p className="text-xs text-gray-900 font-semibold">
-                  {project.end_date 
-                    ? new Date(project.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                    : '20 Jan'}
-                </p>
+                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide font-medium">Updated</p>
+                <p className="text-xs text-gray-900 font-semibold">{updatedDate}</p>
               </div>
             </div>
           </div>

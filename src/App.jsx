@@ -77,6 +77,9 @@ export default function App() {
     // Purchase routes (/purchase, /purchase/form, /purchase/:id)
     if (path.startsWith('/purchase')) return 'Purchase';
 
+    // NOC routes
+    if (path.startsWith('/noc')) return 'NOC';
+
     // Employees routes
     if (path.startsWith('/employees')) return 'Employees';
 
