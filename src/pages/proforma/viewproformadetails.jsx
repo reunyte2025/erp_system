@@ -7,9 +7,9 @@ import {
   Tag, Percent, ChevronRight, Mail, FileEdit,
   ThumbsUp, ThumbsDown, Receipt,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Edit, X, Paperclip,
+  Edit, X, Paperclip, FileSearch,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma } from '../../services/proforma';
+import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf } from '../../services/proforma';
 import { createInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
@@ -610,6 +610,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [loading,       setLoading]       = useState(true);
   const [fetchError,    setFetchError]    = useState('');
   const [pdfLoading,    setPdfLoading]    = useState(false);
+  const [showPdfModal,  setShowPdfModal]  = useState(false);
+  const [scopeOfWork,   setScopeOfWork]   = useState('');
+  const [scopeError,    setScopeError]    = useState('');
+  const [pdfError,      setPdfError]      = useState('');
   const [visible,       setVisible]       = useState(false);
 
   // ── Edit mode state (mirrors viewquotationdetails exactly) ───────────────────
@@ -659,7 +663,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   // Scroll lock when modal open
   // Lock body scroll whenever ANY modal is open — prevents blue/scrollable background
   useEffect(() => {
-    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || sendModal;
+    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || sendModal || showPdfModal;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = 'fixed';
@@ -680,7 +684,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       document.body.style.width = '';
       document.body.style.overflow = '';
     };
-  }, [showAddSection, showUpdateReasonModal, showRejectModal, sendModal, showInvoiceModal]);
+  }, [showAddSection, showUpdateReasonModal, showRejectModal, sendModal, showInvoiceModal, showPdfModal]);
 
   // ── Compliance modal helpers ─────────────────────────────────────────────────
 
@@ -1147,22 +1151,29 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
-  const handleDownload = async () => {
-    if (pdfLoading) return;
+  // Opens the scope-of-work modal — both Download PDF buttons call this
+  const handleOpenPdfModal = () => {
+    setScopeOfWork('');
+    setScopeError('');
+    setPdfError('');
+    setShowPdfModal(true);
+  };
+
+  // Called when user confirms inside the scope-of-work modal
+  const handleConfirmPdfDownload = async () => {
+    if (!scopeOfWork.trim()) {
+      setScopeError('Scope of work is required to generate the PDF.');
+      return;
+    }
+    setScopeError('');
+    setPdfError('');
+    setPdfLoading(true);
     try {
-      setPdfLoading(true);
-      // TODO: wire to proforma PDF endpoint when available
-      const response = await api.get(`/proformas/${id}/generate_pdf/`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${fmtPNum(proforma?.proforma_number)}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      const fileName = `${fmtPNum(proforma?.proforma_number)}.pdf`;
+      await generateProformaPdf(id, scopeOfWork, fileName);
+      setShowPdfModal(false);
     } catch (e) {
-      console.error('PDF download failed:', e);
+      setPdfError(e.message || 'Failed to generate PDF. Please try again.');
     } finally {
       setPdfLoading(false);
     }
@@ -1418,7 +1429,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 </button>
 
                 {/* Download PDF — all roles */}
-                <button className="vpd-btn-p" onClick={handleDownload} disabled={pdfLoading}>
+                <button className="vpd-btn-p" onClick={handleOpenPdfModal} disabled={pdfLoading}>
                   {pdfLoading ? <><Loader2 size={14} className="vpd-spin" /> Generating…</> : <><Download size={14} /> Download PDF</>}
                 </button>
 
@@ -1925,7 +1936,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 </div>
               )}
               {!editMode && (
-                <button className="vpd-dl-btn" onClick={handleDownload} disabled={pdfLoading}>
+                <button className="vpd-dl-btn" onClick={handleOpenPdfModal} disabled={pdfLoading}>
                   {pdfLoading ? <><Loader2 size={15} className="vpd-spin" /> Generating PDF…</> : <><Download size={15} /> Download PDF</>}
                 </button>
               )}
@@ -2298,6 +2309,120 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               )}
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ SCOPE OF WORK — PDF DOWNLOAD MODAL ══════════ */}
+      {showPdfModal && (
+        <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+          <div
+            className="absolute inset-0 bg-black/50 pointer-events-auto"
+            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+            onClick={() => !pdfLoading && setShowPdfModal(false)}
+          />
+          <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+          <div
+            style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)', fontFamily: "'Outfit', sans-serif" }}
+            className="pointer-events-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* ── Gradient header — teal (matches every other modal in this system) ── */}
+            <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <FileSearch size={17} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Download PDF</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{pNum}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !pdfLoading && setShowPdfModal(false)}
+                  style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+
+            {/* ── Body ── */}
+            <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+
+              {/* Info banner */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+                <AlertCircle size={14} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ margin: 0, fontSize: 12, color: '#065f46', lineHeight: 1.6 }}>
+                  Enter the scope of work to be included in the PDF. This text will appear in the generated proforma document sent to the client.
+                </p>
+              </div>
+
+              {/* Scope of work textarea */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+                  Scope of Work <span style={{ color: '#dc2626' }}>*</span>
+                </div>
+                <textarea
+                  rows={4}
+                  placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
+                  value={scopeOfWork}
+                  onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
+                  onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
+                  onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                  disabled={pdfLoading}
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '10px 12px',
+                    border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`,
+                    borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
+                    color: '#1e293b', resize: 'vertical', minHeight: 110,
+                    outline: 'none', transition: 'border-color .15s, box-shadow .15s',
+                    boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                  }}
+                />
+                {scopeError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
+                    <AlertCircle size={12} /> {scopeError}
+                  </div>
+                )}
+              </div>
+
+              {/* PDF generation / API error */}
+              {pdfError && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
+                    <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => !pdfLoading && setShowPdfModal(false)}
+                  disabled={pdfLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmPdfDownload}
+                  disabled={pdfLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                >
+                  {pdfLoading
+                    ? <><Loader2 size={13} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Generating…</>
+                    : <><Download size={13} /> Generate &amp; Download</>
+                  }
+                </button>
+              </div>
+
+            </div>
+          </div>
           </div>
         </div>
       )}

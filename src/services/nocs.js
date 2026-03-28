@@ -15,6 +15,18 @@ import api from './api';
  *   address, state, city, pincode,
  *   applicant_name, applicant_type, company_name, contact_info
  *
+ * submitNoc(id, applicationNumber, applicationDate)
+ *   → POST /api/nocs/submit_noc/
+ *   → { id, application_number, application_date }
+ *
+ * approveNoc(id, nocNumber, issueDate, validFrom, validTill)
+ *   → POST /api/nocs/approve_noc/
+ *   → { id, noc_number, issue_date, valid_from, valid_till }
+ *
+ * rejectNoc(id, reason)
+ *   → POST /api/nocs/reject_noc/
+ *   → { id, reason }
+ *
  * @module nocsService
  */
 
@@ -103,21 +115,31 @@ const parseApiError = (error, fallback = 'Something went wrong. Please try again
     if (data.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)) {
       // Known field label map — extend as needed
       const fieldLabels = {
-        client_id:      'Client',
-        project_id:     'Project',
-        noc_type_id:    'NOC Type',
-        authority_id:   'Authority',
-        applicant_name: 'Applicant Name',
-        applicant_type: 'Applicant Type',
-        company_name:   'Company Name',
-        contact_info:   'Contact Info',
-        address:        'Address',
-        state:          'State',
-        city:           'City',
-        pincode:        'Pincode',
-        name:           'Name',
-        description:    'Description',
-        id:             null, // suppress
+        client_id:          'Client',
+        project_id:         'Project',
+        noc_type_id:        'NOC Type',
+        authority_id:       'Authority',
+        applicant_name:     'Applicant Name',
+        applicant_type:     'Applicant Type',
+        company_name:       'Company Name',
+        contact_info:       'Contact Info',
+        address:            'Address',
+        state:              'State',
+        city:               'City',
+        pincode:            'Pincode',
+        name:               'Name',
+        description:        'Description',
+        // submit_noc fields
+        application_number: 'Application Number',
+        application_date:   'Application Date',
+        // approve_noc fields
+        noc_number:         'NOC Number',
+        issue_date:         'Issue Date',
+        valid_from:         'Valid From',
+        valid_till:         'Valid Till',
+        // reject_noc fields
+        reason:             'Rejection Reason',
+        id:                 null, // suppress
       };
 
       const messages = [];
@@ -515,14 +537,36 @@ export const deleteNoc = async (id) => {
 };
 
 /**
- * POST — Approve a NOC.
+ * POST — Approve a submitted NOC.
+ *
+ * @param {number|string} id         - NOC ID (required)
+ * @param {string}        nocNumber  - Official NOC number issued by authority (required)
+ * @param {string}        issueDate  - ISO date string — date of issue (required)
+ * @param {string}        validFrom  - ISO date string — validity start (required)
+ * @param {string}        validTill  - ISO date string — validity end (required)
  */
-export const approveNoc = async (id) => {
+export const approveNoc = async (id, nocNumber, issueDate, validFrom, validTill) => {
   try {
-    if (!id) throw new Error('NOC ID is required');
-    const response = await api.post(NOC_ENDPOINTS.APPROVE, { id: Number(id) });
+    if (!id)             throw new Error('NOC ID is required');
+    if (!nocNumber?.trim()) throw new Error('NOC number is required');
+    if (!issueDate)      throw new Error('Issue date is required');
+    if (!validFrom)      throw new Error('Valid from date is required');
+    if (!validTill)      throw new Error('Valid till date is required');
+
+    const payload = {
+      id:         Number(id),
+      noc_number: nocNumber.trim(),
+      issue_date: issueDate,
+      valid_from: validFrom,
+      valid_till: validTill,
+    };
+
+    serviceLogger.log(`Approving NOC ${id}:`, JSON.stringify(payload, null, 2));
+    const response = await api.post(NOC_ENDPOINTS.APPROVE, payload);
+    serviceLogger.log(`NOC ${id} approved successfully`);
     return response.data;
   } catch (error) {
+    if (!error.response) throw error;
     const errorMessage = parseApiError(error, 'Failed to approve NOC. Please try again.');
     serviceLogger.error(`approveNoc(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
@@ -530,14 +574,27 @@ export const approveNoc = async (id) => {
 };
 
 /**
- * POST — Reject a NOC.
+ * POST — Reject a submitted NOC.
+ *
+ * @param {number|string} id     - NOC ID (required)
+ * @param {string}        reason - Reason for rejection (required)
  */
-export const rejectNoc = async (id) => {
+export const rejectNoc = async (id, reason) => {
   try {
-    if (!id) throw new Error('NOC ID is required');
-    const response = await api.post(NOC_ENDPOINTS.REJECT, { id: Number(id) });
+    if (!id)            throw new Error('NOC ID is required');
+    if (!reason?.trim()) throw new Error('Rejection reason is required');
+
+    const payload = {
+      id:     Number(id),
+      reason: reason.trim(),
+    };
+
+    serviceLogger.log(`Rejecting NOC ${id}:`, JSON.stringify(payload, null, 2));
+    const response = await api.post(NOC_ENDPOINTS.REJECT, payload);
+    serviceLogger.log(`NOC ${id} rejected`);
     return response.data;
   } catch (error) {
+    if (!error.response) throw error;
     const errorMessage = parseApiError(error, 'Failed to reject NOC. Please try again.');
     serviceLogger.error(`rejectNoc(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
@@ -546,13 +603,26 @@ export const rejectNoc = async (id) => {
 
 /**
  * POST — Reapply for a rejected NOC.
+ * Creates a new Draft NOC (with R- prefix) from the rejected one.
+ *
+ * @param {number|string} id - NOC ID to reapply (required)
  */
 export const reapplyNoc = async (id) => {
   try {
     if (!id) throw new Error('NOC ID is required');
-    const response = await api.post(NOC_ENDPOINTS.REAPPLY, { id: Number(id) });
+
+    // Backend expects "id" as a query param AND the full NOC body,
+    // but the minimal required field is the noc primary key sent as "id".
+    const payload = { id: Number(id) };
+
+    serviceLogger.log(`Reapplying NOC ${id}:`, JSON.stringify(payload, null, 2));
+    const response = await api.post(NOC_ENDPOINTS.REAPPLY, payload, {
+      params: { id: Number(id) },   // also pass as query param — backend accepts either
+    });
+    serviceLogger.log(`NOC ${id} reapplied successfully:`, response.data);
     return response.data;
   } catch (error) {
+    if (!error.response) throw error;   // network / timeout — rethrow as-is
     const errorMessage = parseApiError(error, 'Failed to reapply NOC. Please try again.');
     serviceLogger.error(`reapplyNoc(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
@@ -560,14 +630,30 @@ export const reapplyNoc = async (id) => {
 };
 
 /**
- * POST — Submit a draft NOC.
+ * POST — Submit a draft NOC for approval.
+ *
+ * @param {number|string} id                - NOC ID (required)
+ * @param {string}        applicationNumber - Application reference number (required)
+ * @param {string}        applicationDate   - ISO date string (required)
  */
-export const submitNoc = async (id) => {
+export const submitNoc = async (id, applicationNumber, applicationDate) => {
   try {
-    if (!id) throw new Error('NOC ID is required');
-    const response = await api.post(NOC_ENDPOINTS.SUBMIT, { id: Number(id) });
+    if (!id)                       throw new Error('NOC ID is required');
+    if (!applicationNumber?.trim()) throw new Error('Application number is required');
+    if (!applicationDate)           throw new Error('Application date is required');
+
+    const payload = {
+      id:                 Number(id),
+      application_number: applicationNumber.trim(),
+      application_date:   applicationDate,
+    };
+
+    serviceLogger.log(`Submitting NOC ${id}:`, JSON.stringify(payload, null, 2));
+    const response = await api.post(NOC_ENDPOINTS.SUBMIT, payload);
+    serviceLogger.log(`NOC ${id} submitted successfully`);
     return response.data;
   } catch (error) {
+    if (!error.response) throw error;
     const errorMessage = parseApiError(error, 'Failed to submit NOC. Please try again.');
     serviceLogger.error(`submitNoc(${id}) failed:`, errorMessage);
     throw new Error(errorMessage);
