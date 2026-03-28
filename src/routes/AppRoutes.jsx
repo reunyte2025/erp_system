@@ -26,6 +26,7 @@ import Settings from '../pages/settings';
 import Users from '../pages/user/users';
 import UserProfile from '../pages/user/userprofile';
 import Nocs from '../pages/nocs/nocs';
+import ViewNocDetails from '../pages/nocs/viewnocdetails';
 import ProtectedRoute from '../routes/PrivateRoute';
 import AuthenticatedLayout from '../components/AuthenticatedLayout';
 
@@ -338,7 +339,21 @@ export default function AppRoutes({
 
       {/* ==================================================================
           NOC (No Objection Certificate)
+          IMPORTANT: most-specific routes FIRST
+            1. /noc/:id  — NOC detail view
+            2. /noc      — NOC list (tabs: NOCs, Authorities, NOC Types)
           ================================================================== */}
+
+      <Route
+        path="/noc/:id"
+        element={
+          <ProtectedRoute isLoggedIn={isLoggedIn}>
+            <AuthenticatedLayout {...layoutProps}>
+              <ViewNocDetails onUpdateNavigation={setNavigationConfig} />
+            </AuthenticatedLayout>
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/noc"

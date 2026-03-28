@@ -161,6 +161,43 @@ export const trackInvoice = async (id) => {
   }
 };
 
+export const generateInvoicePdf = async (id, scopeOfWork, fileName = 'invoice.pdf') => {
+  try {
+    if (!id)                  throw new Error('Invoice ID is required');
+    if (!scopeOfWork?.trim()) throw new Error('Scope of work is required');
+
+    serviceLogger.log(`[Invoice Service] Generating PDF for invoice ${id}`);
+
+    const response = await api.get('/invoices/generate_pdf/', {
+      params: {
+        id:            parseInt(id),
+        scope_of_work: scopeOfWork.trim(),
+      },
+      responseType: 'blob',
+    });
+
+    const blob = response.data;
+    if (!blob || blob.size === 0) {
+      throw new Error('Empty PDF received from server. Please try again.');
+    }
+
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(objectUrl);
+
+    serviceLogger.log(`[Invoice Service] PDF downloaded: ${fileName}`);
+  } catch (error) {
+    serviceLogger.error(`[Invoice Service] generateInvoicePdf(${id}) failed:`, error.message);
+    if (error.message) throw new Error(error.message);
+    throw new Error('Failed to generate PDF. Please try again.');
+  }
+};
+
 export const getInvoiceStats = async () => {
   try {
     const response = await getInvoices({ page: 1, page_size: 1 });
@@ -187,5 +224,6 @@ export default {
   updateInvoice,
   deleteInvoice,
   getInvoiceStats,
+  generateInvoicePdf,
   trackInvoice,
 };

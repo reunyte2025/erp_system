@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ClipboardCheck, Building2, Tag, Plus, Trash2, Edit2,
   X, Loader2, AlertCircle, CheckCircle, FileText, User,
@@ -1015,6 +1016,7 @@ const TABS = [
 
 export default function NocsPage() {
   const { isAdminOrManager } = useRole();
+  const navigate = useNavigate();
 
   const VALID_TABS = ['nocs', 'authorities', 'types'];
 
@@ -1424,6 +1426,7 @@ export default function NocsPage() {
               searchTerm={nocSearch}
               showFilter={false}
               actionHandlers={nocActionHandlers}
+              onRowClick={(row) => navigate(`/noc/${row.id}`)}
               noBorder
             />
           )}

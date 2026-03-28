@@ -248,6 +248,60 @@ export const deleteProformaById = async (id) => {
   }
 };
 
+/**
+ * Generate and download the PDF for a proforma.
+ * GET /api/proformas/generate_pdf/?id=<id>&scope_of_work=<scope_of_work>
+ *
+ * The backend starts an async task and returns a URL string (the PDF URL).
+ * We then fetch that URL as a blob and trigger a browser download.
+ *
+ * @param {number|string} id           - Proforma ID (required)
+ * @param {string}        scopeOfWork  - Scope of work text to embed in the PDF (required)
+ * @param {string}        fileName     - Suggested download filename (e.g. "PF-2026-00001.pdf")
+ * @returns {Promise<void>}
+ */
+export const generateProformaPdf = async (id, scopeOfWork, fileName = 'proforma.pdf') => {
+  try {
+    if (!id)               throw new Error('Proforma ID is required');
+    if (!scopeOfWork?.trim()) throw new Error('Scope of work is required');
+
+    serviceLogger.log(`[Proforma Service] Generating PDF for proforma ${id}`);
+
+    // Step 1 — call the generate endpoint and receive the PDF as a blob directly
+    const response = await api.get('/proformas/generate_pdf/', {
+      params: {
+        id:            parseInt(id),
+        scope_of_work: scopeOfWork.trim(),
+      },
+      responseType: 'blob',
+    });
+
+    // Step 2 — response.data is already a Blob; trigger browser download
+    const blob = response.data;
+
+    if (!blob || blob.size === 0) {
+      throw new Error('Empty PDF received from server. Please try again.');
+    }
+
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(objectUrl);
+
+    serviceLogger.log(`[Proforma Service] PDF downloaded: ${fileName}`);
+
+  } catch (error) {
+    serviceLogger.error(`[Proforma Service] generateProformaPdf(${id}) failed:`, error.message);
+    // Re-throw a clean error message for the UI layer
+    if (error.message) throw new Error(error.message);
+    throw new Error('Failed to generate PDF. Please try again.');
+  }
+};
+
 export const getProformaStats = async () => {
   try {
     const response = await getProformas({ page: 1, page_size: 1 });
@@ -356,6 +410,7 @@ export default {
   deleteProformaById,
   getProformaStats,
   getComplianceByCategory,
+  generateProformaPdf,
   sendProformaForApproval,
   approveProforma,
   rejectProforma,
