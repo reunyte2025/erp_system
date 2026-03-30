@@ -720,10 +720,10 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         sac_code:         editSacCode.trim(),
         gst_rate:         String(parseFloat(editGstRate || 0).toFixed(2)),
         discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
-        // API expects integers for these three amount fields
-        total_amount:     Math.round(sub),
-        total_gst_amount: Math.round(gst),
-        grand_total:      Math.round(grand),
+        // API expects decimal strings — never round, preserve .10 etc.
+        total_amount:     String(sub.toFixed(2)),
+        total_gst_amount: String(gst.toFixed(2)),
+        grand_total:      String(parseFloat((sub - disc + gst).toFixed(2)).toFixed(2)),
         items: editItems.map(it => {
           const compCat    = parseInt(it.compliance_category) || 1;
           const subCompCat = parseInt(it.sub_compliance_category) || 0;
@@ -734,9 +734,9 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             id:                      itemId,          // null = new item, integer = existing item
             description:             String(it.description).trim(),
             quantity:                parseInt(it.quantity) || 1,
-            Professional_amount:     parseFloat((parseFloat(it.Professional_amount) || 0).toFixed(2)),
+            Professional_amount:     String((parseFloat(it.Professional_amount) || 0).toFixed(2)),
             miscellaneous_amount:    String(it.miscellaneous_amount ?? '').trim() || '--',
-            total_amount:            Math.round(calcItemTotal(it)),
+            total_amount:            String(parseFloat(calcItemTotal(it).toFixed(2)).toFixed(2)),
             compliance_category:     compCat,
             sub_compliance_category: subCompCat,
           };
@@ -864,10 +864,15 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         let existingId  = null;
         let existingNum = '';
         try {
+          const quotationId       = Number(id);
           const quotationTrailing = extractTrailing(quotation.quotation_number || String(id));
-          const res = await api.get('/proformas/get_all_proformas/', { params: { quotation: Number(id), page: 1, page_size: 50 } });
+          // Fetch without quotation filter param — backend does not reliably filter by it.
+          // Match client-side instead, same pattern as viewproformadetails does for invoices.
+          const res = await api.get('/proformas/get_all_proformas/', { params: { page: 1, page_size: 100 } });
           const results = res.data?.data?.results || res.data?.results || [];
-          let existing = results[0] || null;
+          // 1️⃣ Primary: match by the proforma's quotation foreign-key field (most reliable)
+          let existing = results.find(p => Number(p.quotation) === quotationId) || null;
+          // 2️⃣ Fallback: match by shared trailing digits in proforma_number
           if (!existing && quotationTrailing) {
             existing = results.find(p => extractTrailing(p.proforma_number) === quotationTrailing) || null;
           }
