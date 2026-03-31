@@ -22,6 +22,149 @@ const logger = {
   error: (...args) => console.error(...args),
 };
 
+const EMPTY_PURCHASE_FILTERS = {
+  purchaseNumber: '',
+  vendorName: '',
+  projectName: '',
+  sacCode: '',
+  ctsNumber: '',
+};
+
+const normalizePurchaseValue = (value) => String(value || '').trim().toLowerCase();
+
+const purchaseMatchesSearch = (purchase, value) => {
+  const needle = normalizePurchaseValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    purchase.quotation_number,
+    purchase.vendor_name,
+    purchase.project_name,
+    purchase.sac_code,
+    purchase.project_cts_number,
+  ];
+
+  return haystacks.some((field) => normalizePurchaseValue(field).includes(needle));
+};
+
+const purchaseMatchesFilters = (purchase, filters) => {
+  if (filters?.purchaseNumber && !normalizePurchaseValue(purchase.quotation_number).includes(normalizePurchaseValue(filters.purchaseNumber))) return false;
+  if (filters?.vendorName && !normalizePurchaseValue(purchase.vendor_name).includes(normalizePurchaseValue(filters.vendorName))) return false;
+  if (filters?.projectName && !normalizePurchaseValue(purchase.project_name).includes(normalizePurchaseValue(filters.projectName))) return false;
+  if (filters?.sacCode && !normalizePurchaseValue(purchase.sac_code).includes(normalizePurchaseValue(filters.sacCode))) return false;
+  if (filters?.ctsNumber && !normalizePurchaseValue(purchase.project_cts_number).includes(normalizePurchaseValue(filters.ctsNumber))) return false;
+  return true;
+};
+
+const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_PURCHASE_FILTERS);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleClear = () => {
+    setFilters(EMPTY_PURCHASE_FILTERS);
+  };
+
+  const handleApply = () => {
+    onApply(filters);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || '').trim() !== '');
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <FilterIcon className="w-5 h-5" />
+              <h2 className="text-base font-semibold">Filter Purchase Orders</h2>
+            </div>
+            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors" aria-label="Close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Purchase Number</label>
+              <div className="relative">
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="purchaseNumber" value={filters.purchaseNumber} onChange={handleInputChange} placeholder="Enter purchase number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Vendor Name</label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="vendorName" value={filters.vendorName} onChange={handleInputChange} placeholder="Enter vendor name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Project Name</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="projectName" value={filters.projectName} onChange={handleInputChange} placeholder="Enter project name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">SAC Code</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="sacCode" value={filters.sacCode} onChange={handleInputChange} placeholder="Enter SAC code" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">CTS Number</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="ctsNumber" value={filters.ctsNumber} onChange={handleInputChange} placeholder="Enter CTS number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 pb-5 flex-shrink-0">
+            <button
+              onClick={handleApply}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+            >
+              <FilterIcon className="w-4 h-4" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================================
 // SELECT VENDOR + PROJECT MODAL  (mirrors SelectClientProjectModal in quotationsList)
 // ============================================================================
@@ -65,7 +208,7 @@ const SelectVendorProjectModal = ({ isOpen, onClose, onProceed }) => {
       document.body.style.width    = '';
       document.body.style.overflow = '';
     };
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const fetchVendorsList = async () => {
     setLoadingVendors(true);
@@ -407,6 +550,7 @@ export default function Purchase({ onUpdateNavigation }) {
   const [sortBy,                 setSortBy]                 = useState('created_at');
   const [sortOrder,              setSortOrder]              = useState('desc');
   const [showFilterModal,        setShowFilterModal]        = useState(false);
+  const [activeFilters,          setActiveFilters]          = useState(EMPTY_PURCHASE_FILTERS);
   const [showSelectVendorModal,  setShowSelectVendorModal]  = useState(false);
 
   const requestInProgress = useRef(false);
@@ -420,7 +564,9 @@ export default function Purchase({ onUpdateNavigation }) {
 
   // ── Fetch purchase orders (type=2 → vendor quotations) ──────────────────────
   const fetchPurchaseOrders = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, sortBy, sortOrder });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder });
+    const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+    const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
     if (lastFetchParams.current === fetchKey && !error) return;
     if (requestInProgress.current) return;
 
@@ -431,9 +577,8 @@ export default function Purchase({ onUpdateNavigation }) {
 
     try {
       const response = await getQuotations({
-        page:       currentPage,
-        page_size:  pageSize,
-        search:     searchTerm,
+        page:       useLocalSearchAndFilter ? 1 : currentPage,
+        page_size:  useLocalSearchAndFilter ? 1000 : pageSize,
         sort_by:    sortBy,
         sort_order: sortOrder,
         type:       2,   // type=2 → vendor / purchase order quotations
@@ -441,10 +586,46 @@ export default function Purchase({ onUpdateNavigation }) {
 
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
-        setPurchaseOrders(apiData.results || []);
-        setCurrentPage(apiData.page        || 1);
-        setTotalPages(apiData.total_pages  || 1);
-        setTotalCount(apiData.total_count  || 0);
+        const quotationResults = Array.isArray(apiData.results) ? apiData.results : [];
+
+        let projectMap = {};
+        try {
+          const allProjectsRes = await getProjects({ page: 1, page_size: 2000 });
+          const allProjects = allProjectsRes?.data?.results || allProjectsRes?.results || [];
+          allProjects.forEach((p) => {
+            if (p.id) {
+              projectMap[p.id] = {
+                name: p.name || p.title || `Project #${p.id}`,
+                cts_number: p.cts_number || '',
+              };
+            }
+          });
+        } catch {
+          projectMap = {};
+        }
+
+        const enrichedResults = quotationResults.map((q) => ({
+          ...q,
+          project_name: projectMap[q.project]?.name || q.project_name || (q.project ? `Project #${q.project}` : 'N/A'),
+          project_cts_number: projectMap[q.project]?.cts_number || q.project_cts_number || '',
+        }));
+
+        if (useLocalSearchAndFilter) {
+          const filteredResults = enrichedResults.filter((purchase) =>
+            purchaseMatchesSearch(purchase, searchTerm) && purchaseMatchesFilters(purchase, activeFilters)
+          );
+          const startIndex = (currentPage - 1) * pageSize;
+
+          setPurchaseOrders(filteredResults.slice(startIndex, startIndex + pageSize));
+          setCurrentPage(currentPage);
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setPurchaseOrders(enrichedResults);
+          setCurrentPage(apiData.page        || 1);
+          setTotalPages(apiData.total_pages  || 1);
+          setTotalCount(apiData.total_count  || 0);
+        }
         setStats({
           total:     apiData.total_count        || 0,
           draft:     apiData.draft_count        || 0,
@@ -463,7 +644,7 @@ export default function Purchase({ onUpdateNavigation }) {
       setLoading(false);
       requestInProgress.current = false;
     }
-  }, [currentPage, pageSize, searchTerm, sortBy, sortOrder]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder, error]);
 
   useEffect(() => { fetchPurchaseOrders(); }, [fetchPurchaseOrders]);
 
@@ -473,6 +654,17 @@ export default function Purchase({ onUpdateNavigation }) {
   const handlePageChange  = (page)  => setCurrentPage(page);
   const handleRetry       = ()      => { lastFetchParams.current = null; fetchPurchaseOrders(); };
   const handleFilterToggle = ()     => setShowFilterModal(true);
+  const handleApplyFilters = (filters) => { setActiveFilters(filters); setCurrentPage(1); };
+  const handleSort = (field) => {
+    if (field === sortBy) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+    setCurrentPage(1);
+    lastFetchParams.current = null;
+  };
   const handleAddPurchaseOrder = () => setShowSelectVendorModal(true);
 
   const handleRowClick = (row) => {
@@ -546,7 +738,11 @@ export default function Purchase({ onUpdateNavigation }) {
         onFilterToggle={handleFilterToggle}
         onRowClick={handleRowClick}
         onRetry={handleRetry}
+        onSort={handleSort}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
         searchTerm={searchTerm}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
       />
 
@@ -555,6 +751,14 @@ export default function Purchase({ onUpdateNavigation }) {
         isOpen={showSelectVendorModal}
         onClose={() => setShowSelectVendorModal(false)}
         onProceed={handleVendorProjectSelected}
+      />
+
+      <FilterModal
+        key={`${showFilterModal}-${JSON.stringify(activeFilters)}`}
+        isOpen={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        currentFilters={activeFilters}
       />
 
       <style>{`

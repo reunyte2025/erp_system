@@ -165,14 +165,33 @@ const SuccessModal = ({ isOpen, onClose, onProceed }) => {
 // FILTER MODAL COMPONENT
 // ============================================================================
 
+const EMPTY_PROJECT_FILTERS = {
+  projectName: '',
+  location: '',
+  ctsNumber: '',
+};
+
+const normalizeProjectSearchValue = (value) => String(value || '').trim().toLowerCase();
+
+const projectMatchesSearch = (project, value) => {
+  const needle = normalizeProjectSearchValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    project.name,
+    project.cts_number,
+    project.address,
+    project.city,
+    project.state,
+    project.pincode,
+    `${project.address || ''} ${project.city || ''} ${project.state || ''} ${project.pincode || ''}`.trim(),
+  ];
+
+  return haystacks.some((field) => normalizeProjectSearchValue(field).includes(needle));
+};
+
 const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
-  const [filters, setFilters] = useState(() => currentFilters || {
-    dateFrom: '',
-    dateTo: '',
-    projectName: '',
-    location: '',
-    ctsNumber: '',
-  });
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_PROJECT_FILTERS);
 
   // Sync with parent whenever modal opens
   useEffect(() => {
@@ -182,9 +201,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   }, [isOpen, currentFilters]);
 
   useEffect(() => {
-    if (isOpen) {
-      
-    } else {
+    if (!isOpen) {
       document.body.style.overflow = 'unset';
     }
     return () => { document.body.style.overflow = 'unset'; };
@@ -196,7 +213,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   };
 
   const handleClear = () => {
-    setFilters({ dateFrom: '', dateTo: '', projectName: '', location: '', ctsNumber: '' });
+    setFilters(EMPTY_PROJECT_FILTERS);
   };
 
   const handleApply = () => {
@@ -231,42 +248,12 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
 
           {/* Content */}
           <div className="p-5 space-y-4">
-            {/* Date Range */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">Select Date</label>
+            <div className="flex items-center justify-end">
+              {Object.values(filters).some((value) => String(value || '').trim() !== '') && (
                 <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
                   Clear
                 </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">From:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateFrom"
-                      value={filters.dateFrom}
-                      onChange={handleInputChange}
-                      className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">To:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateTo"
-                      value={filters.dateTo}
-                      onChange={handleInputChange}
-                      className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Project Name */}
@@ -1045,7 +1032,6 @@ export default function Projects() {
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(12);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showFilter, setShowFilter] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdProject, setCreatedProject] = useState(null);
@@ -1055,13 +1041,7 @@ export default function Projects() {
   const [isUndoing, setIsUndoing] = useState(false);
   const [toast, setToast] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [activeFilters, setActiveFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
-    projectName: '',
-    location: '',
-    ctsNumber: '',
-  });
+  const [activeFilters, setActiveFilters] = useState(EMPTY_PROJECT_FILTERS);
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -1098,27 +1078,49 @@ export default function Projects() {
     setError('');
 
     try {
-      // Use service layer function
+      const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+      const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
+
       const response = await getProjects({
-        page: currentPage,
-        page_size: pageSize,
-        search: searchTerm,
-        ...(activeFilters.dateFrom && { date_from: activeFilters.dateFrom }),
-        ...(activeFilters.dateTo && { date_to: activeFilters.dateTo }),
-        ...(activeFilters.projectName?.trim() && { name: activeFilters.projectName.trim() }),
-        ...(activeFilters.location?.trim() && { location: activeFilters.location.trim() }),
-        ...(activeFilters.ctsNumber?.trim() && { cts_number: activeFilters.ctsNumber.trim() }),
+        page: useLocalSearchAndFilter ? 1 : currentPage,
+        page_size: useLocalSearchAndFilter ? 9999 : pageSize,
       });
 
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
         const projectResults = apiData.results || [];
         const validProjects = projectResults.filter(project => project != null);
+        const normalizedSearch = searchTerm.trim();
 
-        setProjects(validProjects);
-        setCurrentPage(apiData.page || 1);
-        setTotalPages(apiData.total_pages || 1);
-        setTotalCount(apiData.total_count || 0);
+        const filteredResults = validProjects.filter((project) => {
+          if (!projectMatchesSearch(project, normalizedSearch)) return false;
+          if (activeFilters.projectName?.trim() && !normalizeProjectSearchValue(project.name).includes(normalizeProjectSearchValue(activeFilters.projectName))) return false;
+          if (activeFilters.ctsNumber?.trim() && !normalizeProjectSearchValue(project.cts_number).includes(normalizeProjectSearchValue(activeFilters.ctsNumber))) return false;
+          if (activeFilters.location?.trim()) {
+            const locationNeedle = normalizeProjectSearchValue(activeFilters.location);
+            const locationHaystack = [
+              project.address,
+              project.city,
+              project.state,
+              project.pincode,
+            ].map(normalizeProjectSearchValue).join(' ');
+            if (!locationHaystack.includes(locationNeedle)) return false;
+          }
+          return true;
+        });
+
+        if (useLocalSearchAndFilter) {
+          const startIndex = (currentPage - 1) * pageSize;
+          setProjects(filteredResults.slice(startIndex, startIndex + pageSize));
+          setCurrentPage(currentPage);
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setProjects(validProjects);
+          setCurrentPage(apiData.page || 1);
+          setTotalPages(apiData.total_pages || 1);
+          setTotalCount(apiData.total_count || 0);
+        }
       } else {
         console.error('❌ Invalid response format:', response);
         setProjects([]);
@@ -1273,48 +1275,6 @@ export default function Projects() {
   // DATA PREPARATION
   // ============================================================================
 
-  // Filter projects based on search term (client-side filtering)
-  // Only filter if searchTerm exists and projects is an array
-  const filteredProjects = Array.isArray(projects)
-    ? projects.filter(project => {
-        if (!project) return false;
-        // Search term filter
-        if (searchTerm) {
-          const search = searchTerm.toLowerCase();
-          const matchesSearch = (
-            project.name?.toLowerCase().includes(search) ||
-            project.address?.toLowerCase().includes(search) ||
-            project.city?.toLowerCase().includes(search) ||
-            project.cts_number?.toLowerCase().includes(search)
-          );
-          if (!matchesSearch) return false;
-        }
-        // Active filters (client-side fallback for immediate feedback)
-        if (activeFilters.projectName?.trim()) {
-          if (!project.name?.toLowerCase().includes(activeFilters.projectName.trim().toLowerCase())) return false;
-        }
-        if (activeFilters.ctsNumber?.trim()) {
-          if (!project.cts_number?.toLowerCase().includes(activeFilters.ctsNumber.trim().toLowerCase())) return false;
-        }
-        if (activeFilters.location?.trim()) {
-          const loc = activeFilters.location.trim().toLowerCase();
-          if (!project.address?.toLowerCase().includes(loc) && !project.city?.toLowerCase().includes(loc)) return false;
-        }
-        if (activeFilters.dateFrom) {
-          const from = new Date(activeFilters.dateFrom);
-          const created = project.created_at ? new Date(project.created_at) : null;
-          if (created && created < from) return false;
-        }
-        if (activeFilters.dateTo) {
-          const to = new Date(activeFilters.dateTo);
-          to.setHours(23, 59, 59, 999);
-          const created = project.created_at ? new Date(project.created_at) : null;
-          if (created && created > to) return false;
-        }
-        return true;
-      })
-    : [];
-
   // ============================================================================
   // RENDER
   // ============================================================================
@@ -1323,7 +1283,7 @@ export default function Projects() {
     <>
       <DynamicList
         config={projectsConfig}
-        data={filteredProjects}
+        data={projects}
         loading={loading}
         error={error}
         emptyMessage={projectsConfig.emptyMessage}
@@ -1337,7 +1297,7 @@ export default function Projects() {
         onRowClick={handleProjectClick}
         onRetry={handleRetry}
         searchTerm={searchTerm}
-        showFilter={showFilter}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         actionHandlers={{ onDeleteProject: handleDeleteProject, onUndoProject: handleUndoProject }}
       />
@@ -1433,7 +1393,6 @@ export default function Projects() {
         .animate-scaleIn {
           animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-
         .animate-slideDown {
           animation: slideDown 0.3s ease-out;
         }

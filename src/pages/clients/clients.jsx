@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, User, Phone, Mail, FileText, MapPin, Building2, Hash, Loader2, AlertCircle, CheckCircle, X, Calendar, Filter as FilterIcon, BookOpen } from 'lucide-react';
+import { Users, User, Phone, Mail, FileText, MapPin, Building2, Hash, Loader2, AlertCircle, CheckCircle, X, Filter as FilterIcon, BookOpen } from 'lucide-react';
 import { getClients, createClient, deleteClient, undoClient } from '../../services/clients';
 import clientConfig, { getColumns } from './client.config';
 import { useRole } from '../../components/RoleContext';
@@ -46,16 +46,120 @@ const StatCard = ({ icon, count, label, subLabel, bgColor, textColor }) => (
 // FILTER MODAL COMPONENT
 // ============================================================================
 
-const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
-  const [filters, setFilters] = useState(() => currentFilters || {
-    dateFrom: '',
-    dateTo: '',
-    plotNumber: '',
-    projectName: '',
-    location: '',
-    gstNumber: ''
-  });
+const EMPTY_FILTERS = {
+  first_name:  '',
+  last_name:   '',
+  email:       '',
+  gst_number:  '',
+};
 
+const CLIENT_ERROR_LABELS = {
+  first_name: 'First Name',
+  last_name: 'Last Name',
+  email: 'Email',
+  phone_number: 'Phone Number',
+  address: 'Address',
+  city: 'City',
+  state: 'State',
+  pincode: 'Pincode',
+  gst_number: 'GST Number',
+};
+
+const cleanClientErrorText = (message) => String(message || '')
+  .replace(/^Validation error:\s*/i, '')
+  .replace(/^Server error:\s*/i, '')
+  .trim();
+
+const parseClientErrorPayload = (value) => {
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const formatClientErrorPayload = (payload, fallbackMessage) => {
+  if (!payload) return fallbackMessage;
+
+  if (typeof payload === 'string') {
+    return cleanClientErrorText(payload) || fallbackMessage;
+  }
+
+  const fieldErrors = payload.errors;
+  if (fieldErrors && typeof fieldErrors === 'object') {
+    const messages = Object.entries(fieldErrors).flatMap(([field, fieldValue]) => {
+      const entries = Array.isArray(fieldValue) ? fieldValue : [fieldValue];
+      return entries
+        .filter(Boolean)
+        .map((entry) => {
+          const text = cleanClientErrorText(entry);
+          if (!text) return null;
+          if (field === 'non_field_errors') return text;
+          return `${CLIENT_ERROR_LABELS[field] || field}: ${text}`;
+        })
+        .filter(Boolean);
+    });
+
+    if (messages.length > 0) {
+      return messages.join(' ');
+    }
+  }
+
+  const genericMessage = payload.message || payload.error || payload.detail;
+  if (genericMessage) {
+    return cleanClientErrorText(genericMessage) || fallbackMessage;
+  }
+
+  return fallbackMessage;
+};
+
+const formatClientSubmissionError = (err, fallbackMessage) => {
+  const payloadMessage = formatClientErrorPayload(err?.response?.data, '');
+  if (payloadMessage) return payloadMessage;
+
+  const cleanedMessage = cleanClientErrorText(err?.message);
+  const parsedPayload = parseClientErrorPayload(cleanedMessage);
+  if (parsedPayload) {
+    return formatClientErrorPayload(parsedPayload, fallbackMessage);
+  }
+
+  return cleanedMessage || fallbackMessage;
+};
+
+const normalizeSearchValue = (value) => String(value || '').trim().toLowerCase();
+
+const clientMatchesText = (client, value) => {
+  const needle = normalizeSearchValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    client.first_name,
+    client.last_name,
+    `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+    client.email,
+    client.phone_number,
+    client.gst_number,
+    client.address,
+    client.city,
+    client.state,
+    client.pincode,
+  ];
+
+  return haystacks.some((field) => normalizeSearchValue(field).includes(needle));
+};
+
+const clientMatchesFilters = (client, filters) => (
+  clientMatchesText({ first_name: client.first_name }, filters?.first_name) &&
+  clientMatchesText({ last_name: client.last_name }, filters?.last_name) &&
+  clientMatchesText({ email: client.email }, filters?.email) &&
+  clientMatchesText({ gst_number: client.gst_number }, filters?.gst_number)
+);
+
+const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_FILTERS);
+
+  // Sync with parent whenever modal opens
   useEffect(() => {
     if (isOpen && currentFilters) {
       setFilters(currentFilters);
@@ -68,14 +172,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   };
 
   const handleClear = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      plotNumber: '',
-      projectName: '',
-      location: '',
-      gstNumber: ''
-    });
+    setFilters(EMPTY_FILTERS);
   };
 
   const handleApply = () => {
@@ -84,6 +181,9 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
   };
 
   if (!isOpen) return null;
+
+  // Check if any filter is active to show a visual indicator on the Clear button
+  const hasActiveFilters = Object.values(filters).some(v => v.trim() !== '');
 
   return (
     <div
@@ -104,9 +204,9 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
           <div className="bg-teal-600 text-white px-4 sm:px-6 py-3 sm:py-4 rounded-t-2xl flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
               <FilterIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-              <h2 className="text-base sm:text-lg font-semibold">Filter</h2>
+              <h2 className="text-base sm:text-lg font-semibold">Filter Clients</h2>
             </div>
-            <button 
+            <button
               onClick={onClose}
               className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors touch-manipulation"
               aria-label="Close"
@@ -115,100 +215,71 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
             </button>
           </div>
 
-          {/* Content - Scrollable */}
-          <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 flex-1">
-            {/* Date Range */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs sm:text-sm font-medium text-gray-700">Select Date</label>
-                <button 
+          {/* Content */}
+          <div className="p-4 sm:p-6 space-y-4 flex-1">
+            {/* Section header + Clear */}
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button
                   onClick={handleClear}
-                  className="text-teal-600 text-xs sm:text-sm font-medium hover:text-teal-700 touch-manipulation px-2 py-1"
+                  className="text-teal-600 text-xs sm:text-sm font-medium hover:text-teal-700 touch-manipulation px-2 py-1 rounded-lg hover:bg-teal-50 transition-colors"
                 >
-                  Clear
+                  Clear All
                 </button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">From:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateFrom"
-                      value={filters.dateFrom}
-                      onChange={handleInputChange}
-                      className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-xs sm:text-sm"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">To:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateTo"
-                      value={filters.dateTo}
-                      onChange={handleInputChange}
-                      className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-xs sm:text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Plot / CTS / Survey Number */}
+            {/* First Name */}
             <div>
               <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
-                Plot / CTS / Survey Number
+                First Name
               </label>
               <div className="relative">
-                <Hash className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  name="plotNumber"
-                  value={filters.plotNumber}
+                  name="first_name"
+                  value={filters.first_name}
                   onChange={handleInputChange}
-                  placeholder="123456789"
-                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="e.g. John"
+                  className="w-full pl-9 pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 />
               </div>
             </div>
 
-            {/* Project Name */}
+            {/* Last Name */}
             <div>
               <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
-                Project Name
+                Last Name
               </label>
               <div className="relative">
-                <Building2 className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  name="projectName"
-                  value={filters.projectName}
+                  name="last_name"
+                  value={filters.last_name}
                   onChange={handleInputChange}
-                  placeholder="ACME Corporation"
-                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="e.g. Doe"
+                  className="w-full pl-9 pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 />
               </div>
             </div>
 
-            {/* Location */}
+            {/* Email */}
             <div>
               <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
-                Location
+                Email
               </label>
               <div className="relative">
-                <MapPin className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                  type="text"
-                  name="location"
-                  value={filters.location}
+                  type="email"
+                  name="email"
+                  value={filters.email}
                   onChange={handleInputChange}
-                  placeholder="Contact@acme.in"
-                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="e.g. john@example.com"
+                  className="w-full pl-9 pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 />
               </div>
             </div>
@@ -219,14 +290,14 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
                 GST Number
               </label>
               <div className="relative">
-                <FileText className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <FileText className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  name="gstNumber"
-                  value={filters.gstNumber}
+                  name="gst_number"
+                  value={filters.gst_number}
                   onChange={handleInputChange}
-                  placeholder="1234556"
-                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="e.g. 22AAAAA0000A1Z5"
+                  className="w-full pl-9 pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 />
               </div>
             </div>
@@ -236,7 +307,7 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
           <div className="px-4 sm:px-6 pb-4 sm:pb-6 flex-shrink-0">
             <button
               onClick={handleApply}
-              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 sm:py-3 px-6 rounded-xl font-medium transition-all duration-200 transform active:scale-[0.98] sm:hover:scale-[1.02] flex items-center justify-center gap-2 text-sm sm:text-base touch-manipulation"
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 sm:py-3 px-6 rounded-xl font-medium transition-all duration-200 transform active:scale-[0.98] flex items-center justify-center gap-2 text-sm sm:text-base touch-manipulation"
             >
               <FilterIcon className="w-4 h-4" />
               Apply Filters
@@ -303,10 +374,6 @@ const SuccessModal = ({ isOpen, onClose, onProceed, isDraft = false }) => {
     </div>
   );
 };
-
-// ============================================================================
-// INPUT FIELD COMPONENT
-// ============================================================================
 
 // ============================================================================
 // CONFIRM DELETE MODAL
@@ -416,16 +483,16 @@ const ActionToast = ({ message, type, onClose }) => {
 // INPUT FIELD COMPONENT
 // ============================================================================
 
-const InputField = ({ 
-  icon: Icon, 
-  label, 
-  name, 
-  value, 
-  onChange, 
-  type = 'text', 
-  placeholder = '', 
+const InputField = ({
+  icon: Icon,
+  label,
+  name,
+  value,
+  onChange,
+  type = 'text',
+  placeholder = '',
   required = false,
-  disabled = false 
+  disabled = false
 }) => (
   <div>
     <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -499,7 +566,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
   const validateForm = () => {
     const required = ['firstName', 'lastName', 'phoneNumber', 'email'];
     const missing = required.filter(field => !formData[field].trim());
-    
+
     if (missing.length > 0) {
       const fieldNames = {
         firstName: 'First Name',
@@ -550,23 +617,12 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
     }
     setDraftSubmitting(true);
     try {
-      // Always createClient with is_draft: true.
-      // Backend matches by first_name + last_name + email:
-      //   - If a draft exists with those details → updates it in place.
-      //   - If nothing exists → creates a new draft.
       const payload = buildPayload(true);
       const response = await createClient(payload);
       resetForm();
       onSuccess(response, true);
     } catch (err) {
-      const d = err.response?.data;
-      const msg = d?.message
-        || d?.errors?.non_field_errors?.[0]
-        || d?.errors?.email?.[0]
-        || d?.error
-        || err.message
-        || 'Failed to save draft';
-      setError(msg);
+      setError(formatClientSubmissionError(err, 'Failed to save draft'));
     } finally {
       setDraftSubmitting(false);
     }
@@ -580,34 +636,17 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
 
     setSubmitting(true);
     try {
-      // Always createClient regardless of new or draft edit.
-      // Backend matches by first_name + last_name + email:
-      //   - If a DRAFT exists with those details → updates it to ACTIVE (status 2).
-      //   - If nothing exists → creates a new ACTIVE client.
-      // No deleteClient call needed — backend handles it all internally.
       const payload = buildPayload(false);
       const response = await createClient(payload);
       resetForm();
       onSuccess(response, false);
     } catch (err) {
       logger.error('❌ Error saving client:', err);
-      const d = err.response?.data;
-      const msg = d?.errors
-        || d?.message
-        || d?.errors?.non_field_errors?.[0]
-        || d?.errors?.email?.[0]
-        || d?.error
-        || d?.detail
-        || err.message
-        || 'Failed to save client';
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      setError(formatClientSubmissionError(err, 'Failed to save client'));
     } finally {
       setSubmitting(false);
     }
   };
-
-  // Lock body scroll while modal is open
-  useEffect(() => {}, [isOpen]);
 
   const isAnySubmitting = submitting || draftSubmitting;
 
@@ -628,14 +667,14 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
       {/* Centering wrapper */}
       <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
 
-        {/* Modal card — fixed size, internal scroll via overflow-hidden + flex-col */}
+        {/* Modal card */}
         <div
           className="relative bg-white rounded-2xl shadow-2xl w-full animate-scaleIn flex flex-col overflow-hidden pointer-events-auto"
           style={{ maxWidth: '520px', maxHeight: 'calc(100vh - 48px)', margin: '0 16px' }}
           onClick={(e) => e.stopPropagation()}
         >
 
-          {/* ── HEADER — always visible, never moves ───────────────────── */}
+          {/* HEADER */}
           <div className={`flex-shrink-0 text-white px-5 py-4 flex items-center justify-between rounded-t-2xl ${isDraftEdit ? 'bg-orange-500' : 'bg-teal-600'}`}>
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
@@ -661,7 +700,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
             </button>
           </div>
 
-          {/* Draft info banner — shown only when editing an existing draft */}
+          {/* Draft info banner */}
           {isDraftEdit && (
             <div className="flex-shrink-0 flex items-center gap-2 bg-orange-50 border-b border-orange-100 px-5 py-2.5">
               <BookOpen className="w-4 h-4 text-orange-500 flex-shrink-0" />
@@ -671,12 +710,11 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
             </div>
           )}
 
-          {/* ── SCROLLABLE BODY — error + fields live here, body scrolls ── */}
+          {/* SCROLLABLE BODY */}
           <div className="flex-1 overflow-y-auto min-h-0">
             <form onSubmit={handleSubmit} id="create-client-form">
               <div className="px-5 pt-4 pb-2 space-y-4">
 
-                {/* Error banner — inside scroll so card size never changes */}
                 {error && (
                   <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-600 px-3.5 py-2.5 rounded-xl">
                     <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -684,7 +722,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                   </div>
                 )}
 
-                {/* Section: Personal Info */}
+                {/* Personal Info */}
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Personal Info</p>
                   <div className="grid grid-cols-2 gap-3">
@@ -697,7 +735,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                   </div>
                 </div>
 
-                {/* Section: Contact */}
+                {/* Contact */}
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Contact</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -710,7 +748,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                   </div>
                 </div>
 
-                {/* Section: Address */}
+                {/* Address */}
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Address</p>
                   <div className="space-y-3">
@@ -731,7 +769,7 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                   </div>
                 </div>
 
-                {/* Section: Business */}
+                {/* Business */}
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Business (Optional)</p>
                   <InputField icon={FileText} label="GST Number" name="gstNumber"
@@ -743,10 +781,9 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
             </form>
           </div>
 
-          {/* ── FOOTER — always visible, never moves ───────────────────── */}
+          {/* FOOTER */}
           <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 bg-white rounded-b-2xl">
             <div className="flex items-center gap-2.5">
-              {/* Cancel */}
               <button
                 type="button"
                 onClick={onClose}
@@ -758,7 +795,6 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                 Cancel
               </button>
 
-              {/* Save as Draft */}
               <button
                 type="button"
                 onClick={handleSaveAsDraft}
@@ -776,7 +812,6 @@ const CreateClientModal = ({ isOpen, onClose, onSuccess, initialData = null }) =
                 )}
               </button>
 
-              {/* Create / Finalise Client */}
               <button
                 type="submit"
                 form="create-client-form"
@@ -812,50 +847,48 @@ export default function Clients() {
 
   // Columns are filtered by role — Admin sees Actions column, others do not
   const columns = getColumns(isAdmin);
-  
-  const [clients, setClients] = useState([]);
-  const [stats, setStats] = useState({ total: 0, draft: 0, star: 0, newlyAdded: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [pageSize] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
 
-  // ── Sorting state ──────────────────────────────────────────────────────────
-  // sortBy: the API field name (e.g. 'first_name', 'created_at', 'status')
-  // sortOrder: 'asc' | 'desc'
-  const [sortBy, setSortBy] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc');
-  
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showFilter, setShowFilter] = useState(false);
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [createdClient, setCreatedClient] = useState(null);
+  const [clients, setClients]           = useState([]);
+  const [stats, setStats]               = useState({ total: 0, draft: 0, star: 0, newlyAdded: 0 });
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+
+  const [currentPage, setCurrentPage]   = useState(1);
+  const [totalPages, setTotalPages]     = useState(1);
+  const [totalCount, setTotalCount]     = useState(0);
+  const [pageSize]                      = useState(10);
+  const [searchTerm, setSearchTerm]     = useState('');
+
+  // ── Sorting state ────────────────────────────────────────────────────────
+  const [sortBy, setSortBy]             = useState('');
+  const [sortOrder, setSortOrder]       = useState('asc');
+
+  const [showCreateModal, setShowCreateModal]     = useState(false);
+  const [showSuccessModal, setShowSuccessModal]   = useState(false);
+  const [showFilterModal, setShowFilterModal]     = useState(false);
+  const [createdClient, setCreatedClient]         = useState(null);
   const [lastCreatedIsDraft, setLastCreatedIsDraft] = useState(false);
   const [draftClientToEdit, setDraftClientToEdit] = useState(null);
+
+  // ── Filter state — matches only the fields the API supports ─────────────
   const [activeFilters, setActiveFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
-    plotNumber: '',
-    projectName: '',
-    location: '',
-    gstNumber: ''
+    first_name:  '',
+    last_name:   '',
+    email:       '',
+    gst_number:  '',
   });
 
-  // ── Delete / Undo state ────────────────────────────────────────────────────
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [clientToDelete, setClientToDelete]   = useState(null);
-  const [isDeleting, setIsDeleting]           = useState(false);
-  const [isUndoing, setIsUndoing]             = useState(false);
-  const [toast, setToast]                     = useState(null); // { message, type }
-  // ──────────────────────────────────────────────────────────────────────────
-  
+  // ── Delete / Undo state ─────────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal]   = useState(false);
+  const [clientToDelete, setClientToDelete]     = useState(null);
+  const [isDeleting, setIsDeleting]             = useState(false);
+  const [isUndoing, setIsUndoing]               = useState(false);
+  const [toast, setToast]                       = useState(null);
+
   const requestInProgress = useRef(false);
-  const lastFetchParams = useRef(null);
+  const lastFetchParams   = useRef(null);
+  // Debounce timer for the search bar
+  const searchDebounceRef = useRef(null);
 
   // ========================================================================
   // DATA FETCHING
@@ -863,6 +896,9 @@ export default function Clients() {
 
   const fetchClients = useCallback(async () => {
     const currentParams = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder });
+    const trimmedSearch = searchTerm.trim();
+    const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+    const useLocalSearchAndFilter = Boolean(trimmedSearch || hasActiveFilters);
 
     if (requestInProgress.current && lastFetchParams.current === currentParams) {
       logger.log('⏭️ Skipping duplicate request');
@@ -870,68 +906,57 @@ export default function Clients() {
     }
 
     requestInProgress.current = true;
-    lastFetchParams.current = currentParams;
+    lastFetchParams.current   = currentParams;
 
     try {
       setLoading(true);
       setError(null);
 
-      logger.log('📡 Fetching clients...', { currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder });
-
       const params = {
-        page: currentPage,
-        page_size: pageSize,
+        page:      useLocalSearchAndFilter ? 1 : currentPage,
+        page_size: useLocalSearchAndFilter ? 1000 : pageSize,
       };
 
-      if (searchTerm.trim()) {
-        params.search = searchTerm.trim();
-      }
-
-      // ── Sorting params ───────────────────────────────────────────────────
       if (sortBy) {
-        params.sort_by = sortBy;
+        params.sort_by    = sortBy;
         params.sort_order = sortOrder;
       }
 
-      if (activeFilters.dateFrom) params.date_from = activeFilters.dateFrom;
-      if (activeFilters.dateTo) params.date_to = activeFilters.dateTo;
-      if (activeFilters.plotNumber?.trim()) params.plot_number = activeFilters.plotNumber.trim();
-      if (activeFilters.projectName?.trim()) params.project_name = activeFilters.projectName.trim();
-      if (activeFilters.location?.trim()) params.location = activeFilters.location.trim();
-      if (activeFilters.gstNumber?.trim()) params.gst_number = activeFilters.gstNumber.trim();
+      if (activeFilters.first_name?.trim()) params.first_name = activeFilters.first_name.trim();
+      if (activeFilters.last_name?.trim())  params.last_name  = activeFilters.last_name.trim();
+      if (activeFilters.email?.trim())      params.email      = activeFilters.email.trim().toLowerCase();
+      if (activeFilters.gst_number?.trim()) params.gst_number = activeFilters.gst_number.trim();
+
+      logger.log('📡 Fetching clients...', params);
 
       const response = await getClients(params);
       logger.log('📦 Clients Response:', response);
 
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
-        const clientResults = apiData.results || [];
+        const clientResults = Array.isArray(apiData.results) ? apiData.results : [];
 
-        setClients(clientResults);
-        setTotalPages(apiData.total_pages || 1);
-        setTotalCount(apiData.total_count || clientResults.length);
+        if (useLocalSearchAndFilter) {
+          const filteredResults = clientResults.filter((client) =>
+            clientMatchesText(client, trimmedSearch) && clientMatchesFilters(client, activeFilters)
+          );
+          const calculatedTotalPages = Math.max(1, Math.ceil(filteredResults.length / pageSize));
+          const startIndex = (currentPage - 1) * pageSize;
 
-        // ── Stats ────────────────────────────────────────────────────────────
-        // Log the raw apiData so we can see exactly what fields the backend returns
-        console.log('[Clients] apiData keys:', Object.keys(apiData));
-        console.log('[Clients] apiData stats:', {
-          total_count:        apiData.total_count,
-          draft_count:        apiData.draft_count,
-          star_count:         apiData.star_count,
-          start_client_count: apiData.start_client_count,
-          new_count:          apiData.new_count,
-        });
+          setClients(filteredResults.slice(startIndex, startIndex + pageSize));
+          setTotalPages(calculatedTotalPages);
+          setTotalCount(filteredResults.length);
+        } else {
+          setClients(clientResults);
+          setTotalPages(apiData.total_pages || 1);
+          setTotalCount(apiData.total_count || clientResults.length);
+        }
 
-        // The backend field for "star client" is "start_client" (backend typo).
-        // For the count stat card we try every possible field name the backend
-        // might use. We NEVER fall back to page-level counting because that only
-        // covers the current page (up to page_size items) and will be wrong when
-        // there are multiple pages.
         const resolveCount = (...fields) => {
           for (const f of fields) {
             if (typeof apiData[f] === 'number') return apiData[f];
           }
-          return 0; // unknown — show 0, not a guess
+          return 0;
         };
 
         setStats({
@@ -952,7 +977,6 @@ export default function Clients() {
       setLoading(false);
       requestInProgress.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder]);
 
   useEffect(() => {
@@ -964,7 +988,6 @@ export default function Clients() {
   // ========================================================================
 
   const handleCreateSuccess = (clientData, isDraft = false) => {
-    // Log the full response so we can see exactly what shape it is
     console.log('[Clients] handleCreateSuccess — clientData received:', JSON.stringify(clientData, null, 2));
     setCreatedClient(clientData);
     setLastCreatedIsDraft(isDraft);
@@ -976,24 +999,14 @@ export default function Clients() {
 
   const handleProceedToClient = () => {
     setShowSuccessModal(false);
-    // Draft clients stay on the list — no profile page to navigate to
     if (lastCreatedIsDraft) {
       setDraftClientToEdit(null);
       return;
     }
-    // Navigate to the newly created/finalised client profile
-    // Handle all possible response shapes:
-    // Shape A: { data: { id: X } }          ← wrapped response
-    // Shape B: { id: X }                     ← flat response
-    // Shape C: { status: "success", data: { id: X } } ← API envelope
-    // Handle all response shapes:
-    // Shape A (normal create): { id: X, first_name: ... }  ← flat, direct
-    // Shape B (wrapped):       { data: { id: X } }
-    // Shape C (envelope):      { status: 'success', data: { id: X } }
     const id = createdClient?.id
       ?? createdClient?.data?.id
       ?? createdClient?.data?.data?.id;
-    console.log('[Clients] Navigating to client ID:', id, '| Full createdClient:', createdClient);
+    console.log('[Clients] Navigating to client ID:', id);
     if (id) {
       navigate(`/clients/${id}`);
     } else {
@@ -1001,10 +1014,20 @@ export default function Clients() {
     }
   };
 
-  const handleSearch = (value) => {
+  /**
+   * Search handler — debounced 400ms so we don't fire a request on every
+   * keystroke. The actual API call uses get_all_client_by_name.
+   */
+  const handleSearch = useCallback((value) => {
     setSearchTerm(value);
     setCurrentPage(1);
-  };
+
+    // Invalidate cache so the debounced fetchClients actually fires
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      lastFetchParams.current = null;
+    }, 400);
+  }, []);
 
   const handlePageChange = (page) => {
     setCurrentPage(page);
@@ -1022,20 +1045,12 @@ export default function Clients() {
   };
 
   /**
-   * Sort handler — called from ListTable when a sortable column header is clicked.
-   * Toggles direction if the same column is clicked again; resets to page 1.
-   *
-   * NOTE: We read sortBy/sortOrder directly (not via prev callbacks) to avoid
-   * the stale-closure / nested-setState bug that caused the 2nd click to silently
-   * no-op. Both state values are in the useCallback dep array so they are always
-   * fresh when this function is called.
+   * Sort handler — toggles direction if the same column is clicked again.
    */
   const handleSort = useCallback((field) => {
     if (field === sortBy) {
-      // Same column → flip direction
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
-      // New column → set field and default to asc
       setSortBy(field);
       setSortOrder('asc');
     }
@@ -1045,12 +1060,12 @@ export default function Clients() {
 
   /**
    * Row click handler.
-   * Draft clients: status === 1  → open the modal pre-filled with their data.
-   * Active clients: status === 2 (or any other) → navigate to profile page.
+   * Draft (status 1)   → open create modal pre-filled.
+   * Active (status 2+) → navigate to profile page.
+   * Deactive (status 3)→ no action.
    */
   const handleRowClick = (client) => {
     logger.log('Client clicked:', client);
-    // Deactive clients (status 3) — block navigation entirely
     if (client.status === 3) return;
     if (client.status === 1) {
       setDraftClientToEdit(client);
@@ -1065,10 +1080,11 @@ export default function Clients() {
   };
 
   const handleRetry = () => {
+    lastFetchParams.current = null;
     fetchClients();
   };
 
-  // ── Delete Client ──────────────────────────────────────────────────────────
+  // ── Delete Client ────────────────────────────────────────────────────────
   const handleDeleteClient = (client) => {
     setClientToDelete(client);
     setShowDeleteModal(true);
@@ -1091,7 +1107,7 @@ export default function Clients() {
     }
   };
 
-  // ── Undo (Restore) Client — PATCH /clients/undo_client/?id= ───────────────
+  // ── Undo (Restore) Client ────────────────────────────────────────────────
   const handleUndoClient = async (client) => {
     if (isUndoing) return;
     setIsUndoing(true);
@@ -1106,7 +1122,6 @@ export default function Clients() {
       setIsUndoing(false);
     }
   };
-  // ──────────────────────────────────────────────────────────────────────────
 
   // ========================================================================
   // RENDER STATS CARDS
@@ -1173,7 +1188,7 @@ export default function Clients() {
         sortBy={sortBy}
         sortOrder={sortOrder}
         searchTerm={searchTerm}
-        showFilter={showFilter}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         actionHandlers={isAdmin ? { onDeleteClient: handleDeleteClient, onUndoClient: handleUndoClient } : undefined}
       />
@@ -1199,7 +1214,7 @@ export default function Clients() {
         currentFilters={activeFilters}
       />
 
-      {/* ── Confirm Delete Modal (Admin only — gated in ActionsMenu) ── */}
+      {/* Confirm Delete Modal (Admin only — gated in ActionsMenu) */}
       <ConfirmDeleteModal
         isOpen={showDeleteModal}
         onClose={() => { if (!isDeleting) { setShowDeleteModal(false); setClientToDelete(null); } }}
@@ -1208,7 +1223,7 @@ export default function Clients() {
         isLoading={isDeleting}
       />
 
-      {/* ── Action Toast ── */}
+      {/* Action Toast */}
       {toast && (
         <ActionToast
           message={toast.message}
@@ -1240,8 +1255,8 @@ export default function Clients() {
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
-        .animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
-        .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-fadeIn   { animation: fadeIn   0.2s ease-out; }
+        .animate-scaleIn  { animation: scaleIn  0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .animate-slideDown { animation: slideDown 0.3s ease-out; }
         .animate-slideUp   { animation: slideUp   0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>

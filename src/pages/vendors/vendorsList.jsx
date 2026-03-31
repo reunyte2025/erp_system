@@ -26,6 +26,52 @@ const logger = {
   error: (...args) => console.error(...args),
 };
 
+const EMPTY_VENDOR_FILTERS = {
+  vendorName: '',
+  contactPerson: '',
+  email: '',
+  city: '',
+  gstNumber: '',
+  category: '',
+};
+
+const normalizeVendorValue = (value) => String(value || '').trim().toLowerCase();
+
+const vendorMatchesSearch = (vendor, value) => {
+  const needle = normalizeVendorValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    vendor.name,
+    vendor.contact_person,
+    vendor.email,
+    vendor.phone,
+    vendor.address,
+    vendor.city,
+    vendor.state,
+    vendor.pincode,
+    vendor.website,
+    vendor.gst_number,
+    vendor.status_display,
+    vendor.vendor_categories_display,
+  ];
+
+  return haystacks.some((field) => normalizeVendorValue(field).includes(needle));
+};
+
+const vendorMatchesFilters = (vendor, filters) => {
+  if (filters?.vendorName && !normalizeVendorValue(vendor.name).includes(normalizeVendorValue(filters.vendorName))) return false;
+  if (filters?.contactPerson && !normalizeVendorValue(vendor.contact_person).includes(normalizeVendorValue(filters.contactPerson))) return false;
+  if (filters?.email && !normalizeVendorValue(vendor.email).includes(normalizeVendorValue(filters.email))) return false;
+  if (filters?.city) {
+    const cityHaystack = [vendor.city, vendor.state, vendor.address, vendor.pincode].map(normalizeVendorValue).join(' ');
+    if (!cityHaystack.includes(normalizeVendorValue(filters.city))) return false;
+  }
+  if (filters?.gstNumber && !normalizeVendorValue(vendor.gst_number).includes(normalizeVendorValue(filters.gstNumber))) return false;
+  if (filters?.category && !normalizeVendorValue(vendor.vendor_categories_display).includes(normalizeVendorValue(filters.category))) return false;
+  return true;
+};
+
 // ============================================================================
 // STAT CARD COMPONENT
 // ============================================================================
@@ -51,13 +97,7 @@ const StatCard = ({ icon, count, label, subLabel, bgColor, textColor }) => (
 // ============================================================================
 
 const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
-  const [filters, setFilters] = useState(() => currentFilters || {
-    dateFrom: '',
-    dateTo: '',
-    vendorName: '',
-    city: '',
-    category: '',
-  });
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_VENDOR_FILTERS);
 
   useEffect(() => {
     if (isOpen) {
@@ -70,25 +110,13 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    if (isOpen && currentFilters) {
-      setFilters(currentFilters);
-    }
-  }, [isOpen, currentFilters]);
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
   const handleClear = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      vendorName: '',
-      city: '',
-      category: '',
-    });
+    setFilters(EMPTY_VENDOR_FILTERS);
   };
 
   const handleApply = () => {
@@ -138,46 +166,16 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
 
           {/* Content - Scrollable */}
           <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 flex-1">
-            {/* Date Range */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs sm:text-sm font-medium text-gray-700">Select Date</label>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {Object.values(filters).some((value) => String(value || '').trim() !== '') && (
                 <button 
                   onClick={handleClear}
                   className="text-teal-600 text-xs sm:text-sm font-medium hover:text-teal-700 touch-manipulation px-2 py-1"
                 >
-                  Clear
+                  Clear All
                 </button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">From:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateFrom"
-                      value={filters.dateFrom}
-                      onChange={handleInputChange}
-                      className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-xs sm:text-sm"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">To:</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
-                      name="dateTo"
-                      value={filters.dateTo}
-                      onChange={handleInputChange}
-                      className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-xs sm:text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Vendor Name */}
@@ -193,6 +191,42 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
                   value={filters.vendorName}
                   onChange={handleInputChange}
                   placeholder="Enter vendor name"
+                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Contact Person */}
+            <div>
+              <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
+                Contact Person
+              </label>
+              <div className="relative">
+                <Building2 className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  name="contactPerson"
+                  value={filters.contactPerson}
+                  onChange={handleInputChange}
+                  placeholder="Enter contact person"
+                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  name="email"
+                  value={filters.email}
+                  onChange={handleInputChange}
+                  placeholder="Enter email"
                   className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                 />
               </div>
@@ -232,6 +266,24 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
                   <option key={cat.value} value={cat.value}>{cat.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* GST Number */}
+            <div>
+              <label className="text-xs sm:text-sm font-medium text-gray-700 mb-2 block">
+                GST Number
+              </label>
+              <div className="relative">
+                <FileText className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  name="gstNumber"
+                  value={filters.gstNumber}
+                  onChange={handleInputChange}
+                  placeholder="Enter GST number"
+                  className="w-full pl-8 sm:pl-9 pr-2 sm:pr-3 py-2 sm:py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                />
+              </div>
             </div>
           </div>
 
@@ -997,21 +1049,21 @@ export default function VendorsList() {
   const [vendorToDelete, setVendorToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [activeFilters, setActiveFilters] = useState({});
+  const [activeFilters, setActiveFilters] = useState(EMPTY_VENDOR_FILTERS);
   const [toast, setToast] = useState(null);
 
   const lastFetchParams = useRef(null);
 
-  const fetchVendors = useCallback(async (params = {}) => {
+  const fetchVendors = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+      const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
       const queryParams = {
-        page: params.page || currentPage,
-        page_size: pageSize,
-        search: params.search || searchTerm,
-        ordering: params.ordering || (sortOrder === 'desc' ? `-${sortBy}` : sortBy),
-        ...params,
+        page: useLocalSearchAndFilter ? 1 : currentPage,
+        page_size: useLocalSearchAndFilter ? 1000 : pageSize,
+        ordering: sortOrder === 'desc' ? `-${sortBy}` : sortBy,
       };
 
       if (isAdminOrManager) {
@@ -1025,11 +1077,23 @@ export default function VendorsList() {
       const response = await getVendors(queryParams);
 
       if (response.status === 'success' && response.data) {
-        setVendors(response.data.results || []);
-        
-        const totalPages = Math.ceil((response.data.count || 0) / pageSize);
-        setTotalPages(totalPages);
-        setTotalCount(response.data.count || 0);
+        const results = Array.isArray(response.data.results) ? response.data.results : [];
+
+        if (useLocalSearchAndFilter) {
+          const filteredResults = results.filter((vendor) =>
+            vendorMatchesSearch(vendor, searchTerm) && vendorMatchesFilters(vendor, activeFilters)
+          );
+          const startIndex = (currentPage - 1) * pageSize;
+
+          setVendors(filteredResults.slice(startIndex, startIndex + pageSize));
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setVendors(results);
+          const totalPages = Math.ceil((response.data.count || 0) / pageSize);
+          setTotalPages(totalPages);
+          setTotalCount(response.data.count || 0);
+        }
       } else {
         setError('Failed to load vendors');
       }
@@ -1039,7 +1103,7 @@ export default function VendorsList() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, sortBy, sortOrder, isAdminOrManager]);
+  }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder, isAdminOrManager]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -1054,20 +1118,21 @@ export default function VendorsList() {
 
   useEffect(() => {
     fetchVendors();
+  }, [fetchVendors]);
+
+  useEffect(() => {
     fetchStats();
-  }, []);
+  }, [fetchStats]);
 
   const handlePageChange = (newPage) => {
     setCurrentPage(newPage);
     lastFetchParams.current = null;
-    fetchVendors({ page: newPage });
   };
 
   const handleSearch = (term) => {
     setSearchTerm(term);
     setCurrentPage(1);
     lastFetchParams.current = null;
-    fetchVendors({ search: term, page: 1 });
   };
 
   const handleSort = (field, order) => {
@@ -1075,7 +1140,6 @@ export default function VendorsList() {
     setSortOrder(order);
     setCurrentPage(1);
     lastFetchParams.current = null;
-    fetchVendors({ ordering: order === 'desc' ? `-${field}` : field, page: 1 });
   };
 
   const handleFilterToggle = () => {
@@ -1086,13 +1150,6 @@ export default function VendorsList() {
     setActiveFilters(filters);
     setCurrentPage(1);
     lastFetchParams.current = null;
-    
-    const queryParams = { page: 1 };
-    if (filters.vendorName) queryParams.search = filters.vendorName;
-    if (filters.city) queryParams.city = filters.city;
-    if (filters.category) queryParams.vendor_category = filters.category;
-    
-    fetchVendors(queryParams);
   };
 
   const handleDeleteVendor = (vendor) => {
@@ -1195,7 +1252,7 @@ export default function VendorsList() {
         sortBy={sortBy}
         sortOrder={sortOrder}
         searchTerm={searchTerm}
-        showFilter={showFilterModal}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         onRowClick={handleRowClick}
         actionHandlers={isAdminOrManager ? { onDeleteVendor: handleDeleteVendor } : undefined}
@@ -1214,6 +1271,7 @@ export default function VendorsList() {
       />
 
       <FilterModal
+        key={`${showFilterModal}-${JSON.stringify(activeFilters)}`}
         isOpen={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onApply={handleApplyFilters}
