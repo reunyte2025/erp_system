@@ -36,6 +36,49 @@ import { getClients, getClientProjects } from '../../services/clients';
 
 const PAGE_SIZE = 10;
 
+const EMPTY_NOC_FILTERS = {
+  nocId: '',
+  clientName: '',
+  nocType: '',
+  authority: '',
+  status: '',
+};
+
+const normalizeNocValue = (value) => String(value || '').trim().toLowerCase();
+
+const nocMatchesSearch = (noc, value) => {
+  const needle = normalizeNocValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    noc.noc_id,
+    noc.title,
+    noc.client_name,
+    noc.applicant_name,
+    noc.noc_type_name,
+    noc.authority_name,
+    noc.status_display,
+    noc.address,
+    noc.city,
+    noc.state,
+    noc.pincode,
+  ];
+
+  return haystacks.some((field) => normalizeNocValue(field).includes(needle));
+};
+
+const nocMatchesFilters = (noc, filters) => {
+  if (filters?.nocId && !normalizeNocValue(noc.noc_id || noc.title).includes(normalizeNocValue(filters.nocId))) return false;
+  if (filters?.clientName) {
+    const clientHaystack = [noc.client_name, noc.applicant_name].map(normalizeNocValue).join(' ');
+    if (!clientHaystack.includes(normalizeNocValue(filters.clientName))) return false;
+  }
+  if (filters?.nocType && !normalizeNocValue(noc.noc_type_name).includes(normalizeNocValue(filters.nocType))) return false;
+  if (filters?.authority && !normalizeNocValue(noc.authority_name).includes(normalizeNocValue(filters.authority))) return false;
+  if (filters?.status && !normalizeNocValue(noc.status_display || noc.status).includes(normalizeNocValue(filters.status))) return false;
+  return true;
+};
+
 // ============================================================================
 // APPLICANT TYPES — matches backend enum exactly
 // BUILDER=1, OWNER=2, CONTRACTOR=3
@@ -267,6 +310,75 @@ const ErrorBanner = ({ message }) =>
       <p className="text-sm text-red-600">{message}</p>
     </div>
   ) : null;
+
+const NocFilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_NOC_FILTERS);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleClear = () => setFilters(EMPTY_NOC_FILTERS);
+  const handleApply = () => { onApply(filters); onClose(); };
+
+  if (!isOpen) return null;
+
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || '').trim() !== '');
+
+  return (
+    <div className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-teal-700 text-white px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4" />
+              <h2 className="text-base font-semibold">Filter NOCs</h2>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <Field icon={ClipboardCheck} label="NOC ID" name="nocId" value={filters.nocId} onChange={handleInputChange} placeholder="Enter NOC ID" />
+            <Field icon={User} label="Client Name" name="clientName" value={filters.clientName} onChange={handleInputChange} placeholder="Enter client name" />
+            <Field icon={Tag} label="NOC Type" name="nocType" value={filters.nocType} onChange={handleInputChange} placeholder="Enter NOC type" />
+            <Field icon={Building2} label="Authority" name="authority" value={filters.authority} onChange={handleInputChange} placeholder="Enter authority" />
+            <Field icon={Clock} label="Status" name="status" value={filters.status} onChange={handleInputChange} placeholder="Enter status" />
+          </div>
+
+          <div className="px-5 pb-5">
+            <button
+              onClick={handleApply}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+            >
+              <Tag className="w-4 h-4" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // SEARCHABLE DROPDOWN — for Clients & Projects (potentially large lists)
@@ -1043,6 +1155,8 @@ export default function NocsPage() {
   const [nocPages,    setNocPages]    = useState(1);
   const [nocSortBy,   setNocSortBy]   = useState('');
   const [nocSortOrd,  setNocSortOrd]  = useState('asc');
+  const [nocFilters,  setNocFilters]  = useState(EMPTY_NOC_FILTERS);
+  const [nocFilterOpen, setNocFilterOpen] = useState(false);
 
   // ── Authorities state ─────────────────────────────────────────────────
   const [authorities, setAuthorities] = useState([]);
@@ -1083,18 +1197,29 @@ export default function NocsPage() {
   const fetchNocs = useCallback(async (page = 1, search = '', sortBy = '', sortOrder = 'asc') => {
     setNocsLoading(true); setNocsError('');
     try {
+      const hasActiveFilters = Object.values(nocFilters).some((value) => String(value || '').trim() !== '');
+      const useLocalSearchAndFilter = Boolean(search.trim() || hasActiveFilters);
       const res = await getAllNocs({
-        page,
-        page_size: PAGE_SIZE,
-        ...(search && { search }),
+        page: useLocalSearchAndFilter ? 1 : page,
+        page_size: useLocalSearchAndFilter ? 1000 : PAGE_SIZE,
         ...(sortBy && { sort_by: sortBy, sort_order: sortOrder }),
       });
       if (res.status === 'success' && res.data) {
         const results = res.data.results || (Array.isArray(res.data) ? res.data : []);
-        setNocs(results);
-        const count = res.data.total_count ?? res.data.count ?? results.length;
-        setNocTotal(count);
-        setNocPages(Math.max(1, Math.ceil(count / PAGE_SIZE)));
+        if (useLocalSearchAndFilter) {
+          const filteredResults = results.filter((noc) =>
+            nocMatchesSearch(noc, search) && nocMatchesFilters(noc, nocFilters)
+          );
+          const startIndex = (page - 1) * PAGE_SIZE;
+          setNocs(filteredResults.slice(startIndex, startIndex + PAGE_SIZE));
+          setNocTotal(filteredResults.length);
+          setNocPages(Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE)));
+        } else {
+          setNocs(results);
+          const count = res.data.total_count ?? res.data.count ?? results.length;
+          setNocTotal(count);
+          setNocPages(Math.max(1, Math.ceil(count / PAGE_SIZE)));
+        }
       } else {
         setNocsError('Failed to load NOCs');
       }
@@ -1103,7 +1228,7 @@ export default function NocsPage() {
     } finally {
       setNocsLoading(false);
     }
-  }, []);
+  }, [nocFilters]);
 
   const fetchAuthorities = useCallback(async (page = 1, search = '', sortBy = '', sortOrder = 'asc') => {
     setAuthLoading(true); setAuthError('');
@@ -1207,6 +1332,11 @@ export default function NocsPage() {
     setNocSortOrd(newOrd);
     fetchNocs(nocPage, nocSearch, field, newOrd);
   }, [nocSortBy, nocSortOrd, nocPage, nocSearch, fetchNocs]);
+
+  const handleNocFilterApply = useCallback((filters) => {
+    setNocFilters(filters);
+    setNocPage(1);
+  }, []);
 
   const handleAuthSort = useCallback((field) => {
     const newOrd = authSortBy === field ? (authSortOrd === 'asc' ? 'desc' : 'asc') : 'asc';
@@ -1407,7 +1537,7 @@ export default function NocsPage() {
           {/* ════ NOCs TAB ════ */}
           {activeTab === 'nocs' && (
             <DynamicList
-              config={{ ...nocListConfig, columns: getNocColumns() }}
+              config={{ ...nocListConfig, columns: getNocColumns(), showFilter: true }}
               data={nocs}
               loading={nocsLoading}
               error={nocsError}
@@ -1418,13 +1548,13 @@ export default function NocsPage() {
               onPageChange={(p) => { setNocPage(p); fetchNocs(p, nocSearch, nocSortBy, nocSortOrd); }}
               onAdd={() => setNocModal({ open: true, editData: null })}
               onSearch={(val) => setNocSearch(val)}
-              onFilterToggle={() => {}}
+              onFilterToggle={() => setNocFilterOpen(true)}
               onRetry={() => fetchNocs(nocPage, nocSearch, nocSortBy, nocSortOrd)}
               onSort={handleNocSort}
               sortBy={nocSortBy}
               sortOrder={nocSortOrd}
               searchTerm={nocSearch}
-              showFilter={false}
+              showFilter={Object.values(nocFilters).some((value) => String(value || '').trim() !== '')}
               actionHandlers={nocActionHandlers}
               onRowClick={(row) => navigate(`/noc/${row.id}`)}
               noBorder
@@ -1492,6 +1622,14 @@ export default function NocsPage() {
         editData={nocModal.editData}
         nocTypes={allNocTypes}
         authorities={allAuthorities}
+      />
+
+      <NocFilterModal
+        key={`${nocFilterOpen}-${JSON.stringify(nocFilters)}`}
+        isOpen={nocFilterOpen}
+        onClose={() => setNocFilterOpen(false)}
+        onApply={handleNocFilterApply}
+        currentFilters={nocFilters}
       />
 
       <AuthorityModal

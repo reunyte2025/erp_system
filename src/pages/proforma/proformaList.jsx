@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileEdit, FileText, X, CheckCircle,
-  Loader2, ChevronRight, Search
+  Loader2, ChevronRight, Search, Filter as FilterIcon, User, Briefcase, Hash
 } from 'lucide-react';
 import { getProformas, getProformaStats, deleteProformaById } from '../../services/proforma';
 import { getClients } from '../../services/clients';
@@ -21,6 +21,40 @@ const ENABLE_LOGGING = false;
 const logger = {
   log: (...args) => ENABLE_LOGGING && console.log(...args),
   error: (...args) => console.error(...args),
+};
+
+const EMPTY_PROFORMA_FILTERS = {
+  proformaNumber: '',
+  clientName: '',
+  projectName: '',
+  sacCode: '',
+  gstRate: '',
+};
+
+const normalizeProformaValue = (value) => String(value || '').trim().toLowerCase();
+
+const proformaMatchesSearch = (proforma, value) => {
+  const needle = normalizeProformaValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    proforma.proforma_number,
+    proforma.client_name,
+    proforma.project_name,
+    proforma.sac_code,
+    proforma.gst_rate,
+  ];
+
+  return haystacks.some((field) => normalizeProformaValue(field).includes(needle));
+};
+
+const proformaMatchesFilters = (proforma, filters) => {
+  if (filters?.proformaNumber && !normalizeProformaValue(proforma.proforma_number).includes(normalizeProformaValue(filters.proformaNumber))) return false;
+  if (filters?.clientName && !normalizeProformaValue(proforma.client_name).includes(normalizeProformaValue(filters.clientName))) return false;
+  if (filters?.projectName && !normalizeProformaValue(proforma.project_name).includes(normalizeProformaValue(filters.projectName))) return false;
+  if (filters?.sacCode && !normalizeProformaValue(proforma.sac_code).includes(normalizeProformaValue(filters.sacCode))) return false;
+  if (filters?.gstRate && !normalizeProformaValue(proforma.gst_rate).includes(normalizeProformaValue(filters.gstRate))) return false;
+  return true;
 };
 
 
@@ -51,26 +85,7 @@ const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
 
 const SuccessModal = ({ isOpen, onClose, onProceed }) => {
   useEffect(() => {
-    if (isOpen) {
-      
-      
-      
-      
-      
-    } else {
-      
-      
-      
-      
-      
-      
-    }
-    return () => {
-      
-      
-      
-      
-    };
+    return undefined;
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -162,6 +177,115 @@ const DeleteConfirmModal = ({ isOpen, proforma, onConfirm, onCancel, deleting })
   );
 };
 
+const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_PROFORMA_FILTERS);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleClear = () => {
+    setFilters(EMPTY_PROFORMA_FILTERS);
+  };
+
+  const handleApply = () => {
+    onApply(filters);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || '').trim() !== '');
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <FilterIcon className="w-5 h-5" />
+              <h2 className="text-base font-semibold">Filter Proforma</h2>
+            </div>
+            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors" aria-label="Close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Proforma Number</label>
+              <div className="relative">
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="proformaNumber" value={filters.proformaNumber} onChange={handleInputChange} placeholder="Enter proforma number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Client Name</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="clientName" value={filters.clientName} onChange={handleInputChange} placeholder="Enter client name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Project Name</label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="projectName" value={filters.projectName} onChange={handleInputChange} placeholder="Enter project name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">SAC Code</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="sacCode" value={filters.sacCode} onChange={handleInputChange} placeholder="Enter SAC code" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">GST Rate</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="gstRate" value={filters.gstRate} onChange={handleInputChange} placeholder="Enter GST rate" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 pb-5 flex-shrink-0">
+            <button
+              onClick={handleApply}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+            >
+              <FilterIcon className="w-4 h-4" />
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================================
 // SELECT CLIENT + QUOTATION MODAL (Combined, single card)
 // ============================================================================
@@ -179,31 +303,14 @@ const SelectClientQuotationModal = ({ isOpen, onClose, onProceed }) => {
 
   useEffect(() => {
     if (isOpen) {
-      
-      
-      
-      
-      
       setStep('client');
       setSelectedClient(null);
       setSelectedQuotation(null);
       setClientSearch('');
       setQuotationSearch('');
       fetchClients();
-    } else {
-      
-      
-      
-      
-      
-      
     }
-    return () => {
-      
-      
-      
-      
-    };
+    return undefined;
   }, [isOpen]);
 
   const fetchClients = async () => {
@@ -477,10 +584,11 @@ export default function ProformaList() {
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showFilter, setShowFilter] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [activeFilters, setActiveFilters] = useState(EMPTY_PROFORMA_FILTERS);
   const [showSelectModal, setShowSelectModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdProforma, setCreatedProforma] = useState(null);
+  const [createdProforma, _setCreatedProforma] = useState(null);
   const [stats, setStats] = useState({ total: 0, draft: 0, under_review: 0, verified: 0 });
 
   // Delete state
@@ -492,7 +600,9 @@ export default function ProformaList() {
   const lastFetchParams = useRef(null);
 
   const fetchProformas = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters });
+    const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+    const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
     if (lastFetchParams.current === fetchKey && !error) return;
     if (requestInProgress.current) return;
 
@@ -502,18 +612,34 @@ export default function ProformaList() {
     setError('');
 
     try {
-      const response = await getProformas({ page: currentPage, page_size: pageSize, search: searchTerm });
+      const response = await getProformas({
+        page: useLocalSearchAndFilter ? 1 : currentPage,
+        page_size: useLocalSearchAndFilter ? 1000 : pageSize,
+      });
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
-        setProformas(apiData.results || []);
-        setCurrentPage(apiData.page || 1);
-        setTotalPages(apiData.total_pages || 1);
-        setTotalCount(apiData.total_count || 0);
+        const results = Array.isArray(apiData.results) ? apiData.results : [];
+
+        if (useLocalSearchAndFilter) {
+          const filteredResults = results.filter((proforma) =>
+            proformaMatchesSearch(proforma, searchTerm) && proformaMatchesFilters(proforma, activeFilters)
+          );
+          const startIndex = (currentPage - 1) * pageSize;
+
+          setProformas(filteredResults.slice(startIndex, startIndex + pageSize));
+          setCurrentPage(currentPage);
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setProformas(results);
+          setCurrentPage(apiData.page || 1);
+          setTotalPages(apiData.total_pages || 1);
+          setTotalCount(apiData.total_count || 0);
+        }
         try {
           const statsResponse = await getProformaStats();
           if (statsResponse.status === 'success' && statsResponse.data) setStats(statsResponse.data);
         } catch {
-          const total = apiData.total_count || (apiData.results || []).length;
           setStats({ total: 0, draft: 0, under_review: 0, verified: 0 });
         }
       } else {
@@ -527,7 +653,7 @@ export default function ProformaList() {
       setLoading(false);
       requestInProgress.current = false;
     }
-  }, [currentPage, pageSize, searchTerm]);
+  }, [currentPage, pageSize, searchTerm, activeFilters, error]);
 
   useEffect(() => { fetchProformas(); }, [fetchProformas]);
 
@@ -540,7 +666,8 @@ export default function ProformaList() {
 
   const handleSearch = (value) => { setSearchTerm(value); setCurrentPage(1); };
   const handlePageChange = (page) => setCurrentPage(page);
-  const handleFilterToggle = () => setShowFilter(prev => !prev);
+  const handleFilterToggle = () => setShowFilterModal(true);
+  const handleApplyFilters = (filters) => { setActiveFilters(filters); setCurrentPage(1); };
 
   const handleRowClick = (proforma) => {
     if (isProformaDeleted(proforma)) return;
@@ -638,7 +765,7 @@ export default function ProformaList() {
         onRowClick={handleRowClick}
         onRetry={fetchProformas}
         searchTerm={searchTerm}
-        showFilter={showFilter}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         actionHandlers={isPrivileged ? { onDeleteProforma: handleDeleteProforma } : undefined}
       />
@@ -662,6 +789,14 @@ export default function ProformaList() {
         isOpen={showSuccessModal}
         onClose={() => setShowSuccessModal(false)}
         onProceed={handleViewProforma}
+      />
+
+      <FilterModal
+        key={`${showFilterModal}-${JSON.stringify(activeFilters)}`}
+        isOpen={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        currentFilters={activeFilters}
       />
 
       <style>{`

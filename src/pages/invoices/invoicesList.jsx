@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Receipt, FileText, FileEdit, User, X, CheckCircle,
-  Calendar, DollarSign, Package, Loader2, ChevronRight, Search,
+  Calendar, DollarSign, Package, Loader2, ChevronRight, Search, Filter as FilterIcon, Briefcase, Hash,
 } from 'lucide-react';
 import { getClients, getClientById } from '../../services/clients';
 import { getQuotations } from '../../services/quotation';
@@ -22,6 +22,43 @@ const ENABLE_LOGGING = false;
 const logger = {
   log:   (...args) => ENABLE_LOGGING && console.log(...args),
   error: (...args) => console.error(...args),
+};
+
+const EMPTY_INVOICE_FILTERS = {
+  invoiceNumber: '',
+  clientName: '',
+  vendorName: '',
+  projectName: '',
+  sacCode: '',
+  gstRate: '',
+};
+
+const normalizeInvoiceValue = (value) => String(value || '').trim().toLowerCase();
+
+const invoiceMatchesSearch = (invoice, value) => {
+  const needle = normalizeInvoiceValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    invoice.invoice_number,
+    invoice.client_name,
+    invoice.vendor_name,
+    invoice.project_name,
+    invoice.sac_code,
+    invoice.gst_rate,
+  ];
+
+  return haystacks.some((field) => normalizeInvoiceValue(field).includes(needle));
+};
+
+const invoiceMatchesFilters = (invoice, filters) => {
+  if (filters?.invoiceNumber && !normalizeInvoiceValue(invoice.invoice_number).includes(normalizeInvoiceValue(filters.invoiceNumber))) return false;
+  if (filters?.clientName && !normalizeInvoiceValue(invoice.client_name).includes(normalizeInvoiceValue(filters.clientName))) return false;
+  if (filters?.vendorName && !normalizeInvoiceValue(invoice.vendor_name).includes(normalizeInvoiceValue(filters.vendorName))) return false;
+  if (filters?.projectName && !normalizeInvoiceValue(invoice.project_name).includes(normalizeInvoiceValue(filters.projectName))) return false;
+  if (filters?.sacCode && !normalizeInvoiceValue(invoice.sac_code).includes(normalizeInvoiceValue(filters.sacCode))) return false;
+  if (filters?.gstRate && !normalizeInvoiceValue(invoice.gst_rate).includes(normalizeInvoiceValue(filters.gstRate))) return false;
+  return true;
 };
 
 // ============================================================================
@@ -330,6 +367,123 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId }) => {
               className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
             >
               Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_INVOICE_FILTERS);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleClear = () => {
+    setFilters(EMPTY_INVOICE_FILTERS);
+  };
+
+  const handleApply = () => {
+    onApply(filters);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || '').trim() !== '');
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <FilterIcon className="w-5 h-5" />
+              <h2 className="text-base font-semibold">Filter Invoices</h2>
+            </div>
+            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors" aria-label="Close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Invoice Number</label>
+              <div className="relative">
+                <Receipt className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="invoiceNumber" value={filters.invoiceNumber} onChange={handleInputChange} placeholder="Enter invoice number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Client Name</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="clientName" value={filters.clientName} onChange={handleInputChange} placeholder="Enter client name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Vendor Name</label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="vendorName" value={filters.vendorName} onChange={handleInputChange} placeholder="Enter vendor name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Project Name</label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="projectName" value={filters.projectName} onChange={handleInputChange} placeholder="Enter project name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">SAC Code</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="sacCode" value={filters.sacCode} onChange={handleInputChange} placeholder="Enter SAC code" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">GST Rate</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="gstRate" value={filters.gstRate} onChange={handleInputChange} placeholder="Enter GST rate" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 pb-5 flex-shrink-0">
+            <button
+              onClick={handleApply}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+            >
+              <FilterIcon className="w-4 h-4" />
+              Apply Filters
             </button>
           </div>
         </div>
@@ -931,7 +1085,8 @@ export default function InvoicesList() {
   const [totalCount,        setTotalCount]        = useState(0);
   const [pageSize]                                = useState(10);
   const [searchTerm,        setSearchTerm]        = useState('');
-  const [showFilter,        setShowFilter]        = useState(false);
+  const [showFilterModal,   setShowFilterModal]   = useState(false);
+  const [activeFilters,     setActiveFilters]     = useState(EMPTY_INVOICE_FILTERS);
   const [showSelectModal,   setShowSelectModal]   = useState(false);
   const [showSuccessModal,  setShowSuccessModal]  = useState(false);
   const [showDetailModal,   setShowDetailModal]   = useState(false);
@@ -945,7 +1100,9 @@ export default function InvoicesList() {
   const lastFetchParams   = useRef(null);
 
   const fetchInvoices = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters });
+    const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+    const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
     if (lastFetchParams.current === fetchKey && !error) return;
     if (requestInProgress.current) return;
 
@@ -956,14 +1113,29 @@ export default function InvoicesList() {
 
     try {
       const response = await getInvoices({
-        page: currentPage, page_size: pageSize, search: searchTerm,
+        page: useLocalSearchAndFilter ? 1 : currentPage,
+        page_size: useLocalSearchAndFilter ? 1000 : pageSize,
       });
       if (response.status === 'success' && response.data) {
         const apiData = response.data;
-        setInvoices(apiData.results || []);
-        setCurrentPage(apiData.page || 1);
-        setTotalPages(apiData.total_pages || 1);
-        setTotalCount(apiData.total_count || 0);
+        const results = Array.isArray(apiData.results) ? apiData.results : [];
+
+        if (useLocalSearchAndFilter) {
+          const filteredResults = results.filter((invoice) =>
+            invoiceMatchesSearch(invoice, searchTerm) && invoiceMatchesFilters(invoice, activeFilters)
+          );
+          const startIndex = (currentPage - 1) * pageSize;
+
+          setInvoices(filteredResults.slice(startIndex, startIndex + pageSize));
+          setCurrentPage(currentPage);
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setInvoices(results);
+          setCurrentPage(apiData.page || 1);
+          setTotalPages(apiData.total_pages || 1);
+          setTotalCount(apiData.total_count || 0);
+        }
         try {
           // Stats come directly from the get_all_invoices response — no separate API call needed
           setStats({
@@ -986,7 +1158,7 @@ export default function InvoicesList() {
       setLoading(false);
       requestInProgress.current = false;
     }
-  }, [currentPage, pageSize, searchTerm]);
+  }, [currentPage, pageSize, searchTerm, activeFilters, error]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 
@@ -1007,7 +1179,8 @@ export default function InvoicesList() {
 
   const handleSearch       = (value) => { setSearchTerm(value); setCurrentPage(1); };
   const handlePageChange   = (page)  => setCurrentPage(page);
-  const handleFilterToggle = ()      => setShowFilter(prev => !prev);
+  const handleFilterToggle = ()      => setShowFilterModal(true);
+  const handleApplyFilters = (filters) => { setActiveFilters(filters); setCurrentPage(1); };
 
   const handleRowClick = (invoice) => navigate(`/invoices/${invoice.id}`);
 
@@ -1070,7 +1243,7 @@ export default function InvoicesList() {
         onRowClick={handleRowClick}
         onRetry={fetchInvoices}
         searchTerm={searchTerm}
-        showFilter={showFilter}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
       />
 
@@ -1084,6 +1257,14 @@ export default function InvoicesList() {
         isOpen={showSuccessModal}
         onClose={() => setShowSuccessModal(false)}
         onProceed={handleViewInvoice}
+      />
+
+      <FilterModal
+        key={`${showFilterModal}-${JSON.stringify(activeFilters)}`}
+        isOpen={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        currentFilters={activeFilters}
       />
 
       <style>{`

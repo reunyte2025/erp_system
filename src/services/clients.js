@@ -7,7 +7,7 @@ import api, { normalizeError } from './api';
  *
  * Stats (total, draft, star, newly added) are returned directly by the
  * get_all_client endpoint — no separate stats API call is needed.
- * 
+ *
  * API schema fields accepted by create_client:
  *   first_name, last_name, email, phone_number,
  *   address, city, state, pincode, gst_number, is_draft
@@ -30,18 +30,19 @@ const serviceLogger = {
 // ============================================================================
 
 const ENDPOINTS = {
-  GET_ALL:   '/clients/get_all_client/',
-  GET_BY_ID: '/clients/get_client/',     // query param: ?id=
-  CREATE:    '/clients/create_client/',
-  UPDATE:    '/clients/update_client/',   // PUT /clients/update_client/
-  DELETE:    '/clients/delete_client/',   // DELETE /clients/delete_client/?id=
-  UNDO:      '/clients/undo_client/',     // PATCH /clients/undo_client/?id=
-  SEARCH:    '/clients/search/',
-  EXPORT:    '/clients/export/',
+  GET_ALL:      '/clients/get_all_client/',
+  GET_BY_NAME:  '/clients/get_all_client_by_name/', // GET ?search=<query>
+  GET_BY_ID:    '/clients/get_client/',              // query param: ?id=
+  CREATE:       '/clients/create_client/',
+  UPDATE:       '/clients/update_client/',           // PUT /clients/update_client/
+  DELETE:       '/clients/delete_client/',           // DELETE /clients/delete_client/?id=
+  UNDO:         '/clients/undo_client/',             // PATCH /clients/undo_client/?id=
+  SEARCH:       '/clients/search/',
+  EXPORT:       '/clients/export/',
   TOGGLE_STAR:  '/clients/change_star_client_status/', // PUT ?id=&is_star=
   BULK_DELETE:  '/clients/bulk-delete/',
   BULK_UPDATE:  '/clients/bulk-update/',
-  SEND_EMAIL: '/notifications/send_email/',
+  SEND_EMAIL:   '/notifications/send_email/',
 };
 
 const NOTE_ENDPOINTS = {
@@ -71,6 +72,7 @@ const isValidEmail = (email) => {
 // ============================================================================
 // GET ALL CLIENTS
 // Response includes: total_count, draft_count, star_count, new_count, results[]
+// Supports filter params: first_name, last_name, email, gst_number
 // ============================================================================
 
 export const getClients = async (params = {}) => {
@@ -87,6 +89,39 @@ export const getClients = async (params = {}) => {
   } catch (error) {
     const errorMessage = normalizeError(error);
     serviceLogger.error('[Clients Service] getClients failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================================================
+// SEARCH CLIENTS BY NAME
+// GET /clients/get_all_client_by_name/?search=<query>
+// Returns a flat array of matching client objects.
+// ============================================================================
+
+export const searchClientsByName = async (query) => {
+  try {
+    if (!query || !query.trim()) return [];
+
+    serviceLogger.log(`[Clients Service] Searching clients by name: "${query}"`);
+
+    const response = await api.get(ENDPOINTS.GET_BY_NAME, {
+      params: { search: query.trim() },
+    });
+
+    // API may return a flat array OR a paginated object { results: [] }
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.data?.results)) return data.data.results;
+
+    serviceLogger.warn('[Clients Service] Unexpected searchClientsByName response shape:', data);
+    return [];
+
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error('[Clients Service] searchClientsByName failed:', errorMessage);
     throw new Error(errorMessage);
   }
 };
@@ -176,7 +211,9 @@ export const createClient = async (clientData) => {
         error.response?.data?.error    ||
         error.response?.data?.detail   ||
         JSON.stringify(error.response?.data);
-      throw new Error(`Validation error: ${backendError}`);
+      const err400 = new Error(`Validation error: ${backendError}`);
+      err400.response = error.response;
+      throw err400;
     }
 
     if (error.response?.status === 409) {
@@ -222,9 +259,11 @@ export const createClient = async (clientData) => {
         error.response?.data?.error   ||
         error.response?.data?.detail  ||
         JSON.stringify(error.response?.data);
-      throw new Error(backendError
+      const err500 = new Error(backendError
         ? `Server error: ${backendError}`
         : 'Server error occurred. Please try again.');
+      err500.response = error.response;
+      throw err500;
     }
 
     const errorMessage = normalizeError(error);
@@ -341,7 +380,7 @@ export const undoClient = async (id) => {
 };
 
 // ============================================================================
-// SEARCH CLIENTS
+// SEARCH CLIENTS (legacy — kept for backward compatibility)
 // ============================================================================
 
 export const searchClients = async (query, filters = {}) => {
@@ -611,14 +650,14 @@ export const sendClientEmail = async ({
           ? responseData
           : {};
 
-      const missingSubject = Array.isArray(errors.subject) && errors.subject.length > 0;
-      const missingBody = Array.isArray(errors.body) && errors.body.length > 0;
-      const missingAttachments = Array.isArray(errors.attachments) && errors.attachments.length > 0;
-      const invalidRecipients = Array.isArray(errors.recipients) && errors.recipients.length > 0;
+      const missingSubject      = Array.isArray(errors.subject)     && errors.subject.length > 0;
+      const missingBody         = Array.isArray(errors.body)        && errors.body.length > 0;
+      const missingAttachments  = Array.isArray(errors.attachments) && errors.attachments.length > 0;
+      const invalidRecipients   = Array.isArray(errors.recipients)  && errors.recipients.length > 0;
 
       const missingParts = [];
-      if (missingSubject) missingParts.push('a subject');
-      if (missingBody) missingParts.push('a message');
+      if (missingSubject)     missingParts.push('a subject');
+      if (missingBody)        missingParts.push('a message');
       if (missingAttachments) missingParts.push('at least one attachment');
 
       const joinNatural = (parts) => {
@@ -652,6 +691,7 @@ export const sendClientEmail = async ({
 
 export default {
   getClients,
+  searchClientsByName,
   getClientById,
   createClient,
   updateClient,

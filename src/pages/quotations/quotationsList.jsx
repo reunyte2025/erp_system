@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, User, X, CheckCircle, Loader2, Search } from 'lucide-react';
+import { FileText, User, X, CheckCircle, Loader2, Search, Filter as FilterIcon, Briefcase, Hash } from 'lucide-react';
 import { getQuotations, deleteQuotationById } from '../../services/quotation';
 import { getClients, getClientProjects } from '../../services/clients';
 import { getProjects } from '../../services/projects';
@@ -31,6 +31,43 @@ const ENABLE_LOGGING = false;
 const logger = {
   log:   (...args) => ENABLE_LOGGING && console.log(...args),
   error: (...args) => console.error(...args),
+};
+
+const EMPTY_QUOTATION_FILTERS = {
+  quotationNumber: '',
+  clientName: '',
+  vendorName: '',
+  projectName: '',
+  sacCode: '',
+  ctsNumber: '',
+};
+
+const normalizeQuotationValue = (value) => String(value || '').trim().toLowerCase();
+
+const quotationMatchesSearch = (quotation, value) => {
+  const needle = normalizeQuotationValue(value);
+  if (!needle) return true;
+
+  const haystacks = [
+    quotation.quotation_number,
+    quotation.client_name,
+    quotation.vendor_name,
+    quotation.project_name,
+    quotation.sac_code,
+    quotation.project_cts_number,
+  ];
+
+  return haystacks.some((field) => normalizeQuotationValue(field).includes(needle));
+};
+
+const quotationMatchesFilters = (quotation, filters) => {
+  if (filters?.quotationNumber && !normalizeQuotationValue(quotation.quotation_number).includes(normalizeQuotationValue(filters.quotationNumber))) return false;
+  if (filters?.clientName && !normalizeQuotationValue(quotation.client_name).includes(normalizeQuotationValue(filters.clientName))) return false;
+  if (filters?.vendorName && !normalizeQuotationValue(quotation.vendor_name).includes(normalizeQuotationValue(filters.vendorName))) return false;
+  if (filters?.projectName && !normalizeQuotationValue(quotation.project_name).includes(normalizeQuotationValue(filters.projectName))) return false;
+  if (filters?.sacCode && !normalizeQuotationValue(quotation.sac_code).includes(normalizeQuotationValue(filters.sacCode))) return false;
+  if (filters?.ctsNumber && !normalizeQuotationValue(quotation.project_cts_number).includes(normalizeQuotationValue(filters.ctsNumber))) return false;
+  return true;
 };
 
 // ============================================================================
@@ -164,6 +201,123 @@ const DeleteConfirmModal = ({ isOpen, quotation, onConfirm, onCancel, deleting }
                   Deleting...
                 </>
               ) : 'Yes, Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
+  const [filters, setFilters] = useState(() => currentFilters || EMPTY_QUOTATION_FILTERS);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleClear = () => {
+    setFilters(EMPTY_QUOTATION_FILTERS);
+  };
+
+  const handleApply = () => {
+    onApply(filters);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || '').trim() !== '');
+
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-3 sm:p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col animate-scaleIn overflow-hidden pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <FilterIcon className="w-5 h-5" />
+              <h2 className="text-base font-semibold">Filter Quotations</h2>
+            </div>
+            <button onClick={onClose} className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors" aria-label="Close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Filter by</p>
+              {hasActiveFilters && (
+                <button onClick={handleClear} className="text-teal-600 text-sm font-medium hover:text-teal-700 px-2 py-1">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Quotation Number</label>
+              <div className="relative">
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="quotationNumber" value={filters.quotationNumber} onChange={handleInputChange} placeholder="Enter quotation number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Client Name</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="clientName" value={filters.clientName} onChange={handleInputChange} placeholder="Enter client name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Vendor Name</label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="vendorName" value={filters.vendorName} onChange={handleInputChange} placeholder="Enter vendor name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Project Name</label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="projectName" value={filters.projectName} onChange={handleInputChange} placeholder="Enter project name" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">SAC Code</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="sacCode" value={filters.sacCode} onChange={handleInputChange} placeholder="Enter SAC code" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">CTS Number</label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" name="ctsNumber" value={filters.ctsNumber} onChange={handleInputChange} placeholder="Enter CTS number" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 pb-5 flex-shrink-0">
+            <button
+              onClick={handleApply}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+            >
+              <FilterIcon className="w-4 h-4" />
+              Apply Filters
             </button>
           </div>
         </div>
@@ -522,10 +676,11 @@ export default function QuotationsList() {
   const [totalCount,             setTotalCount]             = useState(0);
   const [pageSize]                                          = useState(10);
   const [searchTerm,             setSearchTerm]             = useState('');
-  const [showFilter,             setShowFilter]             = useState(false);
+  const [showFilterModal,        setShowFilterModal]        = useState(false);
+  const [activeFilters,          setActiveFilters]          = useState(EMPTY_QUOTATION_FILTERS);
   const [showSelectClientModal,  setShowSelectClientModal]  = useState(false);
   const [showSuccessModal,       setShowSuccessModal]       = useState(false);
-  const [createdQuotation,       setCreatedQuotation]       = useState(null);
+  const [createdQuotation,       _setCreatedQuotation]      = useState(null);
   const [stats,                  setStats]                  = useState({ total: 0, draft: 0, review: 0, completed: 0 });
 
   // Delete state
@@ -551,7 +706,9 @@ export default function QuotationsList() {
 
   // ── Fetch quotations ────────────────────────────────────────────────────────
   const fetchQuotations = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, sortBy, sortOrder });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder });
+    const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
+    const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
 
     if (lastFetchParams.current === fetchKey && !error) {
       logger.log('⏭️  Skipping duplicate request');
@@ -571,9 +728,8 @@ export default function QuotationsList() {
       // Always send sort_by + sort_order so the backend sorts all pages correctly
       // type=1 → client quotations list
       const response = await getQuotations({
-        page:       currentPage,
-        page_size:  pageSize,
-        search:     searchTerm,
+        page:       useLocalSearchAndFilter ? 1 : currentPage,
+        page_size:  useLocalSearchAndFilter ? 1000 : pageSize,
         sort_by:    sortBy,
         sort_order: sortOrder,
         type:       1,
@@ -586,22 +742,40 @@ export default function QuotationsList() {
         // Enrich rows with project names via bulk fetch
         let projectMap = {};
         try {
-          const allProjectsRes = await getProjects({ page: 1, page_size: 500 });
+          const allProjectsRes = await getProjects({ page: 1, page_size: 2000 });
           const allProjects    = allProjectsRes?.data?.results || allProjectsRes?.results || [];
           allProjects.forEach((p) => {
-            if (p.id) projectMap[p.id] = p.name || p.title || `Project #${p.id}`;
+            if (p.id) {
+              projectMap[p.id] = {
+                name: p.name || p.title || `Project #${p.id}`,
+                cts_number: p.cts_number || '',
+              };
+            }
           });
         } catch { /* projectMap stays empty — rows fall back to "Project #N" */ }
 
         const enrichedResults = quotationResults.map((q) => ({
           ...q,
-          project_name: projectMap[q.project] || (q.project ? `Project #${q.project}` : 'N/A'),
+          project_name: projectMap[q.project]?.name || q.project_name || (q.project ? `Project #${q.project}` : 'N/A'),
+          project_cts_number: projectMap[q.project]?.cts_number || q.project_cts_number || '',
         }));
 
-        setQuotations(enrichedResults);
-        setCurrentPage(apiData.page         || 1);
-        setTotalPages(apiData.total_pages   || 1);
-        setTotalCount(apiData.total_count   || 0);
+        if (useLocalSearchAndFilter) {
+          const filteredResults = enrichedResults.filter((quotation) =>
+            quotationMatchesSearch(quotation, searchTerm) && quotationMatchesFilters(quotation, activeFilters)
+          );
+          const startIndex = (currentPage - 1) * pageSize;
+
+          setQuotations(filteredResults.slice(startIndex, startIndex + pageSize));
+          setCurrentPage(currentPage);
+          setTotalPages(Math.max(1, Math.ceil(filteredResults.length / pageSize)));
+          setTotalCount(filteredResults.length);
+        } else {
+          setQuotations(enrichedResults);
+          setCurrentPage(apiData.page         || 1);
+          setTotalPages(apiData.total_pages   || 1);
+          setTotalCount(apiData.total_count   || 0);
+        }
 
         // Use counts provided directly by the API — no second fetch needed
         setStats({
@@ -623,7 +797,7 @@ export default function QuotationsList() {
       requestInProgress.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, searchTerm, sortBy, sortOrder]);
+  }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder]);
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
 
@@ -638,7 +812,8 @@ export default function QuotationsList() {
 
   const handleSearch       = (value) => { setSearchTerm(value); setCurrentPage(1); };
   const handlePageChange   = (page)  => setCurrentPage(page);
-  const handleFilterToggle = ()      => setShowFilter((prev) => !prev);
+  const handleFilterToggle = ()      => setShowFilterModal(true);
+  const handleApplyFilters = (filters) => { setActiveFilters(filters); setCurrentPage(1); };
   const handleRetry        = ()      => { lastFetchParams.current = null; fetchQuotations(); };
 
   // ── Delete handlers ──────────────────────────────────────────────────────
@@ -782,7 +957,7 @@ export default function QuotationsList() {
         sortBy={sortBy}
         sortOrder={sortOrder}
         searchTerm={searchTerm}
-        showFilter={showFilter}
+        showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         actionHandlers={isPrivileged ? { onDeleteQuotation: handleDeleteQuotation } : undefined}
       />
@@ -808,6 +983,14 @@ export default function QuotationsList() {
         isOpen={showSuccessModal}
         onClose={() => setShowSuccessModal(false)}
         onProceed={handleViewQuotation}
+      />
+
+      <FilterModal
+        key={`${showFilterModal}-${JSON.stringify(activeFilters)}`}
+        isOpen={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        currentFilters={activeFilters}
       />
 
       <style>{`
