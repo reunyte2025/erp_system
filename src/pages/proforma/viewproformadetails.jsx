@@ -9,7 +9,7 @@ import {
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
   Edit, X, Paperclip, FileSearch,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf } from '../../services/proforma';
+import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf, sendProformaToClient } from '../../services/proforma';
 import { createInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
@@ -483,8 +483,7 @@ const SendToClientModal = ({ proforma, client, pNum, issuedDate, onClose }) => {
     if (!/\S+@\S+\.\S+/.test(email.trim())) { setError('Please enter a valid email address.'); return; }
     setError(''); setSending(true);
     try {
-      // TODO: wire to proforma send-to-client API when available
-      await new Promise(r => setTimeout(r, 900));
+      await sendProformaToClient({ proformaId: proforma.id, proformaNumber: pNum, issuedDate, recipientEmail: email.trim(), subject: subject.trim(), body: body.trim(), extraAttachments: extras });
       setSent(true);
     } catch (e) { setError(e.message || 'Failed to send email. Please try again.'); }
     finally { setSending(false); }

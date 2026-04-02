@@ -131,8 +131,8 @@ export default function Login({ onLoginSuccess }) {
               <span className="text-3xl font-bold">E</span>
             </div>
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">ERP System</h1>
-              <p className="text-slate-300 text-sm mt-1">Enterprise Resource Planning</p>
+              <h1 className="text-4xl font-bold tracking-tight">Constructive India</h1>
+              <p className="text-slate-300 text-sm mt-1">Enterprise Resource Planning Ssytem</p>
             </div>
           </div>
           
@@ -193,7 +193,7 @@ export default function Login({ onLoginSuccess }) {
             <div className="w-16 h-16 bg-gradient-to-br from-teal-400 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg mb-3">
               <span className="text-3xl font-bold text-white">E</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">ERP System</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Constructive India</h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">Enterprise Resource Planning</p>
           </div>
 

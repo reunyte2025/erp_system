@@ -302,6 +302,134 @@ export const generateProformaPdf = async (id, scopeOfWork, fileName = 'proforma.
   }
 };
 
+/**
+ * Send a proforma to a client via email with the PDF attached.
+ * Mirrors sendQuotationToClient in quotation.js exactly.
+ *
+ * @param {Object} params
+ * @param {number} params.proformaId          - Proforma ID
+ * @param {string} params.proformaNumber      - Proforma number for display / filename
+ * @param {string} params.issuedDate          - Issued date for email body
+ * @param {string} params.recipientEmail      - Recipient email address
+ * @param {string} params.subject             - Email subject
+ * @param {string} params.body                - Email body
+ * @param {Array<File>} params.extraAttachments - Additional files to attach (optional)
+ * @returns {Promise<Object>} Email sending response
+ * @throws {Error} If email sending fails
+ */
+export const sendProformaToClient = async ({
+  proformaId,
+  proformaNumber,
+  issuedDate,
+  recipientEmail,
+  subject,
+  body,
+  extraAttachments = [],
+}) => {
+  try {
+    if (!proformaId)     throw new Error('Proforma ID is required');
+    if (!recipientEmail) throw new Error('Recipient email is required');
+
+    serviceLogger.log(`[Proforma Service] Sending proforma ${proformaId} to ${recipientEmail}`);
+
+    // Step 1 — Generate the PDF blob
+    const pdfResponse = await api.get('/proformas/generate_pdf/', {
+      params: {
+        id:            parseInt(proformaId),
+        scope_of_work: 'As per scope discussed.',
+      },
+      responseType: 'blob',
+    });
+
+    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+    const pdfFile = new File(
+      [pdfBlob],
+      `${proformaNumber || `Proforma_${proformaId}`}.pdf`,
+      { type: 'application/pdf' },
+    );
+
+    // Step 2 — Validate total attachment size
+    const MAX_BYTES = 25 * 1024 * 1024;
+    const allFiles  = [pdfFile, ...extraAttachments];
+    const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+    if (totalSize > MAX_BYTES) {
+      throw new Error(
+        `Total attachment size (${(totalSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 25 MB limit.`,
+      );
+    }
+
+    // Step 3 — Build email content
+    const autoSubject =
+      subject ||
+      `Proforma ${proformaNumber}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
+
+    const autoBody =
+      body ||
+      `Dear Client,\n\nPlease find attached your proforma invoice ${proformaNumber}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
+
+    // Step 4 — Build FormData and POST to send_email
+    const formData = new FormData();
+    formData.append('subject',    autoSubject);
+    formData.append('recipients', recipientEmail);
+    formData.append('body',       autoBody);
+    allFiles.forEach((file) => formData.append('attachments', file));
+
+    serviceLogger.log('[Proforma Service] Sending email with PDF attachment…');
+
+    const response = await api.post('/notifications/send_email/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    serviceLogger.log('[Proforma Service] Email sent successfully');
+    return response.data;
+
+  } catch (error) {
+    const responseData = error.response?.data;
+    let errorMessage   = '';
+
+    if (error.response?.status === 400) {
+      const errors =
+        responseData?.errors && typeof responseData.errors === 'object'
+          ? responseData.errors
+          : responseData && typeof responseData === 'object'
+            ? responseData
+            : {};
+
+      const missingSubject     = Array.isArray(errors.subject)     && errors.subject.length     > 0;
+      const missingBody        = Array.isArray(errors.body)        && errors.body.length        > 0;
+      const missingAttachments = Array.isArray(errors.attachments) && errors.attachments.length > 0;
+      const invalidRecipients  = Array.isArray(errors.recipients)  && errors.recipients.length  > 0;
+
+      const missingParts = [];
+      if (missingSubject)     missingParts.push('a subject');
+      if (missingBody)        missingParts.push('a message');
+      if (missingAttachments) missingParts.push('at least one attachment');
+
+      const joinNatural = (parts) => {
+        if (parts.length === 0) return '';
+        if (parts.length === 1) return parts[0];
+        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+        return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+      };
+
+      if (invalidRecipients) {
+        errorMessage = 'Please enter a valid recipient email address before sending.';
+      } else if (missingParts.length > 0) {
+        errorMessage = `Please add ${joinNatural(missingParts)} before sending the email.`;
+      } else if (responseData?.message || responseData?.detail) {
+        errorMessage = responseData.message || responseData.detail;
+      } else {
+        errorMessage = 'Please check the email details and try again.';
+      }
+    } else {
+      errorMessage = normalizeError(error);
+    }
+
+    serviceLogger.error('[Proforma Service] sendProformaToClient failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 export const getProformaStats = async () => {
   try {
     const response = await getProformas({ page: 1, page_size: 1 });
@@ -414,4 +542,5 @@ export default {
   sendProformaForApproval,
   approveProforma,
   rejectProforma,
+  sendProformaToClient,
 };
