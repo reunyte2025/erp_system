@@ -430,20 +430,20 @@ export const getColumns = (isAdminOrManager) =>
 // ============================================================================
 
 const vendorConfig = {
-  title: 'Vendor List',
+  title: 'Contractor List',
   icon: Building2,
 
-  addButtonLabel: 'Add Vendor',
+  addButtonLabel: 'Add Contractor',
 
   columns: baseColumns,
 
   showSearch: true,
   showFilter: true,
 
-  loadingMessage: 'Loading vendors...',
-  emptyMessage: 'No Vendors Found',
-  emptySubMessage: 'Start by adding your first vendor',
-  note: 'Click on vendor to get more details',
+  loadingMessage: 'Loading Contractor...',
+  emptyMessage: 'No Contractor Found',
+  emptySubMessage: 'Start by adding your first contractor',
+  note: 'Click on contractor to get more details',
 
   defaultSort: {
     field: 'name',

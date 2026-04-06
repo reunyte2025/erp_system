@@ -458,6 +458,7 @@ export default function Quotations({ onUpdateNavigation }) {
   const [descriptionMode, setDescriptionMode] = useState("dropdown");
   const [descriptionSearch, setDescriptionSearch] = useState("");
   const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
+  const [descSelectedFromDropdown, setDescSelectedFromDropdown] = useState(false);
 
   // sectionForm is only used for EDIT-SECTION mode (editing a section from the table)
   const [sectionForm, setSectionForm] = useState({
@@ -879,6 +880,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setDescSelectedFromDropdown(false);
 
     fetchComplianceByCategory(firstCategoryId);
     if (type === 'execution') {
@@ -932,6 +934,7 @@ export default function Quotations({ onUpdateNavigation }) {
     }));
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setDescSelectedFromDropdown(false);
   };
 
   const handleEditItem = (index) => {
@@ -946,6 +949,7 @@ export default function Quotations({ onUpdateNavigation }) {
       Professional_amount:  item.Professional_amount || 0,
     });
     setActiveEditingIndex(index);
+    setDescSelectedFromDropdown(true);
     // Re-fetch descriptions for this item's sub-category
     if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
       fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
@@ -1135,6 +1139,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setDescSelectedFromDropdown(false);
 
     // Fetch compliance list for this category
     fetchComplianceByCategory(categoryId);
@@ -1396,6 +1401,7 @@ export default function Quotations({ onUpdateNavigation }) {
         modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
         setDescriptionSearch('');
         setShowDescriptionDropdown(false);
+        setDescSelectedFromDropdown(false);
       }
     : handleAddItem;
 
@@ -1412,6 +1418,7 @@ export default function Quotations({ onUpdateNavigation }) {
           Professional_amount:  item.Professional_amount || 0,
         });
         modalSetEditingIdx(index);
+        setDescSelectedFromDropdown(true);
         if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
           fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
         }
@@ -1449,6 +1456,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setDescSelectedFromDropdown(false);
   };
 
   // ============================================================================
@@ -1742,7 +1750,7 @@ export default function Quotations({ onUpdateNavigation }) {
                           }
                         `}
                       >
-                        <div className="font-semibold">Certificates</div>
+                        <div className="font-semibold">Regulatory permissions</div>
                         <div className="text-xs text-gray-500 mt-0.5">Construction & Occupational</div>
                       </button>
 
@@ -2079,6 +2087,7 @@ export default function Quotations({ onUpdateNavigation }) {
                             onClick={() => {
                               modalSetEditingIdx(null);
                               modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+                              setDescSelectedFromDropdown(false);
                             }}
                             className="text-xs text-amber-600 hover:text-amber-800 font-medium"
                           >
@@ -2099,6 +2108,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                 modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
                                 setDescriptionSearch('');
                                 setShowDescriptionDropdown(false);
+                                setDescSelectedFromDropdown(false);
                                 fetchComplianceDescriptions(activeCategoryId, id);
                               }}
                               categoryId={activeCategoryId}
@@ -2117,6 +2127,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                 onClick={() => {
                                   setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown');
                                   modalSetItemForm(prev => ({ ...prev, compliance_name: '' }));
+                                  setDescSelectedFromDropdown(false);
                                 }}
                                 className="text-xs text-teal-600 hover:text-teal-700 font-medium"
                               >
@@ -2131,91 +2142,124 @@ export default function Quotations({ onUpdateNavigation }) {
                             </div>
                           ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
                             <div className="description-dropdown relative w-full">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = !showDescriptionDropdown;
-                                  setShowDescriptionDropdown(next);
-                                  if (next) {
-                                    setTimeout(() => {
-                                      const body = document.getElementById('compliance-modal-body');
-                                      if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-                                    }, 50);
-                                  }
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
-                              >
-                                <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
-                                  {modalItemForm.compliance_name
-                                    ? (modalItemForm.compliance_name.length > 65 ? modalItemForm.compliance_name.substring(0, 65) + '...' : modalItemForm.compliance_name)
-                                    : 'Select a description'}
-                                </span>
-                                <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
-                              </button>
 
+                              {/* ── Chip + textarea (selected, dropdown closed) ── */}
+                              {modalItemForm.compliance_name && descSelectedFromDropdown && !showDescriptionDropdown ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg">
+                                    <div className="w-4 h-4 rounded-full bg-teal-500 flex items-center justify-center flex-shrink-0">
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-xs font-semibold text-teal-700 flex-1 truncate">Selected from list — edit below if needed</span>
+                                    <button type="button"
+                                      onClick={() => {
+                                        setShowDescriptionDropdown(true);
+                                        setTimeout(() => {
+                                          const body = document.getElementById('compliance-modal-body');
+                                          if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+                                        }, 50);
+                                      }}
+                                      className="text-xs text-teal-600 hover:text-teal-800 font-semibold underline underline-offset-2 flex-shrink-0">
+                                      Change
+                                    </button>
+                                  </div>
+                                  <textarea
+                                    value={modalItemForm.compliance_name}
+                                    onChange={e => modalSetItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
+                                    rows={3}
+                                    autoFocus
+                                    className="w-full px-3 py-2.5 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none bg-white shadow-sm"
+                                    placeholder="Edit the description as needed…"
+                                  />
+                                </div>
+                              ) : !descSelectedFromDropdown || showDescriptionDropdown ? (
+                                /* ── Dropdown trigger button ── */
+                                <button type="button"
+                                  onClick={() => {
+                                    const next = !showDescriptionDropdown;
+                                    setShowDescriptionDropdown(next);
+                                    if (next) {
+                                      setTimeout(() => {
+                                        const body = document.getElementById('compliance-modal-body');
+                                        if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+                                      }, 50);
+                                    }
+                                  }}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
+                                  <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
+                                    {modalItemForm.compliance_name
+                                      ? (modalItemForm.compliance_name.length > 65 ? modalItemForm.compliance_name.substring(0, 65) + '...' : modalItemForm.compliance_name)
+                                      : 'Select a description'}
+                                  </span>
+                                  <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
+                                </button>
+                              ) : null}
+
+                              {/* ── Dropdown panel ── */}
                               {showDescriptionDropdown && (
                                 <div
-                                  className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden"
+                                  className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden"
                                   style={{ zIndex: 99999 }}
                                   onMouseDown={(e) => e.preventDefault()}
                                 >
-                                  <div className="p-3 border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
+                                  {/* Search bar */}
+                                  <div className="px-3 pt-3 pb-2">
                                     <div className="relative">
-                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-400" />
+                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                                       <input
                                         type="text"
                                         placeholder="Search descriptions..."
                                         value={descriptionSearch}
                                         onChange={(e) => setDescriptionSearch(e.target.value)}
                                         onClick={(e) => e.stopPropagation()}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 text-sm bg-white"
+                                        className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 focus:bg-white text-sm transition-colors"
                                         autoFocus
                                       />
                                     </div>
-                                    <div className="flex items-center justify-between mt-2 px-0.5">
-                                      <span className="text-xs text-gray-400">
-                                        {complianceDescriptions.filter(d => !modalUsedDescriptions.has(d.compliance_description) && d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())).length} results
-                                      </span>
-                                      <span className="text-xs text-teal-500 font-medium">Click to select</span>
-                                    </div>
                                   </div>
-                                  <div className="max-h-64 overflow-y-auto p-2 space-y-1.5">
+                                  {/* Results count */}
+                                  <div className="px-3 pb-1.5 flex items-center justify-between">
+                                    <span className="text-[11px] text-gray-400 font-medium">
+                                      {complianceDescriptions.filter(d => !modalUsedDescriptions.has(d.compliance_description) && d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())).length} options available
+                                    </span>
+                                    <span className="text-[11px] text-teal-500 font-medium">Click to select</span>
+                                  </div>
+                                  {/* Divider */}
+                                  <div className="border-t border-gray-100" />
+                                  {/* List */}
+                                  <div className="max-h-60 overflow-y-auto">
                                     {complianceDescriptions
                                       .filter(d => !modalUsedDescriptions.has(d.compliance_description) && d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase()))
                                       .map((desc, idx) => {
                                         const isSelected = modalItemForm.compliance_name === desc.compliance_description;
-                                        const words = (desc.compliance_description || '').split(' ');
-                                        const preview = words.slice(0, 4).join(' ');
-                                        const rest = words.slice(4).join(' ');
                                         return (
                                           <button
                                             key={desc.id}
                                             type="button"
                                             onClick={() => {
                                               modalSetItemForm(prev => ({ ...prev, compliance_name: desc.compliance_description }));
+                                              setDescSelectedFromDropdown(true);
                                               setShowDescriptionDropdown(false);
                                               setDescriptionSearch('');
                                             }}
-                                            className={`w-full text-left rounded-lg border transition-all duration-150 group ${isSelected ? 'border-teal-400 bg-teal-50 shadow-sm' : 'border-gray-100 bg-white hover:border-teal-200 hover:bg-teal-50/30'}`}
+                                            className={`w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 transition-colors duration-100 flex items-start gap-3
+                                              ${isSelected ? 'bg-teal-50' : 'bg-white hover:bg-teal-600'} group`}
                                           >
-                                            <div className="flex items-start gap-3 px-3 py-2.5">
-                                              <div className={`flex-shrink-0 min-w-[1.5rem] h-6 rounded-md flex items-center justify-center text-xs font-bold mt-0.5 ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-100 group-hover:text-teal-600'}`}>
-                                                {idx + 1}
-                                              </div>
-                                              <div className="flex-1 min-w-0">
-                                                <p className={`text-sm leading-relaxed ${isSelected ? 'text-teal-900 font-medium' : 'text-gray-700'}`}>
-                                                  <span className={`font-semibold ${isSelected ? 'text-teal-700' : 'text-gray-900'}`}>{preview}</span>
-                                                  {rest && <span> {rest}</span>}
-                                                </p>
-                                              </div>
-                                              {isSelected && (
-                                                <div className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-500 flex items-center justify-center mt-0.5">
-                                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                  </svg>
-                                                </div>
-                                              )}
-                                            </div>
+                                            <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 transition-colors
+                                              ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-500 group-hover:text-white'}`}>
+                                              {idx + 1}
+                                            </span>
+                                            <span className={`flex-1 text-sm leading-snug transition-colors
+                                              ${isSelected ? 'text-teal-800 font-medium' : 'text-gray-700 group-hover:text-white'}`}>
+                                              {desc.compliance_description}
+                                            </span>
+                                            {isSelected && (
+                                              <svg className="flex-shrink-0 w-4 h-4 text-teal-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                              </svg>
+                                            )}
                                           </button>
                                         );
                                       })}

@@ -8,11 +8,12 @@ import {
   Briefcase, ShoppingCart, Users, X, Paperclip, Truck,
   DollarSign, FileEdit, ChevronDown, Search, FileSearch,
 } from 'lucide-react';
-import { getInvoiceById, generateInvoicePdf } from '../../services/invoices';
+import { getInvoiceById, generateInvoicePdf, cancelInvoice } from '../../services/invoices';
 import { getQuotationById } from '../../services/quotation';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { getVendors } from '../../services/vendors';
+import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ const STATUS_CONFIG = {
   '3':                 { label: 'In Progress',        Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
   '4':                 { label: 'Placed Work-order',  Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
   '5':                 { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  '6':                 { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
   'draft':             { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
   'under_review':      { label: 'Under Review',       Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
   'in_progress':       { label: 'In Progress',        Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
@@ -45,6 +47,8 @@ const STATUS_CONFIG = {
   'verified':          { label: 'Verified',           Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
   'failed':            { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
   'pending':           { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'cancelled':         { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'canceled':          { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -77,7 +81,8 @@ const isMiscNumeric = (v) => {
 
 const getStatus = (s) => {
   const key = String(s || '');
-  return STATUS_CONFIG[key] || STATUS_CONFIG[key.toLowerCase()] || STATUS_CONFIG['1'];
+  const lower = key.toLowerCase();
+  return STATUS_CONFIG[key] || STATUS_CONFIG[lower] || STATUS_CONFIG['1'];
 };
 
 const groupItemsByCategory = (items = []) => {
@@ -563,6 +568,10 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
 
+  // Role-based access
+  const { isAdmin, isManager } = useRole();
+  const isPrivileged = isAdmin || (isManager ?? false);
+
   const [invoice,       setInvoice]       = useState(null);
   const [client,        setClient]        = useState(null);
   const [project,       setProject]       = useState(null);
@@ -576,6 +585,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [pdfError,      setPdfError]      = useState('');
   const [visible,       setVisible]       = useState(false);
   const [sendModal,     setSendModal]     = useState(false);
+
+  // Cancel state
+  const [showCancelModal,  setShowCancelModal]  = useState(false);
+  const [cancelLoading,    setCancelLoading]    = useState(false);
+  const [cancelError,      setCancelError]      = useState('');
+  const [cancelSuccess,    setCancelSuccess]    = useState(false);
 
   // Create Purchase Order Modal state
   const [showCreatePOModal, setShowCreatePOModal] = useState(false);
@@ -780,12 +795,34 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     setPoVendorSearch('');
   };
 
+  const handleCancelInvoice = async () => {
+    setCancelLoading(true);
+    setCancelError('');
+    try {
+      await cancelInvoice(id);
+      setCancelSuccess(true);
+      // Update invoice status locally so UI reflects cancelled state immediately
+      setInvoice((prev) => prev ? { ...prev, status: '6', status_display: 'Cancelled', is_cancelled: true } : prev);
+    } catch (e) {
+      setCancelError(e.message || 'Failed to cancel invoice. Please try again.');
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
   if (loading)    return <LoadingView />;
   if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/invoices')} />;
   if (!invoice)   return <ErrorView message="Invoice not available." onRetry={fetchData} onBack={() => navigate('/invoices')} />;
 
   // ── Derived values ────────────────────────────────────────────────────────────
-  const status     = getStatus(invoice.status ?? invoice.status_display ?? 1);
+  const statusKey  = String(invoice.status_display || invoice.status || '1').toLowerCase();
+  const status     = getStatus(statusKey !== '' ? statusKey : (invoice.status ?? 1));
+  const isCancelled = (
+    String(invoice.status) === '6' ||
+    statusKey === 'cancelled' ||
+    statusKey === 'canceled' ||
+    invoice.is_cancelled === true
+  );
   const invNum     = fmtInvNum(invoice.invoice_number);
   const subtotal   = parseFloat(invoice.total_amount  || 0);
   const gstRate    = parseFloat(invoice.gst_rate      || 0);
@@ -841,10 +878,16 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         .vid-back:hover{background:#e2e8f0;color:#1e293b}
         .vid-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
-        /* Track Payment — red */
-        .vid-btn-track{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#dc2626,#b91c1c);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(220,38,38,.3)}
-        .vid-btn-track:hover{background:linear-gradient(135deg,#b91c1c,#991b1b);box-shadow:0 4px 14px rgba(220,38,38,.4);transform:translateY(-1px)}
+        /* Track Payment — indigo/purple (distinguishable, not red) */
+        .vid-btn-track{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#6366f1);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(99,102,241,.3)}
+        .vid-btn-track:hover{background:linear-gradient(135deg,#4338ca,#4f46e5);box-shadow:0 4px 14px rgba(99,102,241,.4);transform:translateY(-1px)}
         .vid-btn-track:active{transform:translateY(0)}
+        .vid-btn-track:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+
+        /* Cancel Invoice — same red gradient as old Track Payment (admin/manager only) */
+        .vid-btn-cancel{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#dc2626,#b91c1c);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(220,38,38,.3)}
+        .vid-btn-cancel:hover{background:linear-gradient(135deg,#b91c1c,#991b1b);box-shadow:0 4px 14px rgba(220,38,38,.4);transform:translateY(-1px)}
+        .vid-btn-cancel:active{transform:translateY(0)}
 
         /* Send to Client, Download — teal */
         .vid-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
@@ -969,37 +1012,70 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <ArrowLeft size={15} /> Back to Invoices
           </button>
           <div className="vid-actions">
-            {/* Track Payment — red */}
-            <button className="vid-btn-track" title="Track payment for this invoice" onClick={() => navigate(`/invoices/${id}/track-payment`)}>
+            {/* Track Payment — indigo/purple, more neutral */}
+            <button
+              className="vid-btn-track"
+              title="Track payment for this invoice"
+              onClick={() => navigate(`/invoices/${id}/track-payment`)}
+              disabled={isCancelled}
+              style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
+            >
               <DollarSign size={14} /> Track Payment
             </button>
             {/* Send to Client */}
-            <button className="vid-btn-o" onClick={() => setSendModal(true)}>
+            <button
+              className="vid-btn-o"
+              onClick={() => setSendModal(true)}
+              disabled={isCancelled}
+              style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
+            >
               <Mail size={14} /> Send to Client
             </button>
-            {/* Download Invoice */}
-            <button className="vid-btn-p" onClick={handleDownload} disabled={pdfLoading}>
+            {/* Download Invoice — always active, even when cancelled */}
+            <button
+              className="vid-btn-p"
+              onClick={handleDownload}
+              disabled={pdfLoading}
+            >
               {pdfLoading ? <><Loader2 size={14} className="vid-spin" /> Generating…</> : <><Download size={14} /> Download Invoice</>}
             </button>
-            {/* Coming soon — solid slate buttons, not clickable */}
-            <button className="vid-btn-soon"><Briefcase size={14} /> Proceed to Work Order</button>
-            {/* Create Purchase Order — only shown for Execution Compliance invoices.
-                Hidden for: vendor invoices, Vendor Compliance, and Construction & Occupational Compliance. */}
+            {/* Create Purchase Order — only shown for Execution Compliance invoices */}
             {!isVendorInvoice && invoice.invoice_type === 'Execution Compliance' && (
               <button
                 className="vid-btn-p"
                 onClick={handleOpenCreatePOModal}
                 title="Create a purchase order for this invoice"
+                disabled={isCancelled}
+                style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
               >
                 <ShoppingCart size={14} /> Create Purchase Order
               </button>
             )}
-            <button className="vid-btn-soon"><Users size={14} /> Create Vendor</button>
+            {/* Cancel Invoice — Admin / Manager only, hidden once already cancelled */}
+            {isPrivileged && !isCancelled && (
+              <button
+                className="vid-btn-cancel"
+                title="Cancel this invoice"
+                onClick={() => setShowCancelModal(true)}
+              >
+                <XCircle size={14} /> Cancel Invoice
+              </button>
+            )}
           </div>
         </div>
 
         {/* ── Document card ── */}
         <div className={`vid-doc${visible ? ' in' : ''}`}>
+
+          {/* ══════════ CANCELLED BANNER ══════════ */}
+          {isCancelled && (
+            <div style={{ background: 'linear-gradient(135deg,#dc2626,#b91c1c)', padding: '12px 40px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <XCircle size={18} color="#fff" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', letterSpacing: '.01em' }}>
+                This invoice has been cancelled. All actions are disabled.
+              </span>
+            </div>
+          )}
 
           {/* ══════════ HEADER ══════════ */}
           <div className="vid-hdr">
@@ -1557,6 +1633,111 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancel Invoice Modal ── */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+          <div
+            className="absolute inset-0 bg-black/50 pointer-events-auto"
+            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+            onClick={() => !cancelLoading && !cancelSuccess && setShowCancelModal(false)}
+          />
+          <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+            <div
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 440, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vid_modal_in 0.3s cubic-bezier(0.16,1,0.3,1)' }}
+              className="pointer-events-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              {cancelSuccess ? (
+                /* ── Success state ── */
+                <div style={{ padding: '40px 32px', textAlign: 'center' }}>
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#f0fdf4', border: '2px solid #bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+                    <CheckCircle size={32} color="#059669" />
+                  </div>
+                  <h3 style={{ fontSize: 20, fontWeight: 800, color: '#1e293b', margin: '0 0 8px' }}>Invoice Cancelled</h3>
+                  <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 28px', lineHeight: 1.7 }}>
+                    Invoice <strong>{fmtInvNum(invoice?.invoice_number)}</strong> has been successfully cancelled.
+                  </p>
+                  <button
+                    onClick={() => { setShowCancelModal(false); setCancelSuccess(false); }}
+                    style={{ width: '100%', padding: '11px', borderRadius: 10, background: '#0f766e', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                /* ── Confirm state ── */
+                <>
+                  {/* Header */}
+                  <div style={{ background: 'linear-gradient(135deg,#dc2626,#b91c1c)', padding: '20px 24px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <XCircle size={18} color="#fff" />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Cancel Invoice</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{fmtInvNum(invoice?.invoice_number)}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => !cancelLoading && setShowCancelModal(false)}
+                        style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: cancelLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Body */}
+                  <div style={{ padding: '24px 24px 26px', background: '#fafafa' }}>
+                    {/* Warning banner */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 20 }}>
+                      <AlertCircle size={14} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <p style={{ margin: 0, fontSize: 12, color: '#7f1d1d', lineHeight: 1.6 }}>
+                        This action <strong>cannot be undone</strong>. The invoice will be permanently cancelled and all actions will be disabled.
+                      </p>
+                    </div>
+
+                    <p style={{ fontSize: 13, color: '#475569', margin: '0 0 20px', lineHeight: 1.7 }}>
+                      Are you sure you want to cancel invoice <strong style={{ color: '#1e293b' }}>{fmtInvNum(invoice?.invoice_number)}</strong>?
+                    </p>
+
+                    {/* API error */}
+                    {cancelError && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
+                        <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span>{cancelError}</span>
+                      </div>
+                    )}
+
+                    {/* Buttons */}
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => !cancelLoading && setShowCancelModal(false)}
+                        disabled={cancelLoading}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: cancelLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                      >
+                        Keep Invoice
+                      </button>
+                      <button
+                        onClick={handleCancelInvoice}
+                        disabled={cancelLoading}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 22px', borderRadius: 9, border: 'none', background: cancelLoading ? '#d1d5db' : 'linear-gradient(135deg,#dc2626,#b91c1c)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: cancelLoading ? 'not-allowed' : 'pointer', boxShadow: cancelLoading ? 'none' : '0 2px 8px rgba(220,38,38,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                      >
+                        {cancelLoading
+                          ? <><Loader2 size={13} style={{ animation: 'vid_spin 0.7s linear infinite' }} /> Cancelling…</>
+                          : <><XCircle size={13} /> Yes, Cancel Invoice</>
+                        }
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

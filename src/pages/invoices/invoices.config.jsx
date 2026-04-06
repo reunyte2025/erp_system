@@ -1,4 +1,5 @@
-import { Receipt, FileText, Clock, CheckCircle2, FileX } from 'lucide-react';
+import { Receipt, FileText, Clock, CheckCircle2, FileX, Trash2, Ban } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * ============================================================================
@@ -31,6 +32,7 @@ const STATUS_MAP = {
   '3': { iconColor: 'text-yellow-600',  iconBg: 'bg-yellow-100/30',  emoji: '🕐', text: 'In Progress',       badgeBg: 'bg-yellow-100', badgeText: 'text-yellow-700' },
   '4': { iconColor: 'text-green-600',   iconBg: 'bg-green-100/30',   emoji: '✅', text: 'Placed Work-order', badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
   '5': { iconColor: 'text-red-600',     iconBg: 'bg-red-100/30',     emoji: '❌', text: 'Failed',            badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
+  '6': { iconColor: 'text-red-600',     iconBg: 'bg-red-100/30',     emoji: '🚫', text: 'Cancelled',         badgeBg: 'bg-red-100',    badgeText: 'text-red-700'   },
 
   // Snake-case slugs → alias to numeric key
   'draft':             '1',
@@ -40,6 +42,8 @@ const STATUS_MAP = {
   'verified':          '4',
   'placed_work_order': '4',
   'failed':            '5',
+  'cancelled':         '6',
+  'canceled':          '6',
 
   // Human-readable display strings (status_display field from API)
   'under review':      '2',
@@ -133,8 +137,100 @@ const truncateText = (text, maxLength = 30) => {
 };
 
 // ============================================================================
-// COLUMN DEFINITIONS
+// CANCEL HELPERS  (used by invoicesList.jsx and viewinvoicedetails.jsx)
 // ============================================================================
+
+/**
+ * Returns true when an invoice row is cancelled.
+ * Checks status === 6, is_cancelled flag, or status_display === 'cancelled'.
+ */
+export const isInvoiceCancelled = (row) => {
+  if (!row) return false;
+  const status = String(row.status ?? '').toLowerCase();
+  const display = String(row.status_display ?? '').toLowerCase();
+  return (
+    status  === '6'          ||
+    status  === 'cancelled'  ||
+    status  === 'canceled'   ||
+    display === 'cancelled'  ||
+    display === 'canceled'   ||
+    row.is_cancelled === true
+  );
+};
+
+// ============================================================================
+// ACTIONS DROPDOWN MENU  (Admin / Manager only)
+// ============================================================================
+
+const ActionsMenu = ({ row, handlers }) => {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const cancelled = isInvoiceCancelled(row);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  const handleCancel = (e) => {
+    e.stopPropagation();
+    setOpen(false);
+    handlers?.onCancelInvoice?.(row);
+  };
+
+  // Already-cancelled rows show a plain label — no dropdown
+  if (cancelled) {
+    return (
+      <div className="flex justify-center">
+        <span className="text-xs text-gray-400 font-medium italic">Cancelled</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex justify-center" ref={menuRef}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-150
+          ${open ? 'text-red-700 bg-red-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200'}`}
+        title="Actions"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3"  r="1.4" />
+          <circle cx="8" cy="8"  r="1.4" />
+          <circle cx="8" cy="13" r="1.4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-10 z-50 w-52 bg-white rounded-xl border border-gray-200 py-1.5 shadow-lg overflow-hidden"
+          style={{ animation: 'inv_dropdownIn 0.15s ease-out' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleCancel}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors duration-100 rounded-lg"
+          >
+            <Ban className="w-4 h-4 flex-shrink-0" />
+            <span>Cancel Invoice</span>
+          </button>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes inv_dropdownIn {
+          from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 const columns = [
   {
@@ -234,6 +330,15 @@ const columns = [
     },
     align: 'left',
   },
+
+  // Actions column — only rendered for Admin / Manager (adminOnly flag)
+  {
+    key: 'actions',
+    label: 'Actions',
+    adminOnly: true,
+    align: 'center',
+    render: (row, _index, handlers) => <ActionsMenu row={row} handlers={handlers} />,
+  },
 ];
 
 // ============================================================================
@@ -256,5 +361,13 @@ const invoicesConfig = {
 };
 
 export default invoicesConfig;
+
+/**
+ * Returns columns filtered by role.
+ *   isPrivileged = true  → Admin or Manager → sees Actions column
+ *   isPrivileged = false → Regular user     → Actions column hidden
+ */
+export const getColumns = (isPrivileged) =>
+  isPrivileged ? columns : columns.filter((col) => !col.adminOnly);
 
 export { formatCurrency, formatDate, formatTimestamp, getClientName, getStatusBadge, getStatusIconConfig, truncateText };

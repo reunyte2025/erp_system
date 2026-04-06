@@ -7,8 +7,9 @@ import {
 import { getClients, getClientById } from '../../services/clients';
 import { getQuotations } from '../../services/quotation';
 import { getProformas } from '../../services/proforma';
-import { getInvoices, getInvoiceStats, getInvoiceById } from '../../services/invoices';
-import invoicesConfig from './invoices.config';
+import { getInvoices, getInvoiceStats, getInvoiceById, cancelInvoice } from '../../services/invoices';
+import { useRole } from '../../components/RoleContext';
+import invoicesConfig, { getColumns, isInvoiceCancelled } from './invoices.config';
 import DynamicList from '../../components/DynamicList/DynamicList';
 
 /**
@@ -1071,11 +1072,74 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed }) => {
 };
 
 // ============================================================================
+// CANCEL CONFIRM MODAL
+// ============================================================================
+
+const CancelConfirmModal = ({ isOpen, invoice, onConfirm, onCancel, cancelling }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+      <div
+        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+        onClick={() => !cancelling && onCancel()}
+      />
+      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="mb-5 flex justify-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+              <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+            </div>
+          </div>
+          <h3 className="text-xl font-bold text-gray-800 mb-2">Cancel Invoice?</h3>
+          <p className="text-gray-500 text-sm mb-1">
+            You are about to cancel invoice
+          </p>
+          <p className="text-gray-800 font-semibold text-sm mb-6">
+            {invoice?.invoice_number || `#${invoice?.id}`}
+          </p>
+          <p className="text-gray-400 text-xs mb-8">
+            This action cannot be undone. The invoice will be permanently cancelled.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onCancel}
+              disabled={cancelling}
+              className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium text-sm disabled:opacity-50"
+            >
+              Keep Invoice
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={cancelling}
+              className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {cancelling ? (
+                <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Cancelling…</>
+              ) : (
+                'Yes, Cancel Invoice'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // MAIN INVOICES LIST COMPONENT  — mirrors ProformaList exactly
 // ============================================================================
 
 export default function InvoicesList() {
   const navigate = useNavigate();
+
+  // Role-based access
+  const { isAdmin, isManager } = useRole();
+  const isPrivileged = isAdmin || (isManager ?? false);
 
   const [invoices,          setInvoices]          = useState([]);
   const [loading,           setLoading]           = useState(true);
@@ -1096,8 +1160,48 @@ export default function InvoicesList() {
     total: 0, total_amount: 0, paid_amount: 0, unpaid_amount: 0,
   });
 
+  // Cancel state
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelling,   setCancelling]   = useState(false);
+  const [toast,        setToast]        = useState(null);
+
   const requestInProgress = useRef(false);
   const lastFetchParams   = useRef(null);
+
+  // Cancel handlers
+  const handleCancelInvoice = (invoice) => setCancelTarget(invoice);
+  const handleCancelConfirm = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await cancelInvoice(cancelTarget.id);
+      setToast({ message: 'Invoice cancelled successfully', type: 'success' });
+      setCancelTarget(null);
+      // Optimistically update local state so badge flips to Cancelled immediately
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === cancelTarget.id
+            ? { ...inv, status: '6', status_display: 'Cancelled', is_cancelled: true }
+            : inv
+        )
+      );
+      // Re-fetch from server
+      lastFetchParams.current = null;
+      fetchInvoices();
+    } catch (err) {
+      setToast({ message: err.message || 'Failed to cancel invoice', type: 'error' });
+    } finally {
+      setCancelling(false);
+    }
+  };
+  const handleCancelDismiss = () => { if (!cancelling) setCancelTarget(null); };
+
+  // Auto-dismiss toast after 3s
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const fetchInvoices = useCallback(async () => {
     const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters });
@@ -1227,8 +1331,28 @@ export default function InvoicesList() {
 
   return (
     <>
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[99999] animate-slideUp" style={{ transform: 'translateX(-50%)' }}>
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-500'}`}
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+          >
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            )}
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-1 opacity-70 hover:opacity-100 transition-opacity">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <DynamicList
-        config={invoicesConfig}
+        config={{ ...invoicesConfig, columns: getColumns(isPrivileged) }}
         data={invoices}
         loading={loading}
         error={error}
@@ -1237,7 +1361,6 @@ export default function InvoicesList() {
         totalPages={totalPages}
         totalCount={totalCount}
         onPageChange={handlePageChange}
-        onAdd={handleAddInvoice}
         onSearch={handleSearch}
         onFilterToggle={handleFilterToggle}
         onRowClick={handleRowClick}
@@ -1245,6 +1368,7 @@ export default function InvoicesList() {
         searchTerm={searchTerm}
         showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
+        actionHandlers={isPrivileged ? { onCancelInvoice: handleCancelInvoice } : undefined}
       />
 
       <SelectInvoiceModal
@@ -1267,12 +1391,23 @@ export default function InvoicesList() {
         currentFilters={activeFilters}
       />
 
+      {/* Cancel confirmation modal */}
+      <CancelConfirmModal
+        isOpen={!!cancelTarget}
+        invoice={cancelTarget}
+        onConfirm={handleCancelConfirm}
+        onCancel={handleCancelDismiss}
+        cancelling={cancelling}
+      />
+
       <style>{`
         html { overflow-y: scroll; scrollbar-gutter: stable; }
         @keyframes fadeIn  { from { opacity: 0; }                         to { opacity: 1; }                       }
         @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
         .animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
         .animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-slideUp { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
     </>
   );

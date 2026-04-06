@@ -759,7 +759,6 @@ export default function ProformaList() {
         totalPages={totalPages}
         totalCount={totalCount}
         onPageChange={handlePageChange}
-        onAdd={handleAddProforma}
         onSearch={handleSearch}
         onFilterToggle={handleFilterToggle}
         onRowClick={handleRowClick}
