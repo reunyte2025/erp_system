@@ -360,7 +360,7 @@ const SuccessModal = ({ isOpen, onClose, onProceed }) => {
               onClick={onProceed}
               className="w-full text-white py-2.5 px-6 rounded-xl text-sm font-semibold bg-teal-600 hover:bg-teal-700 active:bg-teal-800 transition-all duration-150 touch-manipulation"
             >
-              Back to Vendor List
+              Back to Contractor List
             </button>
             <button
               onClick={onClose}
@@ -876,7 +876,7 @@ const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
               </div>
               <div>
                 <h2 className="text-white font-semibold text-base leading-tight">
-                  Create New Vendor
+                  Create New Contractor
                 </h2>
                 <p className="text-xs mt-0.5 text-teal-100">
                   Fill in the details below
@@ -905,9 +905,9 @@ const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
                 )}
 
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Vendor Info</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Contractor Info</p>
                   <div className="grid grid-cols-1 gap-3">
-                    <InputField icon={Building2} label="Vendor Name" name="name"
+                    <InputField icon={Building2} label="Contractor Name" name="name"
                       value={formData.name} onChange={handleInputChange}
                       placeholder="ABC Plumbing Services" required disabled={submitting} />
                   </div>
@@ -925,7 +925,7 @@ const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
                         type="tel" placeholder="+91 98765 43210" required disabled={submitting} />
                       <InputField icon={Mail} label="Email Address" name="email"
                         value={formData.email} onChange={handleInputChange}
-                        type="email" placeholder="vendor@example.com" required disabled={submitting} />
+                        type="email" placeholder="contractor@example.com" required disabled={submitting} />
                     </div>
                   </div>
                 </div>
@@ -953,7 +953,7 @@ const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">Category</p>
                   <MultiSelectField
-                    label="Vendor Category"
+                    label="Contractor Category"
                     name="vendorCategory"
                     value={formData.vendorCategory}
                     onChange={handleInputChange}
@@ -1007,7 +1007,7 @@ const CreateVendorModal = ({ isOpen, onClose, onSuccess }) => {
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    Create Vendor
+                    Create Contractor
                   </>
                 )}
               </button>
@@ -1167,9 +1167,9 @@ export default function VendorsList() {
       lastFetchParams.current = null;
       fetchVendors();
       fetchStats();
-      setToast({ message: 'Vendor deleted successfully', type: 'success' });
+      setToast({ message: 'Contractor deleted successfully', type: 'success' });
     } catch (err) {
-      setToast({ message: err.message || 'Failed to delete vendor', type: 'error' });
+      setToast({ message: err.message || 'Failed to delete contractor', type: 'error' });
     } finally {
       setIsDeleting(false);
     }
@@ -1200,8 +1200,8 @@ export default function VendorsList() {
       <StatCard
         icon={<Building2 className="w-5 h-5" />}
         count={stats.total || 0}
-        label="Total Vendors"
-        subLabel={`${stats.total || 0} total vendors`}
+        label="Total Contractors"
+        subLabel={`${stats.total || 0} total contractors`}
         bgColor="bg-teal-500"
         textColor="text-teal-500"
       />
@@ -1209,7 +1209,7 @@ export default function VendorsList() {
         icon={<Building2 className="w-5 h-5" />}
         count={stats.active || 0}
         label="Active"
-        subLabel={`${stats.active || 0} active vendors`}
+        subLabel={`${stats.active || 0} active contractors`}
         bgColor="bg-green-500"
         textColor="text-green-500"
       />
@@ -1217,7 +1217,7 @@ export default function VendorsList() {
         icon={<Building2 className="w-5 h-5" />}
         count={stats.inactive || 0}
         label="Inactive"
-        subLabel={`${stats.inactive || 0} inactive vendors`}
+        subLabel={`${stats.inactive || 0} inactive contractors`}
         bgColor="bg-yellow-500"
         textColor="text-yellow-500"
       />
@@ -1225,7 +1225,7 @@ export default function VendorsList() {
         icon={<Building2 className="w-5 h-5" />}
         count={stats.blacklisted || 0}
         label="Blacklisted"
-        subLabel={`${stats.blacklisted || 0} blacklisted`}
+        subLabel={`${stats.blacklisted || 0} blacklisted contractors`}
         bgColor="bg-red-500"
         textColor="text-red-500"
       />

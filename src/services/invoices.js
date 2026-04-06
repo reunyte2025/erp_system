@@ -16,12 +16,13 @@ const serviceLogger = {
 };
 
 const ENDPOINTS = {
-  GET_ALL:       '/invoices/get_all_invoices/',
-  GET_BY_ID:     '/invoices/get_invoice/',
-  CREATE:        '/invoices/create_invoice/',
-  UPDATE:        '/invoices/',
-  DELETE:        '/invoices/',
-  TRACK_INVOICE: '/invoices/track_invoice/',
+  GET_ALL:          '/invoices/get_all_invoices/',
+  GET_BY_ID:        '/invoices/get_invoice/',
+  CREATE:           '/invoices/create_invoice/',
+  UPDATE:           '/invoices/',
+  DELETE:           '/invoices/',
+  TRACK_INVOICE:    '/invoices/track_invoice/',
+  CANCEL_INVOICE:   '/invoices/cancelled_invoice/',
 };
 
 const generateInvoiceNumber = () => {
@@ -198,6 +199,19 @@ export const generateInvoicePdf = async (id, scopeOfWork, fileName = 'invoice.pd
   }
 };
 
+export const cancelInvoice = async (id) => {
+  try {
+    if (!id) throw new Error('Invoice ID is required');
+    serviceLogger.log(`[Invoice Service] Cancelling invoice ID: ${id}`);
+    const response = await api.delete(ENDPOINTS.CANCEL_INVOICE, { params: { id } });
+    return { status: 'success', data: response.data };
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`[Invoice Service] cancelInvoice(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
 export const getInvoiceStats = async () => {
   try {
     const response = await getInvoices({ page: 1, page_size: 1 });
@@ -226,4 +240,5 @@ export default {
   getInvoiceStats,
   generateInvoicePdf,
   trackInvoice,
+  cancelInvoice,
 };
