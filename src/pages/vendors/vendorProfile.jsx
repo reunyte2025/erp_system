@@ -25,6 +25,8 @@ import {
 import { getVendorById, updateVendor, assignVendorToProject, getVendorProjects, unassignVendorFromProject, sendVendorEmail } from "../../services/vendors";
 import { getProjects } from "../../services/projects";
 import { VENDOR_CATEGORIES, VENDOR_CATEGORY_OPTIONS, VENDOR_STATUS_DISPLAY } from "./vendors.config";
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 /**
  * ============================================================================
@@ -911,7 +913,7 @@ export default function VendorProfile() {
 
   return (
     <div
-      className="min-h-screen bg-gray-50"
+      className="min-h-screen bg-gray-50 vendor-profile-page"
     >
       {/* ====================================================================
            HEADER SECTION
@@ -1105,6 +1107,14 @@ export default function VendorProfile() {
             </div>
 
           </div>
+
+          {/* Notes Section */}
+          {!loading && vendor && (
+            <Notes
+              entityType={NOTE_ENTITY.VENDOR}
+              entityId={vendor.id}
+            />
+          )}
 
         </div>
 
@@ -1953,10 +1963,10 @@ export default function VendorProfile() {
         .animate-scaleIn   { animation: scaleIn   0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         .animate-checkBounce { animation: checkBounce 0.6s ease-in-out; }
 
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .vendor-profile-page ::-webkit-scrollbar { width: 6px; }
+        .vendor-profile-page ::-webkit-scrollbar-track { background: transparent; }
+        .vendor-profile-page ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .vendor-profile-page ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       `}</style>
     </div>
   );

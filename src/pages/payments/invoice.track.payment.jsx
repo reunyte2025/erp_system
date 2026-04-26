@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Loader2, AlertCircle, CheckCircle,
   CreditCard, Building2, Wifi, MoreHorizontal, Receipt,
   User, FileText, X, IndianRupee, TrendingUp,
   Clock, RefreshCw, BadgeCheck, Banknote,
 } from 'lucide-react';
-import { getInvoiceById, trackInvoice } from '../../services/invoices';
+import { getInvoiceById, getInvoiceByIdTyped, trackInvoice } from '../../services/invoices';
 import { getPaymentsByInvoice, createPayment, updatePayment } from '../../services/payments';
 import DynamicList from '../../components/DynamicList/DynamicList';
 import trackPaymentConfig from './config.invoice.track.payment';
@@ -49,7 +49,7 @@ const fmtDateTime = (ds) => {
 
 // ─── Add Payment Modal ────────────────────────────────────────────────────────
 
-const AddPaymentModal = ({ invoice, onClose, onSuccess }) => {
+const AddPaymentModal = ({ invoice, navClientId, navVendorId, onClose, onSuccess }) => {
   const today = new Date().toISOString().slice(0, 16);
   const [form, setForm] = useState({
     payment_date:   today,
@@ -70,16 +70,29 @@ const AddPaymentModal = ({ invoice, onClose, onSuccess }) => {
     if (!form.payment_date) { setError('Payment date is required.'); return; }
     setError(''); setSubmitting(true);
     try {
-      // Determine if this is a vendor invoice or a client invoice.
-      // invoice.client holds the client id (number) for client invoices.
-      // invoice.vendor holds the vendor id (number) for vendor/PO invoices.
-      // Backend expects: client invoices → client_id=<id>, vendor_id=null
-      //                  vendor invoices → client_id=null, vendor_id=<id>
-      const isVendorInvoice = !invoice.client && !!invoice.vendor;
+      // Priority 1: use IDs passed via navigation state from ViewInvoiceDetails
+      // Priority 2: extract from the invoice object returned by the API
+      //   - invoice.client may be a number, a nested object { id, ... }, or absent
+      //   - invoice.vendor may similarly be a number or nested object
+      const resolveId = (field) => {
+        if (!field) return null;
+        if (typeof field === 'object') return field.id ? Number(field.id) : null;
+        const n = Number(field);
+        return isNaN(n) ? null : n;
+      };
+
+      const clientId = navClientId ?? resolveId(invoice?.client);
+      const vendorId = navVendorId ?? resolveId(invoice?.vendor);
+
+      if (!clientId && !vendorId) {
+        setError('Unable to determine client or vendor for this invoice. Please go back and reopen the page.');
+        return;
+      }
+
       const result = await createPayment({
         invoice_id:     invoice.id,
-        client_id:      isVendorInvoice ? null : (invoice.client || null),
-        vendor_id:      isVendorInvoice ? (invoice.vendor || null) : null,
+        client_id:      clientId,
+        vendor_id:      vendorId,
         payment_date:   form.payment_date,
         payment_method: Number(form.payment_method),
         reference:      form.reference.trim(),
@@ -427,6 +440,16 @@ const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon, accent }) => 
 export default function InvoiceTrackPayment({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // client_id / vendor_id / invoiceType passed from ViewInvoiceDetails via navigate state
+  // These are the most reliable source — the raw API invoice response sometimes
+  // returns client as a nested object or omits vendor/client IDs altogether.
+  // invoiceType tells us which endpoint to hit directly (avoids wrong-cascade bug).
+  const navState = location.state || {};
+  const navClientId   = navState.client_id   ? Number(navState.client_id)  : null;
+  const navVendorId   = navState.vendor_id   ? Number(navState.vendor_id)  : null;
+  const navInvoiceType = navState.invoice_type || '';
 
   const [invoice,    setInvoice]    = useState(null);
   const [trackData,  setTrackData]  = useState(null);   // from /track_invoice/
@@ -472,9 +495,10 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
     if (!id) { setFetchError('No invoice ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      // Fetch invoice details and track data in parallel
+      // Use typed fetch so vendor invoices hit get_purchase_order_invoice directly
+      // instead of falling into the cascade and returning the wrong invoice type.
       const [res] = await Promise.all([
-        getInvoiceById(id),
+        getInvoiceByIdTyped(id, navInvoiceType),
         fetchTrackData(id),
       ]);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
@@ -757,6 +781,8 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
       {showModal && (
         <AddPaymentModal
           invoice={invoice}
+          navClientId={navClientId}
+          navVendorId={navVendorId}
           onClose={() => setShowModal(false)}
           onSuccess={handlePaymentSuccess}
         />

@@ -21,6 +21,126 @@ const PAYMENT_METHODS = {
 };
 
 // ============================================================================
+// NOTE TOOLTIP STYLES — injected ONCE into <head> at module load time.
+//
+// Root cause of the "works first time, breaks on navigation" bug:
+//   Previously the <style> block lived inside the Note column's render()
+//   function. Every row render injected its own copy, and each navigation
+//   caused React to remount rows — the last row's <style> would overwrite
+//   all the others, leaving some rows with broken or missing CSS rules.
+//
+// Fix: inject a single <style id="tp-note-tooltip-styles"> into document.head
+//   here at module evaluation time. The id guard ensures it only runs once
+//   even if the module is hot-reloaded. Navigation never touches it again.
+// ============================================================================
+
+const NOTE_STYLE_ID = 'tp-note-tooltip-styles';
+
+if (typeof document !== 'undefined' && !document.getElementById(NOTE_STYLE_ID)) {
+  const styleEl = document.createElement('style');
+  styleEl.id = NOTE_STYLE_ID;
+  styleEl.textContent = `
+    /* ── Tooltip wrapper ──────────────────────────────────────────────────────
+       padding-bottom + margin-bottom extends the hover zone downward so the
+       mouse doesn't lose :hover while crossing the gap between the trigger
+       text and the floating tooltip box.                                      */
+    .tp-note-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 200px;
+      padding-bottom: 14px;
+      margin-bottom: -14px;
+    }
+
+    .tp-note-text {
+      font-size: 12px;
+      color: #64748b;
+      font-family: 'Outfit', sans-serif;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
+      display: block;
+    }
+
+    /* Dashed underline signals "hover me for more" */
+    .tp-note-text--truncated {
+      border-bottom: 1px dashed #94a3b8;
+      cursor: help;
+    }
+
+    /* ── Tooltip box ───────────────────────────────────────────────────────── */
+    .tp-note-tooltip {
+      visibility: hidden;
+      opacity: 0;
+      /* pointer-events: auto lets the user move their mouse INTO the tooltip
+         without it disappearing — critical for readability on long notes.     */
+      pointer-events: auto;
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      background: #0f172a;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 400;
+      line-height: 1.65;
+      padding: 10px 14px;
+      border-radius: 10px;
+      width: max-content;
+      max-width: 300px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+      z-index: 9999;
+      /* Delay visibility:hidden so the CSS fade-out finishes first */
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+    }
+
+    /* ::before fills the invisible gap between the tooltip bottom and the
+       trigger text — keeps :hover alive while the mouse crosses the gap.     */
+    .tp-note-tooltip::before {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      height: 18px;
+    }
+
+    /* Caret arrow pointing down toward the trigger */
+    .tp-note-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #0f172a;
+    }
+
+    /* Show immediately on hover-in; delay on hover-out handled by transition */
+    .tp-note-wrap:hover .tp-note-tooltip {
+      visibility: visible;
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+    }
+
+    /* ── Critical: stop table rows/cells from clipping the tooltip ──────────
+       position:absolute tooltips are clipped whenever an ancestor has
+       overflow:hidden (common in table implementations). Setting overflow
+       visible on tr and td lets the tooltip escape above the row.           */
+    table tr,
+    table td {
+      overflow: visible !important;
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -71,8 +191,6 @@ const truncateText = (text, maxLength = 35) => {
 
 // ============================================================================
 // COLUMN DEFINITIONS
-// All styles are inline inside render() so ListTable renders them correctly.
-// Outfit font is declared here — DynamicList/ListTable does not need changes.
 // ============================================================================
 
 const columns = [
@@ -174,30 +292,34 @@ const columns = [
     ),
   },
 
-  // ── Note ──────────────────────────────────────────────────────────────────
+  // ── Note ─────────────────────────────────────────────────────────────────
+  // No <style> tag here — CSS lives in document.head (injected above).
+  // This is the fix for the "works first time, breaks on navigation" bug.
   {
     key: 'note',
     label: 'Note',
-    render: (row) => (
-      row.note
-        ? (
-          <span style={{
-            fontSize: 12, color: '#64748b', lineHeight: 1.55,
-            fontFamily: "'Outfit', sans-serif",
-            display: '-webkit-box', WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            maxWidth: 200,
-          }}>
-            {row.note}
+    render: (row) => {
+      if (!row.note) {
+        return <span style={{ color: '#cbd5e1', fontSize: 13 }}>—</span>;
+      }
+
+      const isTruncated = row.note.length > 32;
+      const preview     = isTruncated ? row.note.substring(0, 32) + '…' : row.note;
+
+      return (
+        <div className="tp-note-wrap">
+          <span className={`tp-note-text${isTruncated ? ' tp-note-text--truncated' : ''}`}>
+            {preview}
           </span>
-        ) : (
-          <span style={{ color: '#cbd5e1', fontSize: 13 }}>—</span>
-        )
-    ),
+          {isTruncated && (
+            <div className="tp-note-tooltip">{row.note}</div>
+          )}
+        </div>
+      );
+    },
   },
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  // actionHandlers is passed as 3rd arg by ListTable → render(row, index, actionHandlers)
   {
     key: 'actions',
     label: 'Actions',
@@ -230,9 +352,9 @@ const columns = [
 const trackPaymentConfig = {
   title:           'Payment History',
   icon:            CreditCard,
-  addButtonLabel:  null,          // Add Payment is handled by the parent page button
+  addButtonLabel:  null,
   columns,
-  showSearch:      false,         // payments list for one invoice — search not needed
+  showSearch:      false,
   showFilter:      false,
   loadingMessage:  'Loading payments...',
   emptyMessage:    'No Payments Recorded',

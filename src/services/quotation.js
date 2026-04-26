@@ -4,24 +4,12 @@ import api, { normalizeError } from './api';
  * ============================================================================
  * QUOTATIONS SERVICE - WITH COMPLIANCE SUPPORT
  * ============================================================================
- * 
- * Service for creating and managing quotations with compliance categories
- * 
- * @module quotationService
- * @version 1.1.0 (FIXED)
- * @production
- * 
- * FIXES APPLIED:
- * ✅ Logging configuration now respects NODE_ENV (development-only)
- * ✅ Removed all console.log() from production code
- * ✅ Improved error handling and logging consistency
  */
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
-// Only enable logging in development mode to avoid console pollution in production
 const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
 
 const serviceLogger = {
@@ -30,120 +18,94 @@ const serviceLogger = {
       console.log('[Quotations Service]', ...args);
     }
   },
-  warn: (...args) => console.warn('[Quotations Service]', ...args),
+  warn:  (...args) => console.warn('[Quotations Service]', ...args),
   error: (...args) => console.error('[Quotations Service]', ...args),
 };
 
 // ============================================================================
-// API ENDPOINTS
+// API ENDPOINTS  (only what exists in swagger image)
 // ============================================================================
 
 const ENDPOINTS = {
-  GET_ALL:      '/quotations/get_all_quotations/',
-  GET_BY_ID:    '/quotations/get_quotation/',
-  CREATE:       '/quotations/create_quotation/',
-  UPDATE:       '/quotations/',
-  UPDATE_FULL:  '/quotations/update_quotation/',
-  DELETE:       '/quotations/',
-  DELETE_BY_ID: '/quotations/delete_quotation/',
-  SEARCH:       '/quotations/search/',
-  EXPORT:       '/quotations/export/',
-  GENERATE_PDF: '/quotations/generate_pdf/',
-  SEND_EMAIL:   '/notifications/send_email/',
-  STATS:        '/quotations/stats/',
-  BULK_DELETE:  '/quotations/bulk_delete/',
+  GET_ALL:           '/quotations/get_all_quotations/',
+  GET_REGULATORY:    '/quotations/get_regulatory_quotation/',
+  GET_EXECUTION:     '/quotations/get_execuation_quotation/',
+  CREATE:            '/quotations/create_quotation/',            // Regulatory
+  CREATE_EXECUTION:  '/quotations/create_execution_quotation/', // Execution
+  UPDATE_REGULATORY: '/quotations/update_quotation/',           // PUT – Regulatory
+  UPDATE_EXECUTION:  '/quotations/update_execution_quotation/', // PUT – Execution
+  DELETE_BY_ID:      '/quotations/delete_quotation/',
+  GENERATE_PDF:      '/quotations/generate_pdf/',
+  // Non-quotation helpers kept for side features
+  SEND_EMAIL:        '/notifications/send_email/',
+  GET_ALL_PROJECTS:  '/projects/get_all_Project/',
+  GET_USER:          '/users/get_user/',
 };
 
 // ============================================================================
-// UTILITY FUNCTIONS
+// COMPANY HELPERS
 // ============================================================================
 
-/**
- * Generate a unique 7-digit number for quotation numbering.
- * Backend will format this as "QT-YYYYMM-XXXXXXX"
- * 
- * @returns {number} 7-digit unique number (1,000,000 - 9,999,999)
- */
-const generateQuotationNumber = () => {
-  // Frontend generates 7-digit unique suffix
-  // This ensures high probability of uniqueness within a month
-  // Example: 3093529 → Backend formats as "QT-202603-3093529"
-  return Math.floor(1000000 + Math.random() * 9000000);
+export const QUOTATION_COMPANIES = [
+  { id: 1, name: 'Constructive India' },
+  { id: 2, name: 'PVA Arch' },
+  { id: 3, name: 'Atharv India' },
+  { id: 4, name: 'VD Associates' },
+];
+
+export const getQuotationCompanyName = (companyValue) => {
+  if (companyValue === null || companyValue === undefined || companyValue === '') return '';
+  const normalizedValue = String(companyValue).trim().toLowerCase();
+  const matchedCompany = QUOTATION_COMPANIES.find(
+    (company) =>
+      String(company.id) === normalizedValue ||
+      company.name.toLowerCase() === normalizedValue
+  );
+  return matchedCompany?.name || '';
 };
 
-/**
- * Validate quotation data before API submission
- * Performs client-side validation to fail fast without wasting API calls
- * 
- * @param {Object} quotationData - Data to validate
- * @returns {Array} Array of error messages (empty if valid)
- */
+// ============================================================================
+// UTILITY
+// ============================================================================
+
 const validateQuotationData = (quotationData) => {
   const errors = [];
-
-  // Purchase orders use vendor instead of client — only require client for client quotations
-  if (!quotationData.client && !quotationData.vendor) {
-    errors.push('Client or Vendor is required');
-  }
-
-  if (!quotationData.project) {
-    errors.push('Project is required');
-  }
-
-  if (!quotationData.items || !Array.isArray(quotationData.items) || quotationData.items.length === 0) {
+  if (!quotationData.client && !quotationData.vendor) errors.push('Client or Vendor is required');
+  if (!quotationData.project) errors.push('Project is required');
+  if (!quotationData.items || !Array.isArray(quotationData.items) || quotationData.items.length === 0)
     errors.push('At least one item is required');
-  }
-
   if (quotationData.items && Array.isArray(quotationData.items)) {
     quotationData.items.forEach((item, index) => {
-      if (!item.description || !item.description.trim()) {
+      if (!item.description || !item.description.trim())
         errors.push(`Item ${index + 1}: Description is required`);
-      }
-      if (!item.quantity || item.quantity <= 0) {
+      if (!item.quantity || item.quantity <= 0)
         errors.push(`Item ${index + 1}: Quantity must be greater than 0`);
-      }
-      if ((!item.Professional_amount && !item.rate) || ((item.Professional_amount || 0) <= 0 && (item.rate || 0) <= 0)) {
+      if ((!item.Professional_amount && !item.rate) ||
+          ((item.Professional_amount || 0) <= 0 && (item.rate || 0) <= 0))
         errors.push(`Item ${index + 1}: Professional amount must be greater than 0`);
-      }
     });
   }
-
   return errors;
 };
 
 // ============================================================================
-// API SERVICE FUNCTIONS
+// READ
 // ============================================================================
 
 /**
- * Fetch all quotations with pagination and filters
- * 
- * @param {Object} params - Query parameters (page, page_size, search, filters, etc.)
- * @returns {Promise<Object>} API response with quotations list and metadata
- * @throws {Error} Normalized error message
+ * Fetch all quotations with pagination and filters.
  */
 export const getQuotations = async (params = {}) => {
   try {
-    const queryParams = {
-      page: 1,
-      page_size: 10,
-      ...params,
-    };
-
+    const queryParams = { page: 1, page_size: 10, ...params };
     serviceLogger.log('Fetching quotations with params:', queryParams);
-
-    const response = await api.get(ENDPOINTS.GET_ALL, {
-      params: queryParams,
-    });
-
+    const response = await api.get(ENDPOINTS.GET_ALL, { params: queryParams });
     serviceLogger.log('Quotations fetched successfully:', {
       count: response.data?.data?.results?.length || 0,
       total: response.data?.data?.total_count || 0,
-      page: response.data?.data?.page || 1,
+      page:  response.data?.data?.page || 1,
     });
-
     return response.data;
-
   } catch (error) {
     const errorMessage = normalizeError(error);
     serviceLogger.error('getQuotations failed:', errorMessage);
@@ -152,27 +114,62 @@ export const getQuotations = async (params = {}) => {
 };
 
 /**
- * Fetch a single quotation by ID
- * 
- * @param {number} id - Quotation ID
- * @returns {Promise<Object>} API response with quotation details
- * @throws {Error} If ID is not provided or quotation not found
+ * Fetch a single quotation by ID.
+ *
+ * Strategy:
+ *  1. Try GET_REGULATORY first — this endpoint returns quotation_type for ALL quotations.
+ *  2. If quotation_type contains "execution", call GET_EXECUTION to get the FULL data
+ *     (material_rate, labour_rate, material_amount, labour_amount only come from this endpoint).
+ *  3. If regulatory endpoint returns 404, fall back to trying GET_EXECUTION directly.
+ *
+ * ⚠️  IMPORTANT: Never skip step 2 for execution quotations — loading them from
+ *     GET_REGULATORY will return zeros for all mat/lab rate/amount fields.
  */
 export const getQuotationById = async (id) => {
+  if (!id) throw new Error('Quotation ID is required');
+
+  serviceLogger.log(`Fetching quotation with ID: ${id}`);
+
+  const tryEndpoint = async (endpoint) => {
+    try {
+      const res = await api.get(endpoint, { params: { id } });
+      serviceLogger.log(`Quotation data received from ${endpoint}`);
+      return res.data;
+    } catch (err) {
+      if (err.response?.status === 404) return null;
+      throw err;
+    }
+  };
+
   try {
-    if (!id) {
-      throw new Error('Quotation ID is required');
+    // ── Step 1: Use regulatory endpoint to detect quotation_type ──────────
+    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+
+    if (regulatoryResult?.data) {
+      const qTypeRaw = regulatoryResult.data.quotation_type || '';
+      const qType    = qTypeRaw.toLowerCase().trim();
+      serviceLogger.log(`quotation_type detected: "${qTypeRaw}"`);
+
+      // ── Step 2: Execution quotation — MUST call dedicated endpoint ────────
+      // GET_REGULATORY does NOT return material_rate / labour_rate / etc.
+      // These fields only come from GET_EXECUTION.
+      if (qType.includes('execution')) {
+        serviceLogger.log('Execution type detected — fetching full data from execution endpoint…');
+        const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+        if (executionResult?.data) return executionResult;
+        serviceLogger.warn('Execution endpoint failed, falling back to regulatory data (mat/lab fields will be missing)');
+      }
+
+      // Regulatory quotation — data from step 1 is complete
+      return regulatoryResult;
     }
 
-    serviceLogger.log(`Fetching quotation with ID: ${id}`);
+    // ── Step 3: Regulatory 404 — try execution endpoint directly ─────────
+    serviceLogger.log(`Regulatory 404 for ID ${id}, trying execution endpoint…`);
+    const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+    if (executionResult?.data) return executionResult;
 
-    const response = await api.get(ENDPOINTS.GET_BY_ID, {
-      params: { id }
-    });
-    
-    serviceLogger.log('Quotation data received');
-    
-    return response.data;
+    throw new Error('Server error: 404');
 
   } catch (error) {
     const errorMessage = normalizeError(error);
@@ -182,584 +179,411 @@ export const getQuotationById = async (id) => {
 };
 
 /**
- * Create a new quotation with compliance support
- * 
- * Backend expects:
- * {
- *   quotation_number: "999" (REQUIRED - string, backend builds full QT-YYYYMM-999),
- *   client: 47 | null (REQUIRED for client quotation, null for vendor/purchase order),
- *   vendor: null | 15 (null for client quotation, SET for vendor/purchase order),
- *   project: 1 (REQUIRED),
- *   sac_code: "998313" (REQUIRED),
- *   gst_rate: "18",
- *   discount_rate: "10",
- *   total_amount: "50000.00" (string),
- *   total_gst_amount: "9000.00" (string),
- *   grand_total: "59000.00" (string),
- *   items: [
- *     {
- *       description: "Item description",
- *       quantity: 10,
- *       Professional_amount: 5000,
- *       miscellaneous_amount: "0",
- *       total_amount: 50000,
- *       compliance_category: 1,
- *       sub_compliance_category: 1
- *     }
- *   ]
- * }
- * 
- * @param {Object} quotationData - Complete quotation data
- * @returns {Promise<Object>} Created quotation with ID and metadata
- * @throws {Error} Validation or API errors
+ * Fetch a Regulatory Compliance quotation by ID directly.
  */
+export const getRegulatorQuotationById = async (id) => {
+  if (!id) throw new Error('Quotation ID is required');
+  try {
+    const response = await api.get(ENDPOINTS.GET_REGULATORY, { params: { id } });
+    return response.data;
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`getRegulatorQuotationById(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+/**
+ * Fetch an Execution Compliance quotation by ID directly.
+ * This is the ONLY endpoint that returns material_rate / labour_rate / material_amount / labour_amount.
+ */
+export const getExecutionQuotationById = async (id) => {
+  if (!id) throw new Error('Quotation ID is required');
+  try {
+    const response = await api.get(ENDPOINTS.GET_EXECUTION, { params: { id } });
+    return response.data;
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error(`getExecutionQuotationById(${id}) failed:`, errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================================================
+// CREATE
+// ============================================================================
+
+const isExecutionQuotation = (items = []) =>
+  items.some(item => [5, 6, 7].includes(parseInt(item.compliance_category || 0)));
+
+const buildExecutionItemsPayload = (items = []) =>
+  items.map(item => {
+    const qty      = parseInt(item.quantity) || 1;
+    const profRate = parseFloat(item.Professional_amount) || 0;
+    const matRate  = parseFloat(item.material_rate)   || 0;
+    const labRate  = parseFloat(item.labour_rate)     || 0;
+    const matAmt   = parseFloat(item.material_amount) || 0;
+    const labAmt   = parseFloat(item.labour_amount)   || 0;
+    const total    = (matAmt || labAmt)
+      ? parseFloat((matAmt + labAmt).toFixed(2))
+      : parseFloat((profRate * qty).toFixed(2));
+    return {
+      description:             String(item.description || '').trim().slice(0, 255),
+      quantity:                qty,
+      unit:                    String(item.unit || '').trim() || 'N/A',
+      sac_code:                String(item.sac_code || '').trim(),
+      Professional_amount:     profRate.toFixed(2),
+      material_rate:           matRate.toFixed(2),
+      material_amount:         matAmt.toFixed(2),
+      labour_rate:             labRate.toFixed(2),
+      labour_amount:           labAmt.toFixed(2),
+      total_amount:            total.toFixed(2),
+      compliance_category:     parseInt(item.compliance_category) || null,
+      sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+    };
+  });
+
+const _surfaceErrors = (error, label) => {
+  if (error.response?.status === 400) {
+    const responseData = error.response.data;
+    const rawErrors    = responseData?.errors || responseData;
+    const errorParts   = [];
+    if (rawErrors && typeof rawErrors === 'object') {
+      Object.entries(rawErrors).forEach(([field, value]) => {
+        if (field === 'items' && Array.isArray(value)) {
+          value.forEach((itemErrors, idx) => {
+            if (itemErrors && typeof itemErrors === 'object') {
+              Object.entries(itemErrors).forEach(([f, msgs]) => {
+                errorParts.push(`Item ${idx + 1} (${f}): ${Array.isArray(msgs) ? msgs.join(', ') : String(msgs)}`);
+              });
+            }
+          });
+        } else {
+          errorParts.push(`${field}: ${Array.isArray(value) ? value.join(', ') : String(value)}`);
+        }
+      });
+    }
+    const friendlyMsg = errorParts.length > 0
+      ? errorParts.join(' | ')
+      : (responseData?.message || 'Validation failed — please check your input');
+    serviceLogger.error(`${label} 400:`, friendlyMsg);
+    throw new Error(`Server error: 400 — ${friendlyMsg}`);
+  }
+  throw new Error(normalizeError(error));
+};
+
+const _createQuotationInternal = async (quotationData, endpoint) => {
+  const isExecution = endpoint === ENDPOINTS.CREATE_EXECUTION;
+
+  const basePayload = {
+    client:           quotationData.vendor ? null : parseInt(quotationData.client),
+    vendor:           quotationData.vendor ? parseInt(quotationData.vendor) : null,
+    project:          parseInt(quotationData.project),
+    company:          parseInt(quotationData.company) || 1,
+    gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
+    discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
+    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
+    total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
+    grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
+  };
+
+  if (isExecution) {
+    basePayload.items = buildExecutionItemsPayload(quotationData.items);
+  } else {
+    // Regulatory items — backend field is consultancy_charges
+    basePayload.items = quotationData.items.map(item => ({
+      description:             String(item.description).trim(),
+      quantity:                parseInt(item.quantity),
+      unit:                    String(item.unit || '').trim() || 'N/A',
+      sac_code:                String(item.sac_code || '').trim(),
+      consultancy_charges:     String(item.consultancy_charges ?? item.miscellaneous_amount ?? '').trim()
+                               || String((parseFloat(String(item.miscellaneous_amount ?? '').trim()) || 0).toFixed(2)),
+      Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
+      total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
+      compliance_category:     parseInt(item.compliance_category)  || null,
+      sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+    }));
+  }
+
+  try {
+    serviceLogger.log(`Creating ${isExecution ? 'Execution' : 'Regulatory'} quotation → ${endpoint}`);
+    const response = await api.post(endpoint, basePayload);
+    serviceLogger.log('Quotation created successfully:', { id: response.data?.data?.id });
+    return response.data;
+  } catch (error) {
+    _surfaceErrors(error, `_createQuotationInternal(${endpoint})`);
+  }
+};
+
+export const createRegulatoryQuotation = (quotationData) =>
+  _createQuotationInternal(quotationData, ENDPOINTS.CREATE);
+
+export const createExecutionQuotation = (quotationData) =>
+  _createQuotationInternal(quotationData, ENDPOINTS.CREATE_EXECUTION);
+
 export const createQuotation = async (quotationData) => {
   try {
     serviceLogger.log('Creating quotation...');
-
-    // STEP 1: Validate data on client side (fail fast)
     const validationErrors = validateQuotationData(quotationData);
-    if (validationErrors.length > 0) {
-      const errorMessage = validationErrors.join('; ');
-      serviceLogger.error('Validation failed:', errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    // STEP 2: Build payload with proper type coercion
-    const isVendorQuotation = !!quotationData.vendor;
-    const payload = {
-      quotation_number: String(quotationData.quotation_number),
-      client: isVendorQuotation ? null : parseInt(quotationData.client),
-      vendor: isVendorQuotation ? parseInt(quotationData.vendor) : null,
-      project: parseInt(quotationData.project),
-      gst_rate: String((parseFloat(quotationData.gst_rate) || 0).toFixed(2)),
-      discount_rate: String((parseFloat(quotationData.discount_rate) || 0).toFixed(2)),
-      sac_code: String(quotationData.sac_code || '').slice(0, 6),
-      total_amount: String((parseFloat(quotationData.total_amount) || 0).toFixed(2)),
-      total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
-      grand_total: String((parseFloat(quotationData.grand_total) || 0).toFixed(2)),
-      items: quotationData.items.map(item => ({
-        description: String(item.description).trim(),
-        quantity: parseInt(item.quantity),
-        miscellaneous_amount: String(item.miscellaneous_amount ?? '').trim() || '--',
-        Professional_amount: String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
-        total_amount: String((parseFloat(item.total_amount) || 0).toFixed(2)),
-        compliance_category: parseInt(item.compliance_category || 0),
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
-      }))
-    };
-
-    // STEP 3: Log in development mode only
-    if (ENABLE_SERVICE_LOGGING) {
-      serviceLogger.log('Payload prepared:', {
-        quotation_number: payload.quotation_number,
-        client: payload.client,
-        vendor: payload.vendor,
-        project: payload.project,
-        items_count: payload.items.length,
-        total_amount: payload.total_amount,
-      });
-    }
-
-    // STEP 4: Make API call
-    serviceLogger.log('Sending quotation to backend...');
-    const response = await api.post(ENDPOINTS.CREATE, payload);
-
-    serviceLogger.log('Quotation created successfully:', {
-      id: response.data?.data?.id,
-      quotation_number: response.data?.data?.quotation_number,
-    });
-
-    return response.data;
-
+    if (validationErrors.length > 0) throw new Error(validationErrors.join('; '));
+    const useExecution = isExecutionQuotation(quotationData.items || []);
+    const endpoint = useExecution ? ENDPOINTS.CREATE_EXECUTION : ENDPOINTS.CREATE;
+    serviceLogger.log(`Routing to ${useExecution ? 'Execution' : 'Regulatory'} endpoint`);
+    const result = await _createQuotationInternal(quotationData, endpoint);
+    serviceLogger.log('Quotation created successfully:', { id: result?.data?.id });
+    return result;
   } catch (error) {
     serviceLogger.error('createQuotation failed');
-
-    // Handle specific error types
     if (error.response?.status === 500) {
-      const responseData = error.response?.data;
-      let errorMsg = 'Server Error: ';
-      
-      if (responseData?.errors) {
-        errorMsg += typeof responseData.errors === 'string' 
-          ? responseData.errors 
-          : JSON.stringify(responseData.errors);
-      } else if (responseData?.message) {
-        errorMsg += responseData.message;
-      } else {
-        errorMsg += 'An unexpected error occurred';
-      }
-      
-      throw new Error(errorMsg);
+      const d = error.response?.data;
+      throw new Error('Server Error: ' + (d?.errors ? JSON.stringify(d.errors) : d?.message || 'Unexpected error'));
     }
-
     if (error.response?.status === 400) {
-      const responseData = error.response?.data;
-      let errorDetails = [];
-      
-      if (responseData?.message) errorDetails.push(responseData.message);
-      if (responseData?.detail) errorDetails.push(responseData.detail);
-      if (responseData?.errors) {
-        if (typeof responseData.errors === 'object') {
-          Object.entries(responseData.errors).forEach(([key, value]) => {
-            const msg = Array.isArray(value) ? value.join(', ') : String(value);
-            errorDetails.push(`${key}: ${msg}`);
-          });
-        } else {
-          errorDetails.push(String(responseData.errors));
-        }
+      const d = error.response?.data;
+      const parts = [];
+      if (d?.message) parts.push(d.message);
+      if (d?.detail)  parts.push(d.detail);
+      if (d?.errors && typeof d.errors === 'object') {
+        Object.entries(d.errors).forEach(([k, v]) =>
+          parts.push(`${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+        );
       }
-
-      const finalError = errorDetails.length > 0 
-        ? errorDetails.join(' | ') 
-        : 'Validation failed';
-
-      throw new Error(`Validation Error: ${finalError}`);
+      throw new Error(`Validation Error: ${parts.length > 0 ? parts.join(' | ') : 'Validation failed'}`);
     }
-
-    // Generic error handling
-    const errorMessage = normalizeError(error);
-    throw new Error(errorMessage);
+    throw new Error(normalizeError(error));
   }
 };
 
-/**
- * Update an existing quotation (partial update)
- * 
- * @param {number} id - Quotation ID
- * @param {Object} quotationData - Fields to update
- * @returns {Promise<Object>} Updated quotation data
- * @throws {Error} If ID is missing or update fails
- */
-export const updateQuotation = async (id, quotationData) => {
-  try {
-    if (!id) {
-      throw new Error('Quotation ID is required');
-    }
-
-    serviceLogger.log(`Updating quotation ${id}...`);
-
-    const payload = {};
-    
-    if (quotationData.client !== undefined) payload.client = Number(quotationData.client);
-    if (quotationData.project !== undefined) payload.project = Number(quotationData.project);
-    if (quotationData.quotation_number !== undefined) payload.quotation_number = Number(quotationData.quotation_number);
-    if (quotationData.sac_code !== undefined) payload.sac_code = String(quotationData.sac_code);
-    if (quotationData.gst_rate !== undefined) payload.gst_rate = String(quotationData.gst_rate);
-    if (quotationData.discount_rate !== undefined) payload.discount_rate = String(quotationData.discount_rate);
-    if (quotationData.notes !== undefined) payload.notes = quotationData.notes?.trim() || "";
-    if (quotationData.terms !== undefined) payload.terms = quotationData.terms?.trim() || "";
-    if (quotationData.total_amount !== undefined) payload.total_amount = String((parseFloat(quotationData.total_amount) || 0).toFixed(2));
-    if (quotationData.total_gst_amount !== undefined) payload.total_gst_amount = String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2));
-    if (quotationData.grand_total !== undefined) payload.grand_total = String((parseFloat(quotationData.grand_total) || 0).toFixed(2));
-    
-    if (quotationData.items !== undefined) {
-      payload.items = quotationData.items.map(item => ({
-        description: item.description.trim(),
-        quantity: Number(item.quantity),
-        Professional_amount: String((parseFloat(item.Professional_amount || item.rate) || 0).toFixed(2)),
-        miscellaneous_amount: String(item.miscellaneous_amount ?? '').trim() || '--',
-        total_amount: String((parseFloat(item.total_amount) || 0).toFixed(2)),
-        compliance_category: Number(item.compliance_category || 0),
-        sub_compliance_category: Number(item.sub_compliance_category || 0)
-      }));
-    }
-
-    serviceLogger.log('Update payload prepared');
-
-    const response = await api.patch(`${ENDPOINTS.UPDATE}${id}/`, payload);
-    
-    serviceLogger.log(`Quotation ${id} updated successfully`);
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`updateQuotation(${id}) failed:`, errorMessage);
-    throw new Error(errorMessage);
-  }
-};
+// ============================================================================
+// UPDATE
+// ============================================================================
 
 /**
- * Delete a quotation by ID using the dedicated delete endpoint.
- * Endpoint: DELETE /quotations/delete_quotation/?id=<id>
+ * Update a Regulatory Compliance quotation.
+ * PUT /quotations/update_quotation/
  *
- * @param {number} id - Quotation ID to delete
- * @returns {Promise<Object>} Deletion response
- * @throws {Error} If deletion fails
+ * Swagger payload: id, client, project, company, sac_code, gst_rate,
+ * discount_rate, total_amount, total_gst_amount, grand_total, status,
+ * items[]: { id, description, quantity, unit, consultancy_charges,
+ *            Professional_amount, total_amount,
+ *            compliance_category, sub_compliance_category }
+ */
+export const updateRegulatoryQuotation = async (quotationData) => {
+  if (!quotationData.id) throw new Error('Quotation ID is required for update');
+  serviceLogger.log(`Updating regulatory quotation ${quotationData.id}…`);
+
+  const payload = {
+    id:               parseInt(quotationData.id),
+    client:           quotationData.client ? parseInt(quotationData.client) : null,
+    project:          parseInt(quotationData.project),
+    company:          parseInt(quotationData.company) || 1,
+    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
+    discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
+    total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
+    total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
+    grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
+    status:           parseInt(quotationData.status) || 1,
+    items: (quotationData.items || []).map(item => {
+      const rawId  = item.id != null ? parseInt(item.id) : null;
+      const itemId = rawId && rawId > 0 ? rawId : null;
+      const consultancy = (() => {
+        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+        const num = parseFloat(String(raw).trim());
+        return isNaN(num) ? '0.00' : num.toFixed(2);
+      })();
+      return {
+        id:                      itemId,
+        description:             String(item.description || '').trim(),
+        quantity:                parseInt(item.quantity) || 1,
+        unit:                    String(item.unit || '').trim() || 'N/A',
+        consultancy_charges:     consultancy,
+        Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
+        total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
+        compliance_category:     parseInt(item.compliance_category)  || 1,
+        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      };
+    }),
+  };
+
+  try {
+    const response = await api.put(ENDPOINTS.UPDATE_REGULATORY, payload);
+    serviceLogger.log(`Regulatory quotation ${quotationData.id} updated`);
+    return response.data;
+  } catch (error) {
+    _surfaceErrors(error, `updateRegulatoryQuotation(${quotationData.id})`);
+  }
+};
+
+/**
+ * Update an Execution Compliance quotation.
+ * PUT /quotations/update_execution_quotation/
+ *
+ * Swagger payload: id, client, vendor, project, company, sac_code, gst_rate,
+ * discount_rate, total_amount, total_gst_amount, grand_total, status,
+ * items[]: { id, description, quantity, unit, sac_code, consultancy_charges,
+ *            Professional_amount, material_rate, material_amount,
+ *            labour_rate, labour_amount, total_amount,
+ *            compliance_category, sub_compliance_category }
+ */
+export const updateExecutionQuotation = async (quotationData) => {
+  if (!quotationData.id) throw new Error('Quotation ID is required for update');
+  serviceLogger.log(`Updating execution quotation ${quotationData.id}…`);
+
+  const payload = {
+    id:               parseInt(quotationData.id),
+    client:           quotationData.client ? parseInt(quotationData.client) : null,
+    vendor:           quotationData.vendor ? parseInt(quotationData.vendor) : null,
+    project:          parseInt(quotationData.project),
+    company:          parseInt(quotationData.company) || 1,
+    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
+    discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
+    total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
+    total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
+    grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
+    status:           parseInt(quotationData.status) || 1,
+    items: (quotationData.items || []).map(item => {
+      const rawId  = item.id != null ? parseInt(item.id) : null;
+      const itemId = rawId && rawId > 0 ? rawId : null;
+      const qty     = parseInt(item.quantity) || 1;
+      const prof    = parseFloat(item.Professional_amount) || 0;
+      const matRate = parseFloat(item.material_rate)   || 0;
+      const labRate = parseFloat(item.labour_rate)     || 0;
+      const matAmt  = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+      const labAmt  = (parseFloat(item.labour_amount)   || 0) || (labRate > 0 ? labRate * qty : 0);
+      const total   = (matAmt + labAmt) > 0
+        ? parseFloat((matAmt + labAmt).toFixed(2))
+        : parseFloat((prof * qty).toFixed(2));
+      const consultancy = (() => {
+        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+        const num = parseFloat(String(raw).trim());
+        return isNaN(num) ? '0.00' : num.toFixed(2);
+      })();
+      return {
+        id:                      itemId,
+        description:             String(item.description || '').trim(),
+        quantity:                qty,
+        unit:                    String(item.unit || '').trim() || 'N/A',
+        sac_code:                String(item.sac_code || item.item_sac_code || '').trim(),
+        consultancy_charges:     consultancy,
+        Professional_amount:     String(prof.toFixed(2)),
+        material_rate:           String(matRate.toFixed(2)),
+        material_amount:         String(matAmt.toFixed(2)),
+        labour_rate:             String(labRate.toFixed(2)),
+        labour_amount:           String(labAmt.toFixed(2)),
+        total_amount:            String(total.toFixed(2)),
+        compliance_category:     parseInt(item.compliance_category) || 5,
+        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      };
+    }),
+  };
+
+  try {
+    const response = await api.put(ENDPOINTS.UPDATE_EXECUTION, payload);
+    serviceLogger.log(`Execution quotation ${quotationData.id} updated`);
+    return response.data;
+  } catch (error) {
+    _surfaceErrors(error, `updateExecutionQuotation(${quotationData.id})`);
+  }
+};
+
+/**
+ * Smart update — reads quotation_type and routes to the correct endpoint.
+ * Used by viewquotationdetails.jsx handleSaveUpdate.
+ */
+export const updateQuotationFull = async (quotationData) => {
+  if (!quotationData.id) throw new Error('Quotation ID is required for update');
+  const qType  = String(quotationData.quotation_type || '').toLowerCase().trim();
+  const isExec = qType.includes('execution');
+  serviceLogger.log(
+    `updateQuotationFull(${quotationData.id}) → routing to ${isExec ? 'execution' : 'regulatory'} endpoint`
+  );
+  return isExec
+    ? updateExecutionQuotation(quotationData)
+    : updateRegulatoryQuotation(quotationData);
+};
+
+// ============================================================================
+// DELETE
+// ============================================================================
+
+/**
+ * Delete a quotation by ID.
+ * DELETE /quotations/delete_quotation/?id=<id>
  */
 export const deleteQuotationById = async (id) => {
+  if (!id) throw new Error('Quotation ID is required');
   try {
-    if (!id) {
-      throw new Error('Quotation ID is required');
-    }
-
-    serviceLogger.log(`Deleting quotation ${id} via delete_quotation endpoint...`);
-
-    const response = await api.delete(`${ENDPOINTS.DELETE_BY_ID}`, {
-      params: { id },
-    });
-
-    serviceLogger.log(`Quotation ${id} deleted successfully`);
+    serviceLogger.log(`Deleting quotation ${id}…`);
+    const response = await api.delete(ENDPOINTS.DELETE_BY_ID, { params: { id } });
+    serviceLogger.log(`Quotation ${id} deleted`);
     return { status: 'success', data: response.data };
-
   } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`deleteQuotationById(${id}) failed:`, errorMessage);
-    throw new Error(errorMessage);
+    const msg = normalizeError(error);
+    serviceLogger.error(`deleteQuotationById(${id}) failed:`, msg);
+    throw new Error(msg);
   }
 };
 
-/**
- * Delete a quotation by ID
- * 
- * @param {number} id - Quotation ID to delete
- * @returns {Promise<Object>} Deletion response
- * @throws {Error} If deletion fails
- */
-export const deleteQuotation = async (id) => {
+// Alias for backwards compatibility
+export const deleteQuotation = deleteQuotationById;
+
+// ============================================================================
+// PDF
+// ============================================================================
+
+export const generateQuotationPdf = async (id, { company_name = '', address = '', contact_person = '', subject = '' } = {}, fileName = null) => {
+  if (!id) throw new Error('Quotation ID is required');
   try {
-    if (!id) {
-      throw new Error('Quotation ID is required');
-    }
-
-    serviceLogger.log(`Deleting quotation ${id}...`);
-
-    const response = await api.delete(`${ENDPOINTS.DELETE}${id}/`);
-
-    serviceLogger.log(`Quotation ${id} deleted successfully`);
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`deleteQuotation(${id}) failed:`, errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Search quotations by criteria
- * 
- * @param {string} query - Search query
- * @param {Object} filters - Additional filters
- * @returns {Promise<Object>} Search results
- * @throws {Error} If search fails
- */
-export const searchQuotations = async (query, filters = {}) => {
-  try {
-    if (!query) {
-      throw new Error('Search query is required');
-    }
-
-    serviceLogger.log('Searching quotations:', query);
-
-    const response = await api.get(ENDPOINTS.SEARCH, {
-      params: { q: query, ...filters }
-    });
-
-    serviceLogger.log('Search completed:', {
-      results_count: response.data?.data?.results?.length || 0,
-    });
-
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('searchQuotations failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Export quotations (CSV, PDF, etc.)
- * 
- * @param {Object} params - Export parameters
- * @returns {Promise<Blob>} Exported file
- * @throws {Error} If export fails
- */
-export const exportQuotations = async (params = {}) => {
-  try {
-    serviceLogger.log('Exporting quotations...');
-
-    const response = await api.get(ENDPOINTS.EXPORT, {
-      params,
-      responseType: 'blob',
-    });
-
-    serviceLogger.log('Export completed');
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('exportQuotations failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Get quotation statistics
- * 
- * @returns {Promise<Object>} Statistics data (total, draft, review, completed)
- * @throws {Error} If fetch fails
- */
-export const getQuotationStats = async () => {
-  try {
-    serviceLogger.log('Fetching quotation statistics...');
-
-    const response = await api.get(ENDPOINTS.STATS);
-
-    serviceLogger.log('Statistics fetched successfully');
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('getQuotationStats failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Bulk delete multiple quotations
- * 
- * @param {Array<number>} ids - Array of quotation IDs to delete
- * @returns {Promise<Object>} Deletion response
- * @throws {Error} If deletion fails
- */
-export const bulkDeleteQuotations = async (ids = []) => {
-  try {
-    if (!Array.isArray(ids) || ids.length === 0) {
-      throw new Error('At least one quotation ID is required');
-    }
-
-    serviceLogger.log('Bulk deleting quotations:', ids.length);
-
-    const response = await api.post(ENDPOINTS.BULK_DELETE, { ids });
-
-    serviceLogger.log('Bulk deletion completed:', ids.length);
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('bulkDeleteQuotations failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Get compliance categories
- * 
- * @returns {Promise<Object>} Compliance categories list
- * @throws {Error} If fetch fails
- */
-export const getComplianceByCategory = async () => {
-  try {
-    serviceLogger.log('Fetching compliance categories...');
-
-    const response = await api.get('/compliance/get_all_compliance/');
-
-    serviceLogger.log('Compliance categories fetched');
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('getComplianceByCategory failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Get sub-compliance categories for a given compliance category
- * 
- * @param {number} categoryId - Compliance category ID
- * @returns {Promise<Object>} Sub-compliance categories
- * @throws {Error} If fetch fails
- */
-export const getSubComplianceCategories = async (categoryId) => {
-  try {
-    if (!categoryId) {
-      throw new Error('Category ID is required');
-    }
-
-    serviceLogger.log(`Fetching sub-compliance categories for category ${categoryId}`);
-
-    const response = await api.get('/compliance/get_compliance_by_category/', {
-      params: { category: categoryId, page_size: 100 }
-    });
-
-    serviceLogger.log('Sub-compliance categories fetched');
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('getSubComplianceCategories failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Get all compliance data
- * 
- * @returns {Promise<Object>} All compliance data
- * @throws {Error} If fetch fails
- */
-export const getAllCompliance = async () => {
-  try {
-    serviceLogger.log('Fetching all compliance data...');
-
-    const response = await api.get('/compliance/get_all_compliance/');
-
-    serviceLogger.log('All compliance data fetched');
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('getAllCompliance failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Generate PDF for a quotation
- * Downloads the PDF directly to the user's computer
- * 
- * @param {number} id - Quotation ID
- * @throws {Error} If PDF generation fails
- */
-export const generateQuotationPdf = async (id) => {
-  try {
-    if (!id) {
-      throw new Error('Quotation ID is required');
-    }
-
-    serviceLogger.log(`Generating PDF for quotation ${id}...`);
-
+    serviceLogger.log(`Generating PDF for quotation ${id}…`);
     const response = await api.post(
       ENDPOINTS.GENERATE_PDF,
-      {},
-      { params: { id }, responseType: 'blob' }
+      { id: parseInt(id), company_name, address, contact_person, subject },
+      { responseType: 'blob' }
     );
-
-    // Create blob and trigger download
-    const url = URL.createObjectURL(new Blob([response.data]));
+    const url  = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
-    const downloadName = `Quotation_${id}.pdf`;
-    link.setAttribute('download', downloadName);
+    link.setAttribute('download', fileName || `Quotation_${id}.pdf`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    // Release the object URL memory after a short delay
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-
-    serviceLogger.log(`PDF downloaded: ${downloadName}`);
+    serviceLogger.log(`PDF downloaded: ${fileName || `Quotation_${id}.pdf`}`);
   } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`generateQuotationPdf(${id}) failed:`, errorMessage);
-    throw new Error(errorMessage);
+    const msg = normalizeError(error);
+    serviceLogger.error(`generateQuotationPdf(${id}) failed:`, msg);
+    throw new Error(msg);
   }
 };
 
-/**
- * Update an existing quotation using the dedicated update endpoint
- * Sends the complete quotation payload including all items.
- *
- * @param {Object} quotationData - Full quotation payload (must include id)
- * @returns {Promise<Object>} API response data
- */
-export const updateQuotationFull = async (quotationData) => {
-  try {
-    if (!quotationData.id) throw new Error('Quotation ID is required for update');
+// ============================================================================
+// EMAIL
+// ============================================================================
 
-    serviceLogger.log(`Updating quotation ${quotationData.id}...`);
-
-    const payload = {
-      id: parseInt(quotationData.id),
-      // CLIENT quotation → client: <id>, vendor: null
-      // VENDOR quotation → vendor: <id>, client: null
-      client: quotationData.client ? parseInt(quotationData.client) : null,
-      vendor: quotationData.vendor ? parseInt(quotationData.vendor) : null,
-      project: parseInt(quotationData.project),
-      gst_rate: String((parseFloat(quotationData.gst_rate) || 0).toFixed(2)),
-      discount_rate: String((parseFloat(quotationData.discount_rate) || 0).toFixed(2)),
-      sac_code: String(quotationData.sac_code || '').slice(0, 6),
-      total_amount: String((parseFloat(quotationData.total_amount) || 0).toFixed(2)),
-      total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
-      grand_total: String((parseFloat(quotationData.grand_total) || 0).toFixed(2)),
-      items: (quotationData.items || []).map(item => {
-        // Always send id: existing items need their integer id (UPDATE), new items need null (INSERT).
-        const rawId = item.id != null ? parseInt(item.id) : null;
-        const itemId = rawId && rawId > 0 ? rawId : null;
-        return {
-          id: itemId,
-          description: String(item.description).trim(),
-          quantity: parseInt(item.quantity),
-          miscellaneous_amount: String(item.miscellaneous_amount ?? '').trim() || '--',
-          Professional_amount: String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
-          total_amount: String((parseFloat(item.total_amount) || 0).toFixed(2)),
-          compliance_category: parseInt(item.compliance_category || 0),
-          sub_compliance_category: parseInt(item.sub_compliance_category || 0),
-        };
-      }),
-    };
-
-    serviceLogger.log(`Sending full update for quotation ${quotationData.id}...`);
-
-    const response = await api.put(ENDPOINTS.UPDATE_FULL, payload);
-
-    serviceLogger.log(`Quotation ${quotationData.id} updated successfully`);
-    return response.data;
-
-  } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`updateQuotationFull(${quotationData.id}) failed:`, errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-/**
- * Send a quotation to a client via email with the PDF attached.
- * 
- * @param {Object} params - Email parameters
- * @param {number} params.quotationId - Quotation ID
- * @param {string} params.quotationNumber - Quotation number for display
- * @param {string} params.issuedDate - Issued date for email body
- * @param {string} params.recipientEmail - Recipient email address
- * @param {string} params.subject - Email subject (optional)
- * @param {string} params.body - Email body (optional)
- * @param {Array<File>} params.extraAttachments - Additional files to attach (optional)
- * @returns {Promise<Object>} Email sending response
- * @throws {Error} If email sending fails
- */
 export const sendQuotationToClient = async ({
-  quotationId,
-  quotationNumber,
-  issuedDate,
-  recipientEmail,
-  subject,
-  body,
-  extraAttachments = [],
+  quotationId, quotationNumber, issuedDate,
+  recipientEmail, subject, body, extraAttachments = [],
 }) => {
   try {
-    if (!quotationId) throw new Error('Quotation ID is required');
+    if (!quotationId)    throw new Error('Quotation ID is required');
     if (!recipientEmail) throw new Error('Recipient email is required');
-
     serviceLogger.log(`Sending quotation ${quotationId} to ${recipientEmail}`);
 
-    // Generate PDF
     const pdfResponse = await api.post(
-      ENDPOINTS.GENERATE_PDF,
-      {},
-      { params: { id: quotationId }, responseType: 'blob' }
+      ENDPOINTS.GENERATE_PDF, {}, { params: { id: quotationId }, responseType: 'blob' }
+    );
+    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+    const pdfFile = new File(
+      [pdfBlob],
+      `${quotationNumber || `Quotation_${quotationId}`}.pdf`,
+      { type: 'application/pdf' }
     );
 
-    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
-    const pdfFile = new File([pdfBlob], `${quotationNumber || `Quotation_${quotationId}`}.pdf`, {
-      type: 'application/pdf',
-    });
-
-    // Validate total attachment size
     const MAX_BYTES = 25 * 1024 * 1024;
-    const allFiles = [pdfFile, ...extraAttachments];
+    const allFiles  = [pdfFile, ...extraAttachments];
     const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
     if (totalSize > MAX_BYTES) {
       throw new Error(
@@ -767,113 +591,158 @@ export const sendQuotationToClient = async ({
       );
     }
 
-    // Build email content
-    const autoSubject =
-      subject ||
+    const autoSubject = subject ||
       `Quotation ${quotationNumber}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-
-    const autoBody =
-      body ||
+    const autoBody    = body ||
       `Dear Client,\n\nPlease find attached your quotation ${quotationNumber}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
 
-    // Build FormData
     const formData = new FormData();
-    formData.append('subject', autoSubject);
+    formData.append('subject',    autoSubject);
     formData.append('recipients', recipientEmail);
-    formData.append('body', autoBody);
+    formData.append('body',       autoBody);
     allFiles.forEach((file) => formData.append('attachments', file));
 
     serviceLogger.log('Sending email with attachment...');
-
     const response = await api.post(ENDPOINTS.SEND_EMAIL, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-
     serviceLogger.log('Email sent successfully');
     return response.data;
 
   } catch (error) {
     const responseData = error.response?.data;
-    let errorMessage = '';
-
+    let errorMessage   = '';
     if (error.response?.status === 400) {
       const errors = responseData?.errors && typeof responseData.errors === 'object'
         ? responseData.errors
-        : responseData && typeof responseData === 'object'
-          ? responseData
-          : {};
-
-      const missingSubject = Array.isArray(errors.subject) && errors.subject.length > 0;
-      const missingBody = Array.isArray(errors.body) && errors.body.length > 0;
-      const missingAttachments = Array.isArray(errors.attachments) && errors.attachments.length > 0;
-      const invalidRecipients = Array.isArray(errors.recipients) && errors.recipients.length > 0;
-
+        : (responseData && typeof responseData === 'object' ? responseData : {});
       const missingParts = [];
-      if (missingSubject) missingParts.push('a subject');
-      if (missingBody) missingParts.push('a message');
-      if (missingAttachments) missingParts.push('at least one attachment');
-
-      const joinNatural = (parts) => {
-        if (parts.length === 0) return '';
-        if (parts.length === 1) return parts[0];
-        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-        return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
-      };
-
-      if (invalidRecipients) {
+      if (Array.isArray(errors.subject)     && errors.subject.length)     missingParts.push('a subject');
+      if (Array.isArray(errors.body)        && errors.body.length)        missingParts.push('a message');
+      if (Array.isArray(errors.attachments) && errors.attachments.length) missingParts.push('at least one attachment');
+      if (Array.isArray(errors.recipients)  && errors.recipients.length) {
         errorMessage = 'Please enter a valid recipient email address before sending.';
       } else if (missingParts.length > 0) {
-        errorMessage = `Please add ${joinNatural(missingParts)} before sending the email.`;
-      } else if (responseData?.message || responseData?.detail) {
-        errorMessage = responseData.message || responseData.detail;
+        const join = (p) =>
+          p.length === 1 ? p[0] : p.length === 2 ? `${p[0]} and ${p[1]}` :
+            `${p.slice(0, -1).join(', ')}, and ${p[p.length - 1]}`;
+        errorMessage = `Please add ${join(missingParts)} before sending the email.`;
       } else {
-        errorMessage = 'Please check the email details and try again.';
+        errorMessage = responseData?.message || responseData?.detail || 'Please check the email details and try again.';
       }
     } else {
       errorMessage = normalizeError(error);
     }
-
     serviceLogger.error('sendQuotationToClient failed:', errorMessage);
     throw new Error(errorMessage);
   }
 };
 
-/**
- * Fetch compliance descriptions for a category + optional sub-category.
- * Used by the Add Compliance modal in both quotations.jsx and
- * create_purchase_order.jsx to populate the description dropdown.
- *
- * API: GET /compliance/get_compliance_by_category/
- *   ?category=<id>&sub_category=<id>&page_size=100
- *
- * @param {number} categoryId - Compliance category ID (1–4)
- * @param {number|null} subCategoryId - Sub-compliance ID (null for execution)
- * @returns {Promise<Array>} Array of compliance description objects
- */
+// ============================================================================
+// COMPLIANCE
+// ============================================================================
+
+export const getComplianceByCategory = async () => {
+  try {
+    serviceLogger.log('Fetching compliance categories...');
+    const response = await api.get('/compliance/get_all_compliance/');
+    serviceLogger.log('Compliance categories fetched');
+    return response.data;
+  } catch (error) {
+    const msg = normalizeError(error);
+    serviceLogger.error('getComplianceByCategory failed:', msg);
+    throw new Error(msg);
+  }
+};
+
+export const getSubComplianceCategories = async (categoryId) => {
+  if (!categoryId) throw new Error('Category ID is required');
+  try {
+    serviceLogger.log(`Fetching sub-compliance categories for category ${categoryId}`);
+    const response = await api.get('/compliance/get_compliance_by_category/', {
+      params: { category: categoryId, page_size: 100 },
+    });
+    serviceLogger.log('Sub-compliance categories fetched');
+    return response.data;
+  } catch (error) {
+    const msg = normalizeError(error);
+    serviceLogger.error('getSubComplianceCategories failed:', msg);
+    throw new Error(msg);
+  }
+};
+
+export const getAllCompliance = async () => {
+  try {
+    serviceLogger.log('Fetching all compliance data...');
+    const response = await api.get('/compliance/get_all_compliance/');
+    serviceLogger.log('All compliance data fetched');
+    return response.data;
+  } catch (error) {
+    const msg = normalizeError(error);
+    serviceLogger.error('getAllCompliance failed:', msg);
+    throw new Error(msg);
+  }
+};
+
 export const getComplianceDescriptions = async (categoryId, subCategoryId = null) => {
   try {
     if (!categoryId) throw new Error('Category ID is required');
-
     serviceLogger.log(`Fetching compliance descriptions for category ${categoryId}`);
-
     const params = { category: categoryId, page_size: 100 };
     if (subCategoryId) params.sub_category = subCategoryId;
-
     const response = await api.get('/compliance/get_compliance_by_category/', { params });
-
     if (response?.data?.status === 'success' && response?.data?.data?.results) {
-      serviceLogger.log('Compliance descriptions fetched:', {
-        count: response.data.data.results.length,
-      });
       return response.data.data.results;
     }
-
     return [];
-
   } catch (error) {
-    const errorMessage = normalizeError(error);
-    serviceLogger.error('getComplianceDescriptions failed:', errorMessage);
-    throw new Error(errorMessage);
+    const msg = normalizeError(error);
+    serviceLogger.error('getComplianceDescriptions failed:', msg);
+    throw new Error(msg);
+  }
+};
+
+// ============================================================================
+// PROJECTS LOOKUP
+// ============================================================================
+
+export const getAllProjects = async (params = {}) => {
+  try {
+    const queryParams = { page: 1, page_size: 500, ...params };
+    serviceLogger.log('Fetching all projects with params:', queryParams);
+    const response = await api.get(ENDPOINTS.GET_ALL_PROJECTS, { params: queryParams });
+    serviceLogger.log('Projects fetched successfully:', {
+      count: response.data?.data?.results?.length || 0,
+    });
+    return response.data;
+  } catch (error) {
+    const msg = normalizeError(error);
+    serviceLogger.error('getAllProjects failed:', msg);
+    throw new Error(msg);
+  }
+};
+
+// ============================================================================
+// USER LOOKUP
+// ============================================================================
+
+/**
+ * Fetch a user by ID.
+ * Endpoint: GET /users/get_user/?id=<id>
+ * Returns null silently on error — non-critical display field.
+ */
+export const getUserById = async (id) => {
+  if (!id) return null;
+  try {
+    serviceLogger.log(`Fetching user with ID: ${id}`);
+    const response = await api.get(ENDPOINTS.GET_USER, { params: { id } });
+    if (response.data?.status === 'success' && response.data?.data) {
+      return response.data.data;
+    }
+    return null;
+  } catch (error) {
+    serviceLogger.error(`getUserById(${id}) failed:`, normalizeError(error));
+    return null; // Non-critical — silently return null
   }
 };
 
@@ -884,19 +753,22 @@ export const getComplianceDescriptions = async (categoryId, subCategoryId = null
 export default {
   getQuotations,
   getQuotationById,
+  getRegulatorQuotationById,
+  getExecutionQuotationById,
   createQuotation,
-  updateQuotation,
+  createRegulatoryQuotation,
+  createExecutionQuotation,
   updateQuotationFull,
+  updateRegulatoryQuotation,
+  updateExecutionQuotation,
   deleteQuotation,
   deleteQuotationById,
-  searchQuotations,
-  exportQuotations,
-  getQuotationStats,
-  bulkDeleteQuotations,
   getComplianceByCategory,
   getComplianceDescriptions,
   getSubComplianceCategories,
   getAllCompliance,
   generateQuotationPdf,
   sendQuotationToClient,
+  getUserById,
+  getAllProjects,
 };

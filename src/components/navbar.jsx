@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, ChevronDown, User, Settings, Lock, LogOut,
@@ -92,10 +92,12 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     if (et.includes('QUOTATION') && entity_id) {
       setLoadingNotifId(notification.id);
       try {
-        const res = await api.get('/quotations/get_quotation/', { params: { id: entity_id } });
+        // Use the correct regulatory endpoint — it always returns quotation_type for ALL quotations.
+        // This is the same endpoint used by getQuotationById() in quotation.js (ENDPOINTS.GET_REGULATORY).
+        const res = await api.get('/quotations/get_regulatory_quotation/', { params: { id: entity_id } });
         const record = res.data?.data ?? res.data ?? {};
-        // quotation_type is a string: "Vendor Compliance" = purchase order, "Client Compliance" = quotation
-        // Also use client===null + vendor set as a reliable fallback
+        // quotation_type: "Vendor Compliance" / anything with "vendor" = purchase order
+        // Fallback: client===null and vendor is set
         const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
           || (record.client === null && record.vendor !== null && record.vendor !== undefined);
         // Cache the result so the label updates immediately for this and future renders
@@ -283,29 +285,11 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   const userType  = user?.role?.name || 'User';
   const userEmail = user?.email || '';
 
-  // Pre-populate quotation type cache when notifications change
-  // Fetches type for any QUOTATION_* notification not yet cached
-  const quotationTypeCache_ref = quotationTypeCache; // stable ref for effect
-  useEffect(() => {
-    const uncached = notifications.filter(n => {
-      const et = (n.event_type || '').toUpperCase();
-      return et.includes('QUOTATION') && n.entity_id && quotationTypeCache_ref[n.entity_id] === undefined;
-    });
-    if (uncached.length === 0) return;
-    // Fetch all uncached quotation types in parallel (silent, no loading state)
-    uncached.forEach(async (n) => {
-      try {
-        const res = await api.get('/quotations/get_quotation/', { params: { id: n.entity_id } });
-        const record = res.data?.data ?? res.data ?? {};
-        const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
-          || (record.client === null && record.vendor !== null && record.vendor !== undefined);
-        setQuotationTypeCache(prev => {
-          if (prev[n.entity_id] !== undefined) return prev; // already set, skip
-          return { ...prev, [n.entity_id]: isPO };
-        });
-      } catch (_) { /* silent fail — label stays as Quotation */ }
-    });
-  }, [notifications]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: No pre-fetch useEffect here.
+  // Quotation type (client quotation vs purchase order) is resolved lazily on click
+  // via handleNotificationClick, which uses the correct GET_REGULATORY endpoint.
+  // Pre-fetching all quotation types on every notification poll would fire N API
+  // calls every 30 seconds — one per QUOTATION notification — causing request spam.
 
   const filteredRecent = getFilteredNotifications(notifications).slice(0, 6);
   const filteredAll    = getFilteredNotifications(notifications);

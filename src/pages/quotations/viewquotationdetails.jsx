@@ -6,16 +6,18 @@ import {
   Building2, User, MapPin, Hash, Calendar,
   Tag, Percent, ChevronRight, Mail, Paperclip, X,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Search, ChevronDown, Edit, Phone, CreditCard,
+  Search, ChevronDown, Edit, Phone, CreditCard, Package, Wrench, FileSearch,
 } from 'lucide-react';
 import {
   getQuotationById, generateQuotationPdf, sendQuotationToClient,
+  updateRegulatoryQuotation, updateExecutionQuotation,
+  getQuotationCompanyName, getUserById, getAllProjects,
 } from '../../services/quotation';
-import { getComplianceByCategory } from '../../services/proforma';
+import { getComplianceByCategory, createProforma, getProformas } from '../../services/proforma';
 import { getClientById, getClientProjects } from '../../services/clients';
-
-import api from '../../services/api';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -24,14 +26,9 @@ const COMPLIANCE_CATEGORIES = {
   2: 'Occupational Certificate',
   3: 'Water Main Commissioning',
   4: 'STP Commissioning',
-};
-
-// For modal display names
-const COMPLIANCE_CATEGORY_SHORT = {
-  1: 'Construction Certificate',
-  2: 'Occupational Certificate',
-  3: 'Water Main',
-  4: 'STP',
+  5: 'Water Connection',
+  6: 'SWD Line Work',
+  7: 'Sewer/Drainage Line Work',
 };
 
 const SUB_COMPLIANCE_CATEGORIES = {
@@ -40,29 +37,28 @@ const SUB_COMPLIANCE_CATEGORIES = {
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
   0: { id: 0, name: 'Default' },
-};
-
-// Category group definitions  — mirrors quotations.jsx
-const COMPLIANCE_GROUPS = {
-  certificates: [1, 2],
-  execution: [3, 4],
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
 const STATUS_CONFIG = {
-  '1':                   { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':                   { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':                   { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '4':                   { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '5':                   { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'draft':               { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'pending':             { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'sent':                { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'accepted':            { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'proforma_generated':  { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'completed':           { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'approved':            { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'failed':              { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'rejected':            { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  '1':                  { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  '2':                  { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  '3':                  { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  '4':                  { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  '5':                  { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'draft':              { label: 'Draft',              Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'pending':            { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'sent':               { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'accepted':           { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'proforma_generated': { label: 'Proforma Generated', Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'completed':          { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'approved':           { label: 'Completed',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'failed':             { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'rejected':           { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,43 +113,6 @@ const groupItemsByCategory = (items = []) => {
   return Object.values(groups);
 };
 
-/** Detect which group type (certificates | execution | null) the existing items belong to */
-const detectExistingGroupType = (items = []) => {
-  if (!items.length) return null;
-  const cats = [...new Set(items.map(it => it.compliance_category ?? 0))];
-  const hasCerts = cats.some(c => COMPLIANCE_GROUPS.certificates.includes(c));
-  const hasExec  = cats.some(c => COMPLIANCE_GROUPS.execution.includes(c));
-  if (hasCerts) return 'certificates';
-  if (hasExec)  return 'execution';
-  return null;
-};
-
-/**
- * Determine compliance type from items
- * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
- */
-const getComplianceType = (items = []) => {
-  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
-  const hasExec  = items.some(it => [3, 4].includes(it.compliance_category));
-  if (hasCerts && hasExec) return 'mixed';
-  if (hasCerts) return 'certificates';
-  if (hasExec)  return 'execution';
-  return 'none';
-};
-
-/**
- * Get display text for compliance type
- */
-const getComplianceTypeLabel = (items = []) => {
-  const type = getComplianceType(items);
-  switch (type) {
-    case 'certificates': return 'Certificates (Construction & Occupational)';
-    case 'execution':    return 'Execution (Water Main & STP)';
-    case 'mixed':        return 'Mixed Compliance (Certificates & Execution)';
-    default:             return 'No Compliance Items';
-  }
-};
-
 // ─── Number to words ──────────────────────────────────────────────────────────
 function numberToWords(n) {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -178,10 +137,64 @@ function numberToWords(n) {
 
 // ─── calcItemTotal ─────────────────────────────────────────────────────────────
 const calcItemTotal = (item) => {
-  const prof = parseFloat(item.Professional_amount) || 0;
-  const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
-  const qty  = parseInt(item.quantity) || 1;
-  return parseFloat(((prof + misc) * qty).toFixed(2));
+  const qty     = parseInt(item.quantity) || 1;
+  const prof    = parseFloat(item.Professional_amount) || 0;
+  const matRate = parseFloat(item.material_rate)   || 0;
+  const labRate = parseFloat(item.labour_rate)     || 0;
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount)   || 0;
+
+  // Execution item: any of the four rate/amount fields is present (not undefined/null)
+  // Uses != null which covers both undefined and null in one check.
+  const isExecItem = (
+    item.material_rate   != null ||
+    item.labour_rate     != null ||
+    item.material_amount != null ||
+    item.labour_amount   != null
+  );
+
+  if (isExecItem) {
+    // Prefer direct amounts from API; fall back to rate * qty
+    const effectiveMat = matAmt > 0 ? matAmt : (matRate > 0 ? matRate * qty : 0);
+    const effectiveLab = labAmt > 0 ? labAmt : (labRate > 0 ? labRate * qty : 0);
+    if (effectiveMat > 0 || effectiveLab > 0) {
+      return parseFloat((effectiveMat + effectiveLab).toFixed(2));
+    }
+    // Nothing in rates → fall back to Professional_amount
+    return parseFloat((prof * qty).toFixed(2));
+  }
+
+  // Regulatory item — consultancy_charges replaces the old miscellaneous_amount
+  const consultancy = (() => {
+    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
+    if (raw === '--' || raw === null || raw === undefined || raw === '') return 0;
+    const n = parseFloat(String(raw).trim());
+    return isNaN(n) ? 0 : n;
+  })();
+  return parseFloat(((prof + consultancy) * qty).toFixed(2));
+};
+
+// Returns the 4 display values for an execution item's rate columns.
+// Prefers direct amounts; falls back to rate * qty so the columns are never blank.
+const getExecutionDisplayValues = (item) => {
+  const qty     = parseInt(item.quantity) || 1;
+  const prof    = parseFloat(item.Professional_amount) || 0;
+  const matRate = parseFloat(item.material_rate)   || 0;
+  const labRate = parseFloat(item.labour_rate)     || 0;
+  // Use the field value directly — DO NOT fall back here; let the render decide visibility
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount)   || 0;
+  return { qty, prof, matRate, labRate, matAmt, labAmt };
+};
+
+// Returns true when at least one of the 4 execution rate/amount fields has a value.
+// Checks field presence on the raw item to avoid false negatives from parseFloat("0").
+const hasExecutionRateBreakdown = (item) => {
+  const matRate = parseFloat(item.material_rate)   || 0;
+  const labRate = parseFloat(item.labour_rate)     || 0;
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount)   || 0;
+  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -236,7 +249,6 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 );
 
 // ─── Send to Client Modal ──────────────────────────────────────────────────
-
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 const SendToClientModal = ({ quotation, client, qNum, issuedDate, onClose }) => {
@@ -253,9 +265,9 @@ const SendToClientModal = ({ quotation, client, qNum, issuedDate, onClose }) => 
   const [error,   setError]   = useState('');
   const fileInputRef = useRef(null);
 
-  const totalExtraSize    = extras.reduce((s, f) => s + f.size, 0);
-  const estimatedPdfSize  = 2 * 1024 * 1024;
-  const remainingBytes    = MAX_ATTACHMENT_BYTES - estimatedPdfSize - totalExtraSize;
+  const totalExtraSize   = extras.reduce((s, f) => s + f.size, 0);
+  const estimatedPdfSize = 2 * 1024 * 1024;
+  const remainingBytes   = MAX_ATTACHMENT_BYTES - estimatedPdfSize - totalExtraSize;
 
   const handleAddFiles = (e) => {
     const newFiles = Array.from(e.target.files || []);
@@ -270,259 +282,84 @@ const SendToClientModal = ({ quotation, client, qNum, issuedDate, onClose }) => 
 
   const handleSend = async () => {
     if (!email.trim()) { setError('Recipient email is required.'); return; }
-    if (!/\S+@\S+\.\S+/.test(email.trim())) { setError('Please enter a valid email address.'); return; }
-    setError(''); setSending(true);
+    setSending(true); setError('');
     try {
-      await sendQuotationToClient({ quotationId: quotation.id, quotationNumber: qNum, issuedDate, recipientEmail: email.trim(), subject: subject.trim(), body: body.trim(), extraAttachments: extras });
+      await sendQuotationToClient({ quotationId: quotation.id, email, subject, body, attachments: extras });
       setSent(true);
-    } catch (e) { setError(e.message || 'Failed to send email. Please try again.'); }
-    finally { setSending(false); }
-  };
-
-  const fmtSize = (bytes) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    } catch (e) {
+      setError(e.message || 'Failed to send email. Please try again.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
-      <div style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.22)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vqd_in .25s ease' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Mail size={17} color="#fff" />
-            </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Send to Client</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{qNum}</div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-            <X size={15} />
-          </button>
-        </div>
-
-        {sent ? (
-          <div style={{ padding: '40px 24px', textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-              <CheckCircle size={28} color="#059669" />
-            </div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
-            <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-              Quotation <strong>{qNum}</strong> has been sent to<br /><strong>{email}</strong>
-            </div>
-            <button onClick={onClose} style={{ marginTop: 22, padding: '9px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Done</button>
-          </div>
-        ) : (
-          <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '9px 12px' }}>
-              <FileText size={14} color="#059669" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: '#15803d', fontWeight: 500 }}><strong>{qNum}.pdf</strong> will be automatically attached</span>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Recipient Email *</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Subject</label>
-              <input type="text" value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Message</label>
-              <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em' }}>Additional Attachments</label>
-                <span style={{ fontSize: 10, color: '#94a3b8' }}>~{fmtSize(Math.max(0, remainingBytes))} remaining</span>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
+      <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 20, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 520, overflow: 'hidden' }}>
+        <div style={{ height: 4, background: 'linear-gradient(90deg,#0f766e,#14b8a6)' }} />
+        <div style={{ padding: '24px 28px' }}>
+          {sent ? (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#ecfdf5', border: '2px solid #6ee7b7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <CheckCircle size={30} color="#059669" />
               </div>
-              {extras.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>Quotation has been sent to {email}</div>
+              <button onClick={onClose} style={{ padding: '10px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Close</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>Send Quotation to Client</div>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={18} /></button>
+              </div>
+              {error && <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#dc2626' }}>{error}</div>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>To</label>
+                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="recipient@email.com" style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>Subject</label>
+                  <input value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>Message</label>
+                  <textarea value={body} onChange={e => setBody(e.target.value)} rows={6} style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attachments</label>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{(remainingBytes / 1024 / 1024).toFixed(1)} MB remaining</span>
+                  </div>
+                  <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
+                    <Paperclip size={12} style={{ marginRight: 4 }} />Quotation PDF will be auto-attached
+                  </div>
                   {extras.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', border: '1px solid #cbd5e1' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <Paperclip size={12} color="#64748b" />
-                        <span style={{ fontSize: 12, color: '#334155', fontWeight: 500 }}>{f.name}</span>
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>({fmtSize(f.size)})</span>
-                      </div>
-                      <button onClick={() => removeExtra(i)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}><X size={13} /></button>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
+                      <Paperclip size={11} color="#94a3b8" />
+                      <span style={{ flex: 1, color: '#334155' }}>{f.name}</span>
+                      <span style={{ color: '#94a3b8' }}>({(f.size / 1024).toFixed(0)} KB)</span>
+                      <button onClick={() => removeExtra(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 2 }}><X size={12} /></button>
                     </div>
                   ))}
+                  <button onClick={() => fileInputRef.current?.click()} style={{ marginTop: 4, padding: '5px 12px', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+                    <Plus size={12} /> Add File
+                  </button>
+                  <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
                 </div>
-              )}
-              <button onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1.5px dashed #94a3b8', background: '#f8fafc', color: '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
-                <Paperclip size={13} /> Add Attachment
-              </button>
-              <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
-              <p style={{ fontSize: 10, color: '#94a3b8', margin: '5px 0 0', textAlign: 'center' }}>Max total size: 25 MB (including PDF)</p>
-            </div>
-            {error && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 9, padding: '9px 12px' }}>
-                <AlertCircle size={14} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
-                <span style={{ fontSize: 12, color: '#dc2626', lineHeight: 1.5 }}>{error}</span>
               </div>
-            )}
-            <div style={{ display: 'flex', gap: 9, marginTop: 2 }}>
-              <button onClick={onClose} style={{ flex: 1, padding: 10, borderRadius: 10, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: 10, borderRadius: 10, background: sending ? '#94a3b8' : '#0f766e', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                {sending ? <><Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ─── Sub-Compliance Dropdown (mirrors quotations.jsx) ─────────────────────────
-
-const SubComplianceDropdown = ({ value, onChange, categoryId, searchTerm, onSearchChange, placeholder = 'Select Sub-Compliance' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    const handler = (e) => { if (!e.target.closest('.vqd-sub-dropdown')) setIsOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const getAvailable = () => {
-    if ([1, 2].includes(categoryId)) {
-      return [SUB_COMPLIANCE_CATEGORIES[1], SUB_COMPLIANCE_CATEGORIES[2], SUB_COMPLIANCE_CATEGORIES[3], SUB_COMPLIANCE_CATEGORIES[4]];
-    }
-    return [];
-  };
-
-  const list     = getAvailable().filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  const selected = getAvailable().find(i => i.id === value);
-
-  return (
-    <div className="vqd-sub-dropdown" style={{ position: 'relative', width: '100%' }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: selected ? '#1e293b' : '#94a3b8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', outline: 'none', transition: 'border-color .15s' }}
-      >
-        <span>{selected ? selected.name : placeholder}</span>
-        <ChevronDown size={15} color="#94a3b8" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
-      </button>
-      {isOpen && (
-        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, width: '100%', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 12, boxShadow: '0 12px 36px rgba(0,0,0,.14)', zIndex: 99999, overflow: 'hidden' }}>
-          <div style={{ padding: 10, borderBottom: '1px solid #f0f4f8', background: '#f8fafc' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text" placeholder="Search…" value={searchTerm}
-                onChange={e => onSearchChange(e.target.value)}
-                onClick={e => e.stopPropagation()}
-                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7, border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-          </div>
-          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-            {list.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No results</div>
-            ) : list.map(item => (
-              <button
-                key={item.id}
-                onClick={() => { onChange(item.id); setIsOpen(false); onSearchChange(''); }}
-                style={{ width: '100%', padding: '10px 14px', border: 'none', background: value === item.id ? '#f0fdf4' : 'transparent', borderLeft: value === item.id ? '3px solid #0f766e' : '3px solid transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, fontWeight: value === item.id ? 700 : 500, color: value === item.id ? '#0f766e' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit' }}
-              >
-                {item.name}
-                {value === item.id && <CheckCircle size={14} color="#0f766e" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Compliance Description Dropdown ─────────────────────────────────────────
-
-const DescriptionDropdown = ({ value, onChange, items, loading, searchTerm, onSearchChange, placeholder = 'Select a description' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const modalBodyRef        = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => { if (!e.target.closest('.vqd-desc-dropdown')) setIsOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered = items.filter(d => (d.compliance_description || '').toLowerCase().includes(searchTerm.toLowerCase()));
-  const selectedItem = items.find(d => d.compliance_description === value);
-
-  const handleOpen = () => {
-    setIsOpen(prev => {
-      if (!prev) {
-        setTimeout(() => {
-          const body = document.getElementById('vqd-compliance-modal-body');
-          if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-        }, 60);
-      }
-      return !prev;
-    });
-  };
-
-  return (
-    <div className="vqd-desc-dropdown" style={{ position: 'relative', width: '100%' }}>
-      <button
-        onClick={handleOpen}
-        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: value ? '#1e293b' : '#94a3b8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', outline: 'none', textAlign: 'left', gap: 8 }}
-      >
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {value ? (value.length > 65 ? value.substring(0, 65) + '…' : value) : placeholder}
-        </span>
-        <ChevronDown size={15} color="#94a3b8" style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
-      </button>
-      {isOpen && (
-        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, width: '100%', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,.18)', zIndex: 99999, overflow: 'hidden' }}>
-          <div style={{ padding: 10, borderBottom: '1px solid #f0f4f8', background: '#f8fafc' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                autoFocus type="text" placeholder="Search descriptions…" value={searchTerm}
-                onChange={e => onSearchChange(e.target.value)}
-                onClick={e => e.stopPropagation()}
-                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7, border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ marginTop: 6, fontSize: 10, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
-              <span>{filtered.length} of {items.length} results</span>
-              <span style={{ color: '#0f766e', fontWeight: 600 }}>Click to select</span>
-            </div>
-          </div>
-          <div style={{ maxHeight: 220, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {loading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Loading…
-              </div>
-            ) : filtered.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No descriptions found</div>
-            ) : filtered.map((desc, idx) => {
-              const isSelected = value === desc.compliance_description;
-              const words = (desc.compliance_description || '').split(' ');
-              const preview = words.slice(0, 4).join(' ');
-              const rest    = words.slice(4).join(' ');
-              return (
-                <button
-                  key={desc.id || idx}
-                  onClick={() => { onChange(desc.compliance_description); setIsOpen(false); onSearchChange(''); }}
-                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${isSelected ? '#6ee7b7' : '#f0f4f8'}`, borderRadius: 8, background: isSelected ? '#f0fdf4' : '#fff', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', alignItems: 'flex-start', gap: 10, transition: 'background .1s' }}
-                >
-                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: isSelected ? '#0f766e' : '#f1f5f9', color: isSelected ? '#fff' : '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, marginTop: 1 }}>{idx + 1}</span>
-                  <span style={{ flex: 1, fontSize: 12, lineHeight: 1.5, color: isSelected ? '#0f766e' : '#334155' }}>
-                    <strong style={{ fontWeight: 700 }}>{preview}</strong>{rest && ` ${rest}`}
-                  </span>
-                  {isSelected && <CheckCircle size={14} color="#0f766e" style={{ flexShrink: 0, marginTop: 3 }} />}
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button onClick={onClose} style={{ flex: 1, padding: '10px 0', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+                <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: '10px 0', background: '#0f766e', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit', opacity: sending ? 0.7 : 1 }}>
+                  {sending ? <><Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
                 </button>
-              );
-            })}
-          </div>
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -545,21 +382,32 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [visible,         setVisible]         = useState(false);
   const [sendModal,       setSendModal]       = useState(false);
 
+  // ── PDF Modal state ────────────────────────────────────────────────────────
+  const [showPdfModal,       setShowPdfModal]       = useState(false);
+  const [pdfCompanyName,     setPdfCompanyName]     = useState('');
+  const [pdfAddress,         setPdfAddress]         = useState('');
+  const [pdfContactPerson,   setPdfContactPerson]   = useState('');
+  const [pdfSubject,         setPdfSubject]         = useState('');
+  const [pdfFormError,       setPdfFormError]       = useState('');
+  const [pdfApiError,        setPdfApiError]        = useState('');
+
   useEffect(() => {
     onUpdateNavigation?.({ breadcrumbs: ['Quotations', 'Quotation Details'] });
     return () => onUpdateNavigation?.(null);
   }, [onUpdateNavigation]);
 
+  // ── Fetch quotation by type-specific API ──────────────────────────────────
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No quotation ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
+      // Step 1: call the type-specific API via the service (already handles routing)
       const res = await getQuotationById(id);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load quotation');
       const q = res.data;
       setQuotation(q);
 
-      // Fetch full client details
+      // Step 2: Fetch client details
       if (q.client) {
         try {
           const cr = await getClientById(q.client);
@@ -567,8 +415,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         } catch {}
       }
 
-      // Fetch project using client-scoped projects API — much more efficient
-      // than loading all 500 projects. Falls back to a broad search if needed.
+      // Step 3: Fetch project — use client_name/project_name from API first as fallback
       if (q.project) {
         try {
           let found = null;
@@ -577,27 +424,25 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             const results = pr?.data?.results || pr?.results || [];
             found = results.find(p => String(p.id) === String(q.project)) || null;
           }
-          // Fallback: if not found via client-scoped call, try direct project fetch
           if (!found) {
-            const fallback = await api.get('/projects/get_all_Project/', {
-              params: { page: 1, page_size: 500 },
-            });
-            const allProjects = fallback.data?.data?.results || fallback.data?.results || [];
+            const fallback = await getAllProjects({ page: 1, page_size: 500 });
+            const allProjects = fallback?.data?.results || fallback?.results || [];
             found = allProjects.find(p => String(p.id) === String(q.project)) || null;
           }
           if (found) setProject(found);
         } catch {}
       }
 
+      // Step 4: Fetch creator name
       if (q.created_by) {
         try {
-          const ur = await api.get('/users/get_user/', { params: { id: q.created_by } });
-          if (ur.data?.status === 'success' && ur.data?.data) {
-            const u = ur.data.data;
+          const u = await getUserById(q.created_by);
+          if (u) {
             setCreatedByName(`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || '');
           }
         } catch {}
       }
+
       setTimeout(() => setVisible(true), 60);
     } catch (e) {
       setFetchError(e.message || 'Failed to load quotation details');
@@ -619,37 +464,61 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [editDiscRate, setEditDiscRate] = useState(0);
   const [editItems,    setEditItems]    = useState([]);
 
-
-
-  // ── Compliance modal state — handled by AddComplianceModal component ────────
   const [showAddSection, setShowAddSection] = useState(false);
 
-  /**
-   * fetchDescriptionsForModal — passed to AddComplianceModal as fetchDescriptions prop.
-   * Calls the API and returns a plain array of description objects.
-   */
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
     const res = await getComplianceByCategory(categoryId, subCategoryId || null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
   };
 
-  const handleOpenAddSection = () => setShowAddSection(true);
-
-  /**
-   * Called by AddComplianceModal when user clicks "Save Compliance".
-   * newFlatItems is already correctly tagged per category — just append to editItems.
-   */
   const handleComplianceSave = (newFlatItems) => {
-    setEditItems(prev => [...prev, ...newFlatItems]);
+    // Normalize modal-emitted items into the editItems shape
+    // Modal emits: description, compliance_category, sub_compliance_category,
+    //              Professional_amount, miscellaneous_amount (regulatory),
+    //              material_rate, material_amount, labour_rate, labour_amount, sac_code (execution)
+    const EXECUTION_CATS = [5, 6, 7];
+    const normalized = newFlatItems.map(item => {
+      const isExec = EXECUTION_CATS.includes(parseInt(item.compliance_category));
+      const base = {
+        id:                      null, // new — backend assigns
+        description:             String(item.description || '').trim(),
+        quantity:                parseInt(item.quantity) || 1,
+        unit:                    String(item.unit || '').trim() || 'N/A',
+        compliance_category:     parseInt(item.compliance_category) || (isExec ? 5 : 1),
+        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        Professional_amount:     parseFloat(item.Professional_amount) || 0,
+        total_amount:            parseFloat(item.total_amount) || 0,
+      };
+      if (isExec) {
+        // Execution: include all rate/amount fields; omit consultancy_charges/miscellaneous_amount
+        return {
+          ...base,
+          sac_code:        String(item.sac_code || '').trim(),
+          material_rate:   parseFloat(item.material_rate)   || 0,
+          material_amount: parseFloat(item.material_amount) || 0,
+          labour_rate:     parseFloat(item.labour_rate)     || 0,
+          labour_amount:   parseFloat(item.labour_amount)   || 0,
+        };
+      } else {
+        // Regulatory: include consultancy_charges; do NOT include execution fields
+        // so calcItemTotal does not misidentify this as an execution item
+        const miscRaw = item.miscellaneous_amount ?? '';
+        return {
+          ...base,
+          consultancy_charges: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
+        };
+      }
+    });
+    setEditItems(prev => [...prev, ...normalized]);
     setShowAddSection(false);
   };
 
-  // ── Edit mode lifecycle ────────────────────────────────────────────────────
   const enterEditMode = () => {
     if (!quotation) return;
-    // Block editing once proforma is generated (backend sets status = 3 / sent)
     if (String(quotation.status) === '3' || String(quotation.status_display || '').toLowerCase() === 'sent') return;
+    const qTypeLocal = (quotation.quotation_type || '').toLowerCase();
+    const isExec = qTypeLocal.includes('execution');
     setEditSacCode(quotation.sac_code || '');
     setEditGstRate(parseFloat(quotation.gst_rate || 0));
     setEditDiscRate(parseFloat(quotation.discount_rate || 0));
@@ -657,11 +526,24 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      Professional_amount:     parseFloat(it.Professional_amount || 0),
-      miscellaneous_amount:    (it.miscellaneous_amount === '--' || it.miscellaneous_amount === null) ? '' : (it.miscellaneous_amount || ''),
-      compliance_category:     it.compliance_category ?? 1,
+      unit:                    it.unit || 'N/A',
+      compliance_category:     it.compliance_category ?? (isExec ? 5 : 1),
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
+      // Regulatory fields — API returns consultancy_charges; keep a consultancy_charges key
+      Professional_amount:     parseFloat(it.Professional_amount || 0),
+      consultancy_charges:     (() => {
+        // Accept either field name from API; treat '--', null, undefined as '0'
+        const raw = it.consultancy_charges ?? it.miscellaneous_amount ?? '';
+        if (raw === '--' || raw === null || raw === undefined) return '0';
+        return String(raw);
+      })(),
+      // Execution fields
+      material_rate:           parseFloat(it.material_rate   || 0),
+      material_amount:         parseFloat(it.material_amount || 0),
+      labour_rate:             parseFloat(it.labour_rate     || 0),
+      labour_amount:           parseFloat(it.labour_amount   || 0),
+      sac_code:                it.sac_code || '',
     })));
     setSaveError(''); setSaveSuccess(false);
     setEditMode(true);
@@ -683,6 +565,35 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     setEditItems(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, [field]: value };
+
+      // ── Bidirectional rate ↔ amount sync for Execution items ──────────────
+      const qty = parseInt(updated.quantity) || 1;
+
+      if (field === 'material_rate') {
+        // Rate changed → recalculate amount precisely
+        const rate = parseFloat(value) || 0;
+        updated.material_amount = parseFloat((rate * qty).toFixed(2));
+      } else if (field === 'material_amount') {
+        // Amount changed → back-calculate rate
+        const amt = parseFloat(value) || 0;
+        updated.material_rate = parseFloat((qty > 0 ? amt / qty : 0).toFixed(6));
+      } else if (field === 'labour_rate') {
+        // Rate changed → recalculate amount precisely
+        const rate = parseFloat(value) || 0;
+        updated.labour_amount = parseFloat((rate * qty).toFixed(2));
+      } else if (field === 'labour_amount') {
+        // Amount changed → back-calculate rate
+        const amt = parseFloat(value) || 0;
+        updated.labour_rate = parseFloat((qty > 0 ? amt / qty : 0).toFixed(6));
+      } else if (field === 'quantity') {
+        // Qty changed → recalculate amounts from rates (rates are the source of truth)
+        const newQty = parseInt(value) || 1;
+        const matRate = parseFloat(updated.material_rate) || 0;
+        const labRate = parseFloat(updated.labour_rate)   || 0;
+        if (matRate > 0) updated.material_amount = parseFloat((matRate * newQty).toFixed(2));
+        if (labRate > 0) updated.labour_amount   = parseFloat((labRate * newQty).toFixed(2));
+      }
+
       updated.total_amount = calcItemTotal(updated);
       return updated;
     }));
@@ -695,47 +606,92 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     for (const it of editItems) {
       if (!String(it.description).trim()) { setSaveError('All items must have a description.'); return; }
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
-      if ((parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all items.'); return; }
     }
     if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
+
+    const isExec = (quotation.quotation_type || '').toLowerCase().includes('execution');
     setSaving(true);
+
     try {
       const sub   = calcEditSubtotal();
       const disc  = calcEditDiscAmt(sub);
       const gst   = calcEditGstAmt(sub, disc);
       const grand = sub - disc + gst;
 
-      // Resolve status integer
+      // Resolve status to an integer
       const rawStatus = quotation.status;
       const STATUS_STR_TO_INT = { draft: 1, pending: 2, sent: 3, approved: 4, completed: 4, failed: 5, rejected: 5 };
       const resolvedStatus = Number.isInteger(rawStatus)
         ? rawStatus
         : (parseInt(rawStatus) || STATUS_STR_TO_INT[String(rawStatus).toLowerCase()] || 1);
 
+      // ── Shared payload base ──
       const payload = {
         id:               parseInt(quotation.id),
-        client:           parseInt(quotation.client),
+        quotation_type:   quotation.quotation_type || '',   // needed for smart routing in service
+        client:           quotation.client  ? parseInt(quotation.client)  : null,
+        vendor:           quotation.vendor  ? parseInt(quotation.vendor)  : null,
         project:          parseInt(quotation.project),
+        company:          parseInt(quotation.company) || 1,
         status:           resolvedStatus,
         sac_code:         editSacCode.trim(),
-        gst_rate:         String(parseFloat(editGstRate || 0).toFixed(2)),
+        gst_rate:         String(parseFloat(editGstRate  || 0).toFixed(2)),
         discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
-        // API expects decimal strings — never round, preserve .10 etc.
         total_amount:     String(sub.toFixed(2)),
         total_gst_amount: String(gst.toFixed(2)),
-        grand_total:      String(parseFloat((sub - disc + gst).toFixed(2)).toFixed(2)),
+        grand_total:      String(grand.toFixed(2)),
         items: editItems.map(it => {
-          const compCat    = parseInt(it.compliance_category) || 1;
-          const subCompCat = parseInt(it.sub_compliance_category) || 0;
-          // Parse id: existing items have a positive integer, new items have null/undefined/0
           const rawId  = it.id != null ? parseInt(it.id) : null;
           const itemId = rawId && rawId > 0 ? rawId : null;
+          const compCat    = parseInt(it.compliance_category)  || (isExec ? 5 : 1);
+          const subCompCat = parseInt(it.sub_compliance_category) || 0;
+
+          if (isExec) {
+            const qty     = parseInt(it.quantity) || 1;
+            const prof    = parseFloat(it.Professional_amount) || 0;
+            // Use stored amounts directly (they are kept in sync by updateItem)
+            // If amount is 0 but rate is set, derive from rate; otherwise use stored value
+            const matRate = parseFloat(it.material_rate)   || 0;
+            const labRate = parseFloat(it.labour_rate)     || 0;
+            const matAmt  = parseFloat(it.material_amount) || (matRate > 0 ? parseFloat((matRate * qty).toFixed(2)) : 0);
+            const labAmt  = parseFloat(it.labour_amount)   || (labRate > 0 ? parseFloat((labRate * qty).toFixed(2)) : 0);
+            // Back-derive rates if only amounts were entered (amount→rate sync)
+            const finalMatRate = matRate > 0 ? matRate : (qty > 0 ? parseFloat((matAmt / qty).toFixed(6)) : 0);
+            const finalLabRate = labRate > 0 ? labRate : (qty > 0 ? parseFloat((labAmt / qty).toFixed(6)) : 0);
+            const consultancy = (() => {
+              const num = parseFloat(String(it.consultancy_charges ?? '').trim());
+              return isNaN(num) ? '0.00' : num.toFixed(2);
+            })();
+            return {
+              id:                      itemId,
+              description:             String(it.description).trim(),
+              quantity:                qty,
+              unit:                    String(it.unit || '').trim() || 'N/A',
+              sac_code:                String(it.sac_code || '').trim(),
+              consultancy_charges:     consultancy,
+              Professional_amount:     String(prof.toFixed(2)),
+              material_rate:           String(finalMatRate.toFixed(6)),
+              material_amount:         String(matAmt.toFixed(2)),
+              labour_rate:             String(finalLabRate.toFixed(6)),
+              labour_amount:           String(labAmt.toFixed(2)),
+              total_amount:            String(calcItemTotal({ ...it, quantity: qty, material_amount: matAmt, labour_amount: labAmt }).toFixed(2)),
+              compliance_category:     compCat,
+              sub_compliance_category: subCompCat,
+            };
+          }
+
+          // ── Regulatory item ──
+          const consultancy = (() => {
+            const num = parseFloat(String(it.consultancy_charges ?? it.miscellaneous_amount ?? '').trim());
+            return isNaN(num) ? '0.00' : num.toFixed(2);
+          })();
           return {
-            id:                      itemId,          // null = new item, integer = existing item
+            id:                      itemId,
             description:             String(it.description).trim(),
             quantity:                parseInt(it.quantity) || 1,
+            unit:                    String(it.unit || '').trim() || 'N/A',
+            consultancy_charges:     consultancy,
             Professional_amount:     String((parseFloat(it.Professional_amount) || 0).toFixed(2)),
-            miscellaneous_amount:    String(it.miscellaneous_amount ?? '').trim() || '--',
             total_amount:            String(parseFloat(calcItemTotal(it).toFixed(2)).toFixed(2)),
             compliance_category:     compCat,
             sub_compliance_category: subCompCat,
@@ -743,33 +699,23 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         }),
       };
 
-      console.log('📤 UPDATE PAYLOAD:', JSON.stringify(payload, null, 2));
+      // ── Route to the correct endpoint ──
+      const updateFn = isExec ? updateExecutionQuotation : updateRegulatoryQuotation;
+      const data = await updateFn(payload);
 
-      const response = await api.put('/quotations/update_quotation/', payload);
-      const data = response.data;
-
-      console.log('✅ UPDATE RESPONSE:', JSON.stringify(data, null, 2));
-
-      if (data && (data.id || data.quotation_number)) {
+      if (data && (data.id || data.quotation_number || data?.status === 'success')) {
         const updated = data.data || data;
         setQuotation(prev => ({
           ...prev, ...updated,
-          sac_code: editSacCode.trim(),
-          gst_rate: String(editGstRate),
+          sac_code:      editSacCode.trim(),
+          gst_rate:      String(editGstRate),
           discount_rate: String(editDiscRate),
           total_amount: sub, total_gst_amount: gst, grand_total: grand,
           items: updated.items || editItems.map(it => ({
             ...it,
-            miscellaneous_amount: String(it.miscellaneous_amount ?? '').trim() || '--',
             total_amount: calcItemTotal(it),
           })),
         }));
-        setSaveSuccess(true);
-        setEditMode(false);
-        setTimeout(() => setSaveSuccess(false), 3500);
-      } else if (data?.status === 'success') {
-        const updated = data.data || {};
-        setQuotation(prev => ({ ...prev, ...updated, sac_code: editSacCode.trim(), gst_rate: String(editGstRate), discount_rate: String(editDiscRate), total_amount: sub, total_gst_amount: gst, grand_total: grand }));
         setSaveSuccess(true);
         setEditMode(false);
         setTimeout(() => setSaveSuccess(false), 3500);
@@ -778,21 +724,18 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       }
     } catch (e) {
       const respData = e.response?.data;
-      console.error('❌ UPDATE FAILED — Response data:', JSON.stringify(respData, null, 2));
       let msg = '';
       if (respData) {
         const errors = respData.errors || respData;
         if (typeof errors === 'string') {
           msg = errors;
         } else {
-          // Flatten DRF field errors — handle nested arrays of objects (e.g. items)
           msg = Object.entries(errors)
             .map(([field, val]) => {
               if (Array.isArray(val)) {
                 const flat = val.map(v => {
                   if (typeof v === 'string') return v;
                   if (typeof v === 'object' && v !== null) {
-                    // nested item error: { id: ["required"], description: ["..."] }
                     return Object.entries(v).map(([k2, v2]) =>
                       `${field}[${k2}]: ${Array.isArray(v2) ? v2.join(', ') : v2}`
                     ).join('; ');
@@ -813,14 +756,36 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     }
   };
 
-  const handleDownload = async () => {
-    if (pdfLoading) return;
-    try { setPdfLoading(true); await generateQuotationPdf(id); }
-    catch (e) { console.error(e); }
-    finally { setPdfLoading(false); }
+  const handleDownload = () => {
+    setPdfCompanyName('');
+    setPdfAddress('');
+    setPdfContactPerson('');
+    setPdfSubject('');
+    setPdfFormError('');
+    setPdfApiError('');
+    setShowPdfModal(true);
   };
 
-  // ── Shared helpers ────────────────────────────────────────────────────────────
+  const handleConfirmPdfDownload = async () => {
+    if (!pdfCompanyName.trim()) { setPdfFormError('Company name is required.'); return; }
+    setPdfFormError(''); setPdfApiError('');
+    setPdfLoading(true);
+    try {
+      const fileName = `${fmtQNum(quotation?.quotation_number) || `Quotation_${id}`}.pdf`;
+      await generateQuotationPdf(id, {
+        company_name:    pdfCompanyName.trim(),
+        address:         pdfAddress.trim(),
+        contact_person:  pdfContactPerson.trim(),
+        subject:         pdfSubject.trim(),
+      }, fileName);
+      setShowPdfModal(false);
+    } catch (e) {
+      setPdfApiError(e.message || 'Failed to generate PDF. Please try again.');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   const extractTrailing = (numStr) => {
     if (!numStr) return '';
     const s = String(numStr);
@@ -835,12 +800,12 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     if (proformaLoading) return;
     setProformaLoading(true);
     try {
-      const response = await api.post('/proformas/create_proforma/', {
+      const data = await createProforma({
         quotation: Number(id),
+        quotation_type: quotation?.quotation_type,
+        items: quotation?.items || [],
       });
-      const data = response.data;
       const proformaId  = data?.id || data?.data?.id;
-      // Display proforma number exactly as API returns it
       const proformaNum = String(data?.proforma_number || data?.data?.proforma_number || '');
       setProformaModal({ open: true, proformaId: proformaId || null, proformaNum, alreadyExists: false, genericError: '' });
       try {
@@ -854,8 +819,12 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         setQuotation(prev => prev ? { ...prev, status: '3', status_display: 'sent' } : prev);
       }
     } catch (e) {
-      console.error('Proforma generation failed:', e);
-      const errMsg = e?.response?.data?.errors || e?.response?.data?.message || e?.response?.data?.detail || '';
+      const backendMessage =
+        e?.response?.data?.errors ||
+        e?.response?.data?.message ||
+        e?.response?.data?.detail ||
+        '';
+      const errMsg = String(backendMessage || e?.message || '').trim();
       const isAlreadyExists =
         String(errMsg).toLowerCase().includes('already exists') ||
         String(errMsg).toLowerCase().includes('already generated') ||
@@ -866,21 +835,14 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         try {
           const quotationId       = Number(id);
           const quotationTrailing = extractTrailing(quotation.quotation_number || String(id));
-          // Fetch without quotation filter param — backend does not reliably filter by it.
-          // Match client-side instead, same pattern as viewproformadetails does for invoices.
-          const res = await api.get('/proformas/get_all_proformas/', { params: { page: 1, page_size: 100 } });
-          const results = res.data?.data?.results || res.data?.results || [];
-          // 1️⃣ Primary: match by the proforma's quotation foreign-key field (most reliable)
+          const res = await getProformas({ page: 1, page_size: 100 });
+          const results = res?.data?.results || res?.results || [];
           let existing = results.find(p => Number(p.quotation) === quotationId) || null;
-          // 2️⃣ Fallback: match by shared trailing digits in proforma_number
           if (!existing && quotationTrailing) {
             existing = results.find(p => extractTrailing(p.proforma_number) === quotationTrailing) || null;
           }
-          if (existing) {
-            existingId  = existing.id;
-            existingNum = String(existing.proforma_number || '');
-          }
-        } catch { /* silently ignore */ }
+          if (existing) { existingId = existing.id; existingNum = String(existing.proforma_number || ''); }
+        } catch {}
         setProformaModal({ open: true, proformaId: existingId, proformaNum: existingNum, alreadyExists: true, genericError: '' });
       } else {
         setProformaModal({ open: true, proformaId: null, proformaNum: '', alreadyExists: true, genericError: errMsg || 'Failed to generate proforma.' });
@@ -894,7 +856,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/quotations')} />;
   if (!quotation) return <ErrorView message="Quotation not available." onRetry={fetchData} onBack={() => navigate('/quotations')} />;
 
-  // Derived values
+  // ── Derived values ─────────────────────────────────────────────────────────
   const status     = getStatus(quotation.status_display || quotation.status);
   const qNum       = fmtQNum(quotation.quotation_number);
   const subtotal   = parseFloat(quotation.total_amount  || 0);
@@ -908,14 +870,32 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  const clientName = client
-    ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
-    : `Client #${quotation.client}`;
-  const projName = project
-    ? (project.name || project.title || `Project #${quotation.project}`)
-    : (quotation.project ? `Project #${quotation.project}` : '—');
+  // Quotation type detection
+  const qTypeRaw     = quotation.quotation_type || '';
+  const qType        = qTypeRaw.toLowerCase();
+  const isExecution  = qType.includes('execution');
+  const isRegulatory = !isExecution;
+
+  // Display names — prefer API-returned names, fall back to fetched data
+  const clientName = quotation.client_name
+    ? quotation.client_name
+    : client
+      ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
+      : `Client #${quotation.client}`;
+
+  const projName = quotation.project_name
+    ? quotation.project_name
+    : project
+      ? (project.name || project.title || `Project #${quotation.project}`)
+      : (quotation.project ? `Project #${quotation.project}` : '—');
+
+  const companyName = quotation.company_name || getQuotationCompanyName(quotation.company) || 'ERP System';
   const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
 
+  // Type badge colors
+  const typeColor = isExecution
+    ? { text: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' }
+    : { text: '#0369a1', bg: '#f0f9ff', border: '#bae6fd' };
 
   return (
     <>
@@ -926,19 +906,21 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         @keyframes vqd_spin{to{transform:rotate(360deg)}}
         @keyframes vqd_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-        @keyframes scaleIn{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}
-        .animate-fadeIn{animation:fadeIn 0.2s ease-out}
-        .animate-scaleIn{animation:scaleIn 0.3s cubic-bezier(0.16,1,0.3,1)}
         .vqd-root{min-height:100vh;padding:0}
-        .vqd-topbar{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px}
+        .vqd-topbar{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px;flex-wrap:wrap;gap:8px}
         .vqd-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
         .vqd-back:hover{background:#e2e8f0;color:#1e293b}
-        .vqd-actions{display:flex;gap:8px}
-        .vqd-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#475569;cursor:pointer;transition:all .15s}
+        .vqd-actions{display:flex;gap:8px;flex-wrap:wrap}
+        .vqd-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#475569;cursor:pointer;transition:all .15s;font-family:inherit}
         .vqd-btn-o:hover{background:#f8fafc;border-color:#cbd5e1}
-        .vqd-btn-p{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
+        .vqd-btn-p{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;font-family:inherit}
         .vqd-btn-p:hover{background:#0d6460}
         .vqd-btn-p:disabled{opacity:.6;cursor:not-allowed}
+        .vqd-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #0f766e;color:#0f766e;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit}
+        .vqd-btn-edit:hover{background:#f0fdf4}
+        .vqd-btn-proforma{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit;box-shadow:0 2px 8px rgba(37,99,235,.25)}
+        .vqd-btn-proforma:hover{background:linear-gradient(135deg,#1e40af,#1d4ed8);transform:translateY(-1px)}
+        .vqd-btn-proforma:disabled{opacity:.6;cursor:not-allowed;transform:none}
         .vqd-spin{animation:vqd_spin .7s linear infinite}
         .vqd-doc{background:#fff;border-radius:20px;box-shadow:0 2px 4px rgba(0,0,0,.04),0 12px 40px rgba(0,0,0,.09);overflow:hidden;opacity:0;transform:translateY(16px);transition:opacity .4s ease,transform .4s ease}
         .vqd-doc.in{opacity:1;transform:translateY(0)}
@@ -958,106 +940,91 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         .vqd-doc-date{font-size:12px;color:rgba(255,255,255,.6);margin-top:5px;font-weight:400}
         .vqd-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #e8ecf2}
         .vqd-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
-        .vqd-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #f0f4f8;background:#fff}
-        .vqd-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px;padding-top:36px}
-        .vqd-party{padding-right:24px}
-        .vqd-party--proj{padding-left:24px;padding-right:24px}
+        .vqd-parties{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:0;padding:24px 40px;border-bottom:1.5px solid #f0f4f8;align-items:start}
+        .vqd-arrow-col{display:flex;align-items:center;justify-content:center;padding-top:28px}
+        .vqd-party{display:flex;flex-direction:column;gap:4px;padding-right:24px}
+        .vqd-party--proj{padding-left:24px;border-left:1.5px solid #f0f4f8;padding-right:24px}
         .vqd-party--rates{padding-left:24px;border-left:1.5px solid #f0f4f8}
-        .vqd-plabel{font-size:9.5px;font-weight:800;letter-spacing:.14em;color:#94a3b8;text-transform:uppercase;margin-bottom:10px}
-        .vqd-pavatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vqd-picon{width:44px;height:44px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vqd-pname{font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:5px}
-        .vqd-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-bottom:3px;word-break:break-all}
-        .vqd-rates-list{display:flex;flex-direction:column;gap:12px}
+        .vqd-plabel{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+        .vqd-pavatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:6px}
+        .vqd-picon{width:36px;height:36px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:6px}
+        .vqd-pname{font-size:15px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
+        .vqd-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-top:2px}
+        .vqd-rates-list{display:flex;flex-direction:column;gap:10px}
         .vqd-rate-row{display:flex;align-items:center;gap:10px}
-        .vqd-rate-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-        .vqd-rate-v{font-size:15px;font-weight:800;color:#1e293b;line-height:1.2}
-        .vqd-rate-l{font-size:11px;color:#94a3b8;font-weight:500}
-        .vqd-items{padding:0 40px 32px}
-        .vqd-sec-hdr{display:flex;align-items:center;gap:8px;padding:22px 0 14px;border-bottom:2px solid #f0f4f8;font-size:13px;font-weight:700;color:#1e293b}
-        .vqd-sec-badge{background:#ecfdf5;color:#059669;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;border:1px solid #bbf7d0}
-        .vqd-table-wrap{overflow-x:auto;margin-top:0}
+        .vqd-rate-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .vqd-rate-v{font-size:15px;font-weight:800;color:#1e293b}
+        .vqd-rate-l{font-size:11px;color:#94a3b8;font-weight:500;margin-top:1px}
+        .vqd-items{padding:0 40px 24px}
+        .vqd-sec-hdr{display:flex;align-items:center;gap:8px;padding:20px 0 14px;font-size:14px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
+        .vqd-sec-badge{background:#f1f5f9;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:#64748b}
+        .vqd-table-wrap{overflow-x:auto;border-radius:12px;border:1.5px solid #f0f4f8}
         .vqd-table{width:100%;border-collapse:collapse;font-size:13px}
-        .vqd-table thead tr{background:#f8fafc}
-        .vqd-table thead th{padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;border-bottom:1.5px solid #e8ecf2;white-space:nowrap}
-        .vqd-table thead th:first-child{padding-left:16px}
-        .vqd-table thead th:last-child{padding-right:16px;text-align:right}
-        .vqd-cat-row td{padding:9px 12px 6px 16px;background:#fafbfc;border-top:1.5px solid #f0f4f8}
-        .vqd-cat-inner{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.08em}
-        .vqd-cat-dot{width:6px;height:6px;border-radius:50%;background:#0d9488;flex-shrink:0}
-        .vqd-cat-cnt{margin-left:auto;font-size:10px;font-weight:600;color:#94a3b8;text-transform:none;letter-spacing:0}
-        .vqd-row{border-bottom:1px solid #f8fafc;transition:background .1s}
-        .vqd-row:hover{background:#fafffe}
-        .vqd-row td{padding:11px 12px;vertical-align:top}
-        .vqd-row td:first-child{padding-left:16px}
-        .vqd-row td:last-child{padding-right:16px;text-align:right}
-        .vqd-row-idx{font-size:11px;font-weight:700;color:#d1d5db;text-align:center}
-        .vqd-desc{font-size:13px;font-weight:500;color:#334155;line-height:1.55;max-width:300px}
-        .vqd-subcat{display:inline-block;background:#f1f5f9;color:#475569;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;white-space:nowrap}
-        .vqd-qty-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:700}
-        .vqd-misc-note{color:#d97706;font-style:italic;font-size:11px;border-bottom:1px dashed #fcd34d;cursor:help}
-        .vqd-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
-        .vqd-foot{display:grid;grid-template-columns:1fr 300px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
-        .vqd-sum-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
-        .vqd-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}
+        .vqd-table thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;background:#f8fafc;border-bottom:1.5px solid #f0f4f8;white-space:nowrap}
+        .vqd-cat-row td{padding:8px 12px;background:#f8fafc;border-top:1.5px solid #f0f4f8}
+        .vqd-cat-inner{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#374151}
+        .vqd-cat-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
+        .vqd-cat-cnt{background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px}
+        .vqd-row td{padding:10px 12px;border-top:1px solid #f8fafc;vertical-align:top}
+        .vqd-row:hover td{background:#fafffe}
+        .vqd-row-idx{text-align:center;font-size:11px;color:#d1d5db;font-weight:700;width:32px}
+        .vqd-desc{font-size:13px;color:#1e293b;font-weight:500;line-height:1.5}
+        .vqd-subcat{display:inline-flex;align-items:center;padding:2px 8px;background:#eff6ff;color:#1d4ed8;border-radius:8px;font-size:10px;font-weight:700}
+        .vqd-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;background:#f1f5f9;border-radius:6px;font-size:12px;font-weight:700;color:#475569;padding:0 5px}
+        .vqd-cat-sub td{padding:6px 12px;background:#fafffe;border-top:1px solid #f0f4f8}
+        .vqd-misc-note{font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:2px 6px;font-style:italic}
+        .vqd-foot{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px 40px;border-top:1.5px solid #f0f4f8}
+        .vqd-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
+        .vqd-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vqd-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vqd-sum-lbl{font-size:11px;color:#94a3b8;font-weight:500}
+        .vqd-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
         .vqd-sum-val{font-size:13px;font-weight:700;color:#1e293b}
-        .vqd-remarks{margin-top:18px}
-        .vqd-rem-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:6px}
-        .vqd-rem-text{font-size:12px;color:#64748b;line-height:1.65;white-space:pre-wrap}
+        .vqd-remarks{margin-top:14px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e8ecf2}
+        .vqd-rem-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+        .vqd-rem-text{font-size:12.5px;color:#475569;line-height:1.6;margin:0}
         .vqd-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
-        .vqd-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
-        .vqd-trow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#475569;font-weight:500}
+        .vqd-tbox-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+        .vqd-trow{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;color:#475569}
         .vqd-trow--disc{color:#ea580c}
-        .vqd-trow--sub{color:#94a3b8;font-size:12px}
-        .vqd-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:11px 0}
-        .vqd-grand{display:flex;justify-content:space-between;align-items:baseline;font-size:19px;font-weight:900;color:#0f766e;letter-spacing:-.02em}
-        .vqd-words{margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;font-size:10.5px;line-height:1.55;color:#64748b;font-style:italic}
-        .vqd-dl-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:11px;background:#0f766e;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s}
-        .vqd-dl-btn:hover{background:#0d6460}
-        .vqd-dl-btn:active{transform:scale(.98)}
-        .vqd-dl-btn:disabled{opacity:.6;cursor:not-allowed}
-        .vqd-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(217,119,6,.25)}
-        .vqd-btn-edit:hover{background:linear-gradient(135deg,#d97706,#b45309);box-shadow:0 4px 12px rgba(217,119,6,.35)}
-        .vqd-btn-proforma{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#059669,#0891b2);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 10px rgba(8,145,178,.35)}
-        .vqd-btn-proforma:hover{background:linear-gradient(135deg,#047857,#0e7490);box-shadow:0 4px 16px rgba(8,145,178,.50);transform:translateY(-1px)}
-        .vqd-btn-proforma:active{transform:translateY(0)}
-        .vqd-btn-proforma:disabled{opacity:.6;cursor:not-allowed;transform:none}
-        .vqd-btn-save{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
-        .vqd-btn-save:hover{background:linear-gradient(135deg,#0d6460,#0b7a72)}
-        .vqd-btn-save:disabled{opacity:.6;cursor:not-allowed}
-        .vqd-btn-cancel{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s}
+        .vqd-trow--sub{color:#64748b;font-size:12px}
+        .vqd-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:10px 0}
+        .vqd-grand{display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:900;color:#1e293b;padding:4px 0}
+        .vqd-words{font-size:11px;color:#94a3b8;margin-top:8px;font-style:italic;line-height:1.5}
+        .vqd-dl-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:14px;padding:11px 0;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;border-radius:10px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s}
+        .vqd-dl-btn:hover{background:linear-gradient(135deg,#0d6460,#0b7a72);transform:translateY(-1px)}
+        .vqd-btn-save{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit}
+        .vqd-btn-cancel{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s;font-family:inherit}
         .vqd-btn-cancel:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626}
         .vqd-edit-banner{display:flex;align-items:center;gap:10px;padding:10px 18px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fcd34d;border-radius:12px;margin-bottom:14px;animation:vqd_in .25s ease}
         .vqd-edit-input{padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#1e293b;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s;width:100%}
         .vqd-edit-input:focus{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1)}
         .vqd-edit-input-sm{width:80px;text-align:right}
         .vqd-edit-input-md{width:110px}
-        .vqd-edit-input-num{width:90px;text-align:right}
-        .vqd-edit-row td{background:#fafffe !important;padding:8px 6px !important}
-        .vqd-edit-row:hover td{background:#f0fdf4 !important}
+        /* Execution edit table — compact layout */
+        .vqd-exec-edit td{padding:6px 6px;vertical-align:middle}
+        .vqd-exec-edit th{padding:7px 6px}
+        .vqd-exec-edit .vqd-edit-input{padding:5px 7px;font-size:12px;border-radius:6px}
+        /* Rate group column tint (purple) */
+        .vqd-exec-edit td.col-rate{background:rgba(245,243,255,0.55);border-left:1.5px solid #ddd6fe}
+        .vqd-exec-edit td.col-rate-last{background:rgba(245,243,255,0.55);border-right:1.5px solid #ddd6fe}
+        /* Amount group column tint (green) */
+        .vqd-exec-edit td.col-amt{background:rgba(240,253,244,0.6);border-left:1.5px solid #bbf7d0}
+        .vqd-exec-edit td.col-amt-last{background:rgba(240,253,244,0.6);border-right:1.5px solid #bbf7d0}
         .vqd-edit-totals{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1.5px solid #6ee7b7;border-radius:14px;padding:20px 22px}
         .vqd-save-err{display:flex;align-items:flex-start;gap:8px;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#dc2626;line-height:1.5}
         .vqd-success-toast{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:10px;background:#0f766e;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,118,110,.4);animation:vqd_toast_in .3s cubic-bezier(.16,1,.3,1)}
         @keyframes vqd_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-        /* Prevent background color flash when body is fixed for modal scroll lock */
-        body.vqd-modal-open { background: #fff !important; }
         .vqd-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #e8ecf2;font-size:11px;color:#94a3b8}
-        @media print{
-          .vqd-topbar{display:none}
-          .vqd-root{background:#fff;padding:0}
-          .vqd-doc{box-shadow:none;border-radius:0;opacity:1!important;transform:none!important}
-          .vqd-dl-btn,.vqd-btn-p,.vqd-btn-o{display:none}
-        }
+        /* Execution-specific badge */
+        .vqd-exec-rate-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
+        @media print{.vqd-topbar{display:none}.vqd-root{background:#fff;padding:0}.vqd-doc{box-shadow:none;border-radius:0;opacity:1!important;transform:none!important}.vqd-dl-btn,.vqd-btn-p,.vqd-btn-o{display:none}}
         @media(max-width:700px){
           .vqd-hdr{padding:22px 20px 22px}
           .vqd-meta{padding:12px 20px}
           .vqd-meta-sep{display:none}
           .vqd-parties{grid-template-columns:1fr;padding:20px;gap:16px}
           .vqd-arrow-col{display:none}
-          .vqd-party--proj,.vqd-party--rates{padding-left:0}
-          .vqd-party--rates{border-left:none;border-top:1.5px solid #f0f4f8;padding-top:16px}
+          .vqd-party--proj,.vqd-party--rates{padding-left:0;border-left:none;border-top:1.5px solid #f0f4f8;padding-top:16px}
           .vqd-items{padding:0 20px 24px}
           .vqd-foot{grid-template-columns:1fr;padding:20px}
           .vqd-doc-foot{padding:12px 20px;flex-direction:column;gap:4px;text-align:center}
@@ -1087,7 +1054,6 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               </>
             ) : (
               <>
-                {/* Update Quotation — locked once proforma is generated (backend status = 3 / sent) */}
                 {String(quotation.status) !== '3' && String(quotation.status_display || '').toLowerCase() !== 'sent' ? (
                   <button className="vqd-btn-edit" onClick={enterEditMode}>
                     <Edit2 size={14} /> Update Quotation
@@ -1097,19 +1063,9 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                     <CheckCircle size={13} /> Proforma Generated
                   </div>
                 )}
-
-                {/* Generate Proforma — always available on quotation */}
-                <button
-                  className="vqd-btn-proforma"
-                  onClick={handleGenerateProforma}
-                  disabled={proformaLoading}
-                  title="Generate Proforma from this Quotation"
-                >
-                  {proformaLoading
-                    ? <><Loader2 size={14} className="vqd-spin" /> Generating…</>
-                    : <><FileText size={14} /> Generate Proforma</>}
+                <button className="vqd-btn-proforma" onClick={handleGenerateProforma} disabled={proformaLoading}>
+                  {proformaLoading ? <><Loader2 size={14} className="vqd-spin" /> Generating…</> : <><FileText size={14} /> Generate Proforma</>}
                 </button>
-
                 <button className="vqd-btn-o" onClick={() => setSendModal(true)}>
                   <Mail size={14} /> Send to Client
                 </button>
@@ -1130,7 +1086,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>Edit Mode Active</div>
               <div style={{ fontSize: 11, color: '#a16207', marginTop: 1 }}>
-                Edit any field inline or click "+ Add Item" to add new compliance items. Click "Save Changes" when done.
+                Edit fields inline or click "+ Add Item" to add compliance items. Click "Save Changes" when done.
               </div>
             </div>
             {saveError && (
@@ -1150,11 +1106,23 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-logo">
                 <div className="vqd-logo-badge">ERP</div>
                 <div>
-                  <div className="vqd-co-name">ERP System</div>
+                  <div className="vqd-co-name">{companyName}</div>
                   <div className="vqd-co-sub">Professional Services</div>
                 </div>
               </div>
-              <StatusPill status={status} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <StatusPill status={status} />
+                {/* Quotation type badge in header */}
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)',
+                  color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                  letterSpacing: '0.03em',
+                }}>
+                  {isExecution ? <Wrench size={11} /> : <FileText size={11} />}
+                  {qTypeRaw || 'Quotation'}
+                </span>
+              </div>
             </div>
             <div className="vqd-hdr-r">
               <div className="vqd-doc-label">Quotation</div>
@@ -1165,9 +1133,9 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
           {/* ══════════ META STRIP ══════════ */}
           <div className="vqd-meta">
-            <MetaBlock icon={Calendar} label="Issue Date"    value={fmtDate(quotation.created_at)} />
+            <MetaBlock icon={Calendar} label="Issue Date"   value={fmtDate(quotation.created_at)} />
             <div className="vqd-meta-sep" />
-            <MetaBlock icon={Calendar} label="Last Updated"  value={fmtDate(quotation.updated_at)} />
+            <MetaBlock icon={Calendar} label="Last Updated" value={fmtDate(quotation.updated_at)} />
             <div className="vqd-meta-sep" />
             {editMode ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -1188,6 +1156,20 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             )}
             <div className="vqd-meta-sep" />
             <MetaBlock icon={Hash} label="Quotation No." value={qNum} accent />
+            <div className="vqd-meta-sep" />
+            {/* Quotation Type in meta */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: typeColor.bg, border: `1.5px solid ${typeColor.border}`,
+                color: typeColor.text, fontSize: 11, fontWeight: 700,
+                padding: '3px 9px', borderRadius: 20,
+              }}>
+                {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
+                {isExecution ? 'Execution' : 'Regulatory'}
+              </span>
+            </div>
             {createdByName && <>
               <div className="vqd-meta-sep" />
               <MetaBlock icon={User} label="Prepared By" value={createdByName} />
@@ -1196,19 +1178,32 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
           {/* ══════════ PARTIES ══════════ */}
           <div className="vqd-parties">
+            {/* Billed To */}
             <div className="vqd-party">
               <div className="vqd-plabel">Billed To</div>
-              <div className="vqd-pavatar">{clientName.charAt(0).toUpperCase()}</div>
+              <div className="vqd-pavatar">{(clientName || 'C').charAt(0).toUpperCase()}</div>
               <div className="vqd-pname">{clientName}</div>
               {client?.email && <div className="vqd-pdetail"><Mail size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
+              {client?.phone && <div className="vqd-pdetail"><Phone size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.phone}</div>}
             </div>
+
             <div className="vqd-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
+
+            {/* Project */}
             <div className="vqd-party vqd-party--proj">
               <div className="vqd-plabel">Project</div>
               <div className="vqd-picon"><Building2 size={20} color="#0f766e" /></div>
               <div className="vqd-pname">{projName}</div>
               {projLoc && <div className="vqd-pdetail"><MapPin size={11} style={{ opacity: .45, flexShrink: 0 }} />{projLoc}</div>}
+              {quotation.company_name && (
+                <div className="vqd-pdetail" style={{ marginTop: 4 }}>
+                  <Building2 size={11} style={{ opacity: .45, flexShrink: 0 }} />
+                  {quotation.company_name}
+                </div>
+              )}
             </div>
+
+            {/* Applied Rates */}
             <div className="vqd-party vqd-party--rates">
               <div className="vqd-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
               <div className="vqd-rates-list">
@@ -1251,53 +1246,21 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           {/* ══════════ LINE ITEMS ══════════ */}
           <div className="vqd-items">
 
-            {/* ══════════ QUOTATION TYPE INDICATOR ══════════ */}
-            {quotation.quotation_type && (
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 10,
-                marginBottom: 12,
-                padding: '8px 14px',
-                background: '#f0fdf4',
-                border: '1.5px solid #bbf7d0',
-                borderRadius: 20,
-              }}>
-                <span style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: '#0d6360',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                }}>
-                  Quotation Type
-                </span>
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: '#059669',
-                }}>
-                  {quotation.quotation_type}
-                </span>
-              </div>
-            )}
-
+            {/* Section header */}
             <div className="vqd-sec-hdr">
-              <FileText size={15} color="#0f766e" />
-              Services &amp; Compliance Items
+              {isExecution ? <Wrench size={15} color="#7c3aed" /> : <FileText size={15} color="#0f766e" />}
+              {isExecution ? 'Execution Work Items' : 'Regulatory Compliance Items'}
               <span className="vqd-sec-badge">
                 {editMode ? editItems.length : items.length} {(editMode ? editItems.length : items.length) === 1 ? 'item' : 'items'}
               </span>
-
-              {/* Add Item button — only in edit mode */}
               {editMode && (
                 <button
-                  onClick={handleOpenAddSection}
+                  onClick={() => setShowAddSection(true)}
                   style={{
                     marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
                     padding: '6px 14px', background: 'linear-gradient(135deg,#0f766e,#0d9488)',
                     color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                    cursor: 'pointer', boxShadow: '0 2px 8px rgba(15,118,110,.25)', transition: 'all .15s',
+                    cursor: 'pointer', boxShadow: '0 2px 8px rgba(15,118,110,.25)', fontFamily: 'inherit',
                   }}
                 >
                   <Plus size={14} /> Add Item
@@ -1315,54 +1278,146 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
               <div className="vqd-table-wrap">
                 <table className="vqd-table">
                   <thead>
-                    <tr>
-                      <th style={{ width: 32 }}>#</th>
-                      <th>Service Description</th>
-                      <th style={{ width: 110 }}>Sub-Category</th>
-                      <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-                      <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                      <th style={{ width: 130, textAlign: 'right' }}>Miscellaneous</th>
-                      <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                    </tr>
+                    {isRegulatory ? (
+                      <tr>
+                        <th style={{ width: 32 }}>#</th>
+                        <th>Service Description</th>
+                        <th style={{ width: 110 }}>Sub-Category</th>
+                        <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                        <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                        <th style={{ width: 120, textAlign: 'right' }}>Professional (₹)</th>
+                        <th style={{ width: 130, textAlign: 'right' }}>Consultancy / Misc</th>
+                        <th style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
+                      </tr>
+                    ) : (
+                      <>
+                        <tr>
+                          <th rowSpan={2} style={{ width: 32 }}>#</th>
+                          <th rowSpan={2}>Service Description</th>
+                          <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
+                          <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                          <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                          <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
+                          <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
+                        </tr>
+                        <tr>
+                          <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
+                          <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
+                          <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
+                          <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
+                        </tr>
+                      </>
+                    )}
                   </thead>
                   {groups.map((grp, gi) => {
-                    const grpTotal = grp.items.reduce((s, it) => {
-                      const prof = parseFloat(it.Professional_amount || 0);
-                      const misc = isMiscNumeric(it.miscellaneous_amount) ? parseFloat(it.miscellaneous_amount) : 0;
-                      return s + (prof + misc) * (parseInt(it.quantity) || 1);
-                    }, 0);
+                    const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
+                    const colSpan = isExecution ? 10 : 8;
                     return (
                       <tbody key={gi}>
-                        <tr className="vqd-cat-row"><td colSpan={7}><div className="vqd-cat-inner"><span className="vqd-cat-dot" />{grp.catName}<span className="vqd-cat-cnt">{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span></div></td></tr>
+                        <tr className="vqd-cat-row">
+                          <td colSpan={colSpan}>
+                            <div className="vqd-cat-inner">
+                              <span className="vqd-cat-dot" style={{ background: isExecution ? 'linear-gradient(135deg,#7c3aed,#a78bfa)' : undefined }} />
+                              {grp.catName}
+                              <span className="vqd-cat-cnt" style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}>
+                                {grp.items.length} item{grp.items.length !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
                         {grp.items.map((item, ii) => {
+                          const total  = parseFloat(item.total_amount) || calcItemTotal(item);
+                          const subCat = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
+
+                          // Regulatory — API now returns consultancy_charges; keep miscellaneous_amount as fallback
                           const prof    = parseFloat(item.Professional_amount || 0);
-                          const miscRaw = item.miscellaneous_amount;
-                          const miscNum = isMiscNumeric(miscRaw) ? parseFloat(miscRaw) : 0;
-                          const qty     = parseInt(item.quantity) || 1;
-                          const total   = (prof + miscNum) * qty;
-                          const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                          const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--' ? String(miscRaw).trim() : null;
+                          const consultancy = item.consultancy_charges ?? item.miscellaneous_amount;
+                          const consultancyStr = (() => {
+                            if (!consultancy || String(consultancy).trim() === '--') return null;
+                            const s = String(consultancy).trim();
+                            return s !== '' && !isNaN(parseFloat(s)) ? s : null;
+                          })();
+
+                          // Execution
+                          const { qty, matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
+                          const itemSacCode = item.sac_code;
+                          const showExecBreakdown = hasExecutionRateBreakdown(item);
+
                           return (
                             <tr key={ii} className="vqd-row">
                               <td className="vqd-row-idx">{ii + 1}</td>
-                              <td><div className="vqd-desc">{item.description || item.compliance_name || '—'}</div></td>
-                              <td>{subCat ? <span className="vqd-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                              <td style={{ textAlign: 'center' }}><span className="vqd-qty-badge">{qty}</span></td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                              <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                {miscStr
-                                  ? isMiscNumeric(miscStr)
-                                    ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                    : <span className="vqd-misc-note" title="Note — not in total">{miscStr}</span>
-                                  : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              <td>
+                                <div className="vqd-desc">{item.description || item.compliance_name || '—'}</div>
+                                {/* Show SAC code per item for execution */}
+                                {isExecution && itemSacCode && (
+                                  <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
+                                  </div>
+                                )}
                               </td>
-                              <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
+                              <td>
+                                {subCat
+                                  ? <span className="vqd-subcat" style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}>{subCat.name}</span>
+                                  : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className="vqd-qty-badge">{qty}</span>
+                              </td>
+                              <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                {item.unit || '—'}
+                              </td>
+                              {isRegulatory ? (
+                                <>
+                                  <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                    ₹&nbsp;{fmtINR(prof)}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontSize: 12 }}>
+                                    {consultancyStr
+                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
+                                      : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                </>
+                              ) : (
+                                // Execution item — if it has mat/lab rate breakdown show 4 columns,
+                                // otherwise collapse all 4 into one cell showing Professional_amount (Rates).
+                                showExecBreakdown ? (
+                                  <>
+                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                      {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                      {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                      {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : (matRate > 0 ? <>₹&nbsp;{fmtINR(matRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                                      {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : (labRate > 0 ? <>₹&nbsp;{fmtINR(labRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
+                                    </td>
+                                  </>
+                                ) : (
+                                  // Only Professional_amount (Rates) — span across all 4 rate columns
+                                  <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                    {parseFloat(item.Professional_amount || 0) > 0
+                                      ? <>₹&nbsp;{fmtINR(parseFloat(item.Professional_amount))}</>
+                                      : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                )
+                              )}
+                              <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>
+                                ₹&nbsp;{fmtINR(total)}
+                              </td>
                             </tr>
                           );
                         })}
                         <tr className="vqd-cat-sub">
-                          <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                          <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 16 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
+                          <td colSpan={colSpan - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
+                            {grp.catName} subtotal
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 16 }}>
+                            ₹&nbsp;{fmtINR(grpTotal)}
+                          </td>
                         </tr>
                       </tbody>
                     );
@@ -1389,37 +1444,106 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                   });
 
                   return (
-                    <table className="vqd-table" style={{ tableLayout: 'fixed' }}>
+                    <table className={`vqd-table${isExecution ? ' vqd-exec-edit' : ''}`} style={{ tableLayout: 'fixed', width: '100%' }}>
+                      <colgroup>
+                        {isRegulatory ? (
+                          <>
+                            <col style={{ width: 36 }} />
+                            <col />
+                            <col style={{ width: 56 }} />
+                            <col style={{ width: 80 }} />
+                            <col style={{ width: 128 }} />
+                            <col style={{ width: 128 }} />
+                            <col style={{ width: 112 }} />
+                            <col style={{ width: 38 }} />
+                          </>
+                        ) : (
+                          <>
+                            <col style={{ width: 34 }} />
+                            <col />
+                            <col style={{ width: 52 }} />
+                            <col style={{ width: 56 }} />
+                            <col style={{ width: 96 }} />
+                            <col style={{ width: 104 }} />
+                            <col style={{ width: 104 }} />
+                            <col style={{ width: 110 }} />
+                            <col style={{ width: 110 }} />
+                            <col style={{ width: 104 }} />
+                            <col style={{ width: 36 }} />
+                          </>
+                        )}
+                      </colgroup>
                       <thead>
-                        <tr>
-                          <th style={{ width: 32 }}>#</th>
-                          <th style={{ width: 'auto' }}>Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
-                          <th style={{ width: 58, textAlign: 'center' }}>Qty</th>
-                          <th style={{ width: 130, textAlign: 'right' }}>Professional (₹)</th>
-                          <th style={{ width: 130, textAlign: 'right' }}>Misc (₹ or note)</th>
-                          <th style={{ width: 110, textAlign: 'right' }}>Item Total</th>
-                          <th style={{ width: 40 }}></th>
-                        </tr>
+                        {isRegulatory ? (
+                          <tr>
+                            <th style={{ textAlign: 'center' }}>#</th>
+                            <th>Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
+                            <th style={{ textAlign: 'center' }}>Qty</th>
+                            <th style={{ textAlign: 'center' }}>Unit <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
+                            <th style={{ textAlign: 'right' }}>Professional (₹)</th>
+                            <th style={{ textAlign: 'right' }}>Misc / Note</th>
+                            <th style={{ textAlign: 'right' }}>Item Total</th>
+                            <th></th>
+                          </tr>
+                        ) : (
+                          <>
+                            <tr>
+                              <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>#</th>
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>
+                                Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                              </th>
+                              <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Qty</th>
+                              <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Unit</th>
+                              <th rowSpan={2} style={{ textAlign: 'right', verticalAlign: 'middle' }}>Prof. (₹)</th>
+                              <th colSpan={2} style={{
+                                textAlign: 'center', verticalAlign: 'middle',
+                                background: '#f5f3ff',
+                                color: '#7c3aed', fontSize: 10, fontWeight: 800,
+                                letterSpacing: '0.07em', textTransform: 'uppercase',
+                                borderLeft: '2px solid #ddd6fe', borderRight: '1px solid #ddd6fe',
+                                padding: '7px 8px',
+                              }}>Rate (per unit)</th>
+                              <th colSpan={2} style={{
+                                textAlign: 'center', verticalAlign: 'middle',
+                                background: '#f0fdf4',
+                                color: '#0f766e', fontSize: 10, fontWeight: 800,
+                                letterSpacing: '0.07em', textTransform: 'uppercase',
+                                borderLeft: '2px solid #bbf7d0', borderRight: '1px solid #bbf7d0',
+                                padding: '7px 8px',
+                              }}>Amount (Rate × Qty)</th>
+                              <th rowSpan={2} style={{ textAlign: 'right', verticalAlign: 'middle' }}>Item Total</th>
+                              <th rowSpan={2}></th>
+                            </tr>
+                            <tr>
+                              <th style={{ textAlign: 'right', background: '#f5f3ff', color: '#7c3aed', borderLeft: '2px solid #ddd6fe', fontWeight: 700 }}>Mat. Rate (₹)</th>
+                              <th style={{ textAlign: 'right', background: '#f5f3ff', color: '#7c3aed', borderRight: '1px solid #ddd6fe', fontWeight: 700 }}>Lab. Rate (₹)</th>
+                              <th style={{ textAlign: 'right', background: '#f0fdf4', color: '#0f766e', borderLeft: '2px solid #bbf7d0', fontWeight: 700 }}>Material Amt (₹)</th>
+                              <th style={{ textAlign: 'right', background: '#f0fdf4', color: '#0f766e', borderRight: '1px solid #bbf7d0', fontWeight: 700 }}>Labour Amt (₹)</th>
+                            </tr>
+                          </>
+                        )}
                       </thead>
                       {Object.values(editGroups).map((grp, gi) => {
                         const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
                         return (
                           <tbody key={gi}>
                             <tr className="vqd-cat-row">
-                              <td colSpan={7}>
+                              <td colSpan={isRegulatory ? 8 : 11}>
                                 <div className="vqd-cat-inner">
-                                  <span className="vqd-cat-dot" />
+                                  <span className="vqd-cat-dot" style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : {}} />
                                   {grp.catName}
-                                  <span className="vqd-cat-cnt">{grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}</span>
+                                  <span className="vqd-cat-cnt" style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}>
+                                    {grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}
+                                  </span>
                                 </div>
                               </td>
                             </tr>
                             {grp.rows.map(({ it, globalIdx }) => {
                               const itemTotal = calcItemTotal(it);
                               return (
-                                <tr key={globalIdx} className="vqd-edit-row">
-                                  <td style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', fontWeight: 700 }}>{globalIdx + 1}</td>
-                                  <td>
+                                <tr key={globalIdx} style={{ background: '#fafffe', verticalAlign: 'middle' }}>
+                                  <td style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', fontWeight: 700, verticalAlign: 'middle' }}>{globalIdx + 1}</td>
+                                  <td style={{ verticalAlign: 'middle' }}>
                                     <textarea
                                       className="vqd-edit-input"
                                       value={it.description}
@@ -1429,7 +1553,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                                       placeholder="Service description…"
                                     />
                                   </td>
-                                  <td>
+                                  <td style={{ verticalAlign: 'middle' }}>
                                     <input
                                       type="number" min="1"
                                       className="vqd-edit-input"
@@ -1438,45 +1562,128 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                                       style={{ textAlign: 'center', width: '100%' }}
                                     />
                                   </td>
-                                  <td>
-                                    <input
-                                      type="number" min="0" step="0.01"
-                                      className="vqd-edit-input"
-                                      value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                      onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00"
-                                      style={{ textAlign: 'right', width: '100%' }}
-                                    />
-                                  </td>
-                                  <td>
-                                    <input
-                                      type="text"
-                                      className="vqd-edit-input"
-                                      value={it.miscellaneous_amount}
-                                      onChange={e => updateItem(globalIdx, 'miscellaneous_amount', e.target.value)}
-                                      placeholder="Amount or note"
-                                      style={{ textAlign: 'right', width: '100%', borderColor: it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) ? '#fbbf24' : undefined }}
-                                    />
-                                    {it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) && (
-                                      <div style={{ fontSize: 10, color: '#d97706', marginTop: 2 }}>Note only — not calculated</div>
-                                    )}
-                                  </td>
-                                  <td style={{ textAlign: 'right' }}>
+                                  {isRegulatory ? (
+                                    <>
+                                      <td style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="text"
+                                          className="vqd-edit-input"
+                                          value={it.unit || ''}
+                                          onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                          placeholder="e.g. Nos"
+                                          style={{ textAlign: 'center', width: '100%' }}
+                                        />
+                                      </td>
+                                      <td>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                          onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          style={{ textAlign: 'right', width: '100%' }}
+                                        />
+                                      </td>
+                                      <td>
+                                        <input
+                                          type="number"
+                                          className="vqd-edit-input"
+                                          value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : it.consultancy_charges}
+                                          onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
+                                          placeholder="0.00"
+                                          style={{ textAlign: 'right', width: '100%' }}
+                                        />
+                                      </td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="text"
+                                          className="vqd-edit-input"
+                                          value={it.unit || ''}
+                                          onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                          placeholder="Unit"
+                                          style={{ textAlign: 'center', width: '100%' }}
+                                        />
+                                      </td>
+                                      <td style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                          onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          style={{ textAlign: 'right', width: '100%' }}
+                                        />
+                                      </td>
+                                      {/* ── Mat. Rate ── */}
+                                      <td className="col-rate" style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.material_rate === 0 ? '' : it.material_rate}
+                                          onChange={e => updateItem(globalIdx, 'material_rate', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          title="Material Rate per unit — Material Amount = Rate × Qty (auto-calculated)"
+                                          style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
+                                        />
+                                      </td>
+                                      {/* ── Lab. Rate ── */}
+                                      <td className="col-rate-last" style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.labour_rate === 0 ? '' : it.labour_rate}
+                                          onChange={e => updateItem(globalIdx, 'labour_rate', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          title="Labour Rate per unit — Labour Amount = Rate × Qty (auto-calculated)"
+                                          style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
+                                        />
+                                      </td>
+                                      {/* ── Material Amt ── */}
+                                      <td className="col-amt" style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.material_amount === 0 ? '' : it.material_amount}
+                                          onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          title="Material Amount — Material Rate = Amt ÷ Qty (auto-calculated)"
+                                          style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                        />
+                                      </td>
+                                      {/* ── Labour Amt ── */}
+                                      <td className="col-amt-last" style={{ verticalAlign: 'middle' }}>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          className="vqd-edit-input"
+                                          value={it.labour_amount === 0 ? '' : it.labour_amount}
+                                          onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                          title="Labour Amount — Labour Rate = Amt ÷ Qty (auto-calculated)"
+                                          style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                        />
+                                      </td>
+                                    </>
+                                  )}
+                                  <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
                                     <span style={{ fontSize: 13, fontWeight: 800, color: '#0f766e' }}>₹&nbsp;{fmtINR(itemTotal)}</span>
-                                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>(Prof+Misc)×Qty</div>
+                                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>
+                                      {isRegulatory ? '(Prof+Misc)×Qty' : (hasExecutionRateBreakdown(it) ? 'Mat+Lab' : 'Rate×Qty')}
+                                    </div>
                                   </td>
-                                  <td style={{ textAlign: 'center' }}>
+                                  <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                                     <button
                                       onClick={() => removeItem(globalIdx)}
                                       style={{ width: 28, height: 28, border: 'none', background: '#fef2f2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}
-                                      title="Remove item"
                                     ><Trash2 size={13} /></button>
                                   </td>
                                 </tr>
                               );
                             })}
                             <tr className="vqd-cat-sub">
-                              <td colSpan={5} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
+                              <td colSpan={isRegulatory ? 6 : 9} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
                               <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpEditTotal)}</td>
                               <td />
                             </tr>
@@ -1492,22 +1699,106 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
           {/* ══════════ FOOTER: SUMMARY + TOTALS ══════════ */}
           <div className="vqd-foot">
-            {/* Left */}
+            {/* Left — Summary */}
             <div>
               <div className="vqd-sum-title">Quotation Summary</div>
               <div className="vqd-sum-grid">
-                <div className="vqd-sum-item"><span className="vqd-sum-lbl">Total Items</span><span className="vqd-sum-val">{items.length}</span></div>
-                <div className="vqd-sum-item"><span className="vqd-sum-lbl">Total Quantity</span><span className="vqd-sum-val">{totalQty}</span></div>
-                <div className="vqd-sum-item"><span className="vqd-sum-lbl">Compliance Groups</span><span className="vqd-sum-val">{groups.length}</span></div>
-                <div className="vqd-sum-item"><span className="vqd-sum-lbl">SAC Code</span><span className="vqd-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{quotation.sac_code || '—'}</span></div>
-                <div className="vqd-sum-item"><span className="vqd-sum-lbl">Status</span><span><StatusPill status={status} /></span></div>
-                {createdByName && <div className="vqd-sum-item"><span className="vqd-sum-lbl">Prepared By</span><span className="vqd-sum-val">{createdByName}</span></div>}
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Quotation Type</span>
+                  <span className="vqd-sum-val" style={{ color: isExecution ? '#7c3aed' : '#0369a1' }}>{qTypeRaw || '—'}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Total Items</span>
+                  <span className="vqd-sum-val">{items.length}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Total Quantity</span>
+                  <span className="vqd-sum-val">{totalQty}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Compliance Groups</span>
+                  <span className="vqd-sum-val">{groups.length}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">SAC Code</span>
+                  <span className="vqd-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{quotation.sac_code || '—'}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Status</span>
+                  <span><StatusPill status={status} /></span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Client</span>
+                  <span className="vqd-sum-val">{clientName}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Project</span>
+                  <span className="vqd-sum-val">{projName}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Company</span>
+                  <span className="vqd-sum-val">{companyName}</span>
+                </div>
+                {createdByName && (
+                  <div className="vqd-sum-item">
+                    <span className="vqd-sum-lbl">Prepared By</span>
+                    <span className="vqd-sum-val">{createdByName}</span>
+                  </div>
+                )}
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Issue Date</span>
+                  <span className="vqd-sum-val">{fmtDate(quotation.created_at)}</span>
+                </div>
+                <div className="vqd-sum-item">
+                  <span className="vqd-sum-lbl">Last Updated</span>
+                  <span className="vqd-sum-val">{fmtDate(quotation.updated_at)}</span>
+                </div>
               </div>
-              {quotation.notes && <div className="vqd-remarks"><div className="vqd-rem-title">Notes</div><p className="vqd-rem-text">{quotation.notes}</p></div>}
-              {quotation.terms && <div className="vqd-remarks"><div className="vqd-rem-title">Terms &amp; Conditions</div><p className="vqd-rem-text">{quotation.terms}</p></div>}
+
+              {/* Execution-specific breakdown hint */}
+              {isExecution && items.length > 0 && (
+                <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Wrench size={11} /> Execution Cost Breakdown
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Professional</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + (hasExecutionRateBreakdown(it) ? 0 : ((parseFloat(it.Professional_amount || 0) || 0) * (parseInt(it.quantity) || 1))), 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Material</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + getExecutionDisplayValues(it).matAmt, 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Labour</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + getExecutionDisplayValues(it).labAmt, 0))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {quotation.notes && (
+                <div className="vqd-remarks">
+                  <div className="vqd-rem-title">Notes</div>
+                  <p className="vqd-rem-text">{quotation.notes}</p>
+                </div>
+              )}
+              {quotation.terms && (
+                <div className="vqd-remarks">
+                  <div className="vqd-rem-title">Terms &amp; Conditions</div>
+                  <p className="vqd-rem-text">{quotation.terms}</p>
+                </div>
+              )}
             </div>
 
-            {/* Right — totals */}
+            {/* Right — Totals */}
             <div>
               {editMode ? (
                 (() => {
@@ -1534,7 +1825,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                         <span style={{ color: '#059669' }}>₹&nbsp;{fmtINR(eGrand)}</span>
                       </div>
                       <div className="vqd-words"><strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>{numberToWords(eGrand)} Rupees only</div>
-                      <button className="vqd-btn-save" onClick={handleSaveUpdate} disabled={saving} style={{ width: '100%', marginTop: 14, padding: 11, justifyContent: 'center', borderRadius: 10 }}>
+                      <button className="vqd-btn-save" onClick={handleSaveUpdate} disabled={saving} style={{ width: '100%', marginTop: 14, padding: 11, justifyContent: 'center', borderRadius: 10, fontFamily: 'inherit' }}>
                         {saving ? <><Loader2 size={15} className="vqd-spin" /> Saving…</> : <><Save size={15} /> Save Changes</>}
                       </button>
                       {saveError && (
@@ -1574,7 +1865,132 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           </div>
 
         </div>{/* end .vqd-doc */}
-      </div>
+
+        {/* ══════════ NOTES SECTION ══════════ */}
+        {!loading && quotation && (
+          <Notes entityType={NOTE_ENTITY.QUOTATION} entityId={quotation.id} />
+        )}
+
+      </div>{/* end .vqd-root */}
+
+      {/* ══════════ DOWNLOAD QUOTATION PDF MODAL ══════════ */}
+      {showPdfModal && (
+        <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+          <div
+            className="absolute inset-0 bg-black/50 pointer-events-auto"
+            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+            onClick={() => !pdfLoading && setShowPdfModal(false)}
+          />
+          <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+            <div
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }}
+              className="pointer-events-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* ── Modal Header ── */}
+              <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <FileSearch size={17} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Download Quotation PDF</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{fmtQNum(quotation?.quotation_number)}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Modal Body ── */}
+              <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+                {/* Info banner */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+                  <AlertCircle size={14} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: '#065f46', lineHeight: 1.6 }}>
+                    Fill in the recipient details to be included in the generated PDF. Company name is required; other fields are optional.
+                  </p>
+                </div>
+
+                {/* Fields */}
+                {[
+                  { label: 'Company Name', required: true,  value: pdfCompanyName,   setter: setPdfCompanyName,   placeholder: 'e.g. Acme Developers Pvt. Ltd.' },
+                  { label: 'Address',      required: false, value: pdfAddress,        setter: setPdfAddress,        placeholder: 'e.g. 123, MG Road, Pune - 411001' },
+                  { label: 'Contact Person', required: false, value: pdfContactPerson, setter: setPdfContactPerson, placeholder: 'e.g. Mr. Rahul Sharma' },
+                  { label: 'Subject',      required: false, value: pdfSubject,        setter: setPdfSubject,        placeholder: 'e.g. Quotation for Plumbing Works' },
+                ].map(({ label, required, value, setter, placeholder }) => (
+                  <div key={label} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+                      {label} {required && <span style={{ color: '#dc2626' }}>*</span>}
+                    </div>
+                    <input
+                      type="text"
+                      value={value}
+                      placeholder={placeholder}
+                      disabled={pdfLoading}
+                      onChange={e => { setter(e.target.value); setPdfFormError(''); setPdfApiError(''); }}
+                      onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
+                      onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                      style={{
+                        width: '100%', padding: '9px 12px',
+                        border: '1.5px solid #e2e8f0', borderRadius: 10,
+                        fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                        outline: 'none', transition: 'border-color .15s, box-shadow .15s',
+                        boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                      }}
+                    />
+                  </div>
+                ))}
+
+                {/* Validation error */}
+                {pdfFormError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginBottom: 10, fontWeight: 500 }}>
+                    <AlertCircle size={12} /> {pdfFormError}
+                  </div>
+                )}
+
+                {/* API error */}
+                {pdfApiError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
+                    <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
+                      <div style={{ fontWeight: 400 }}>{pdfApiError}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 6, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    disabled={pdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmPdfDownload}
+                    disabled={pdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                  >
+                    {pdfLoading
+                      ? <><Loader2 size={13} className="vqd-spin" /> Generating…</>
+                      : <><Download size={13} /> Generate &amp; Download</>
+                    }
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════════ ADD COMPLIANCE MODAL ══════════ */}
       <AddComplianceModal
@@ -1583,8 +1999,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         onSave={handleComplianceSave}
         existingItems={editItems}
         fetchDescriptions={fetchDescriptionsForModal}
+        quotationType={quotation?.quotation_type || ''}
       />
-
 
       {/* ── Send to Client Modal ── */}
       {sendModal && (

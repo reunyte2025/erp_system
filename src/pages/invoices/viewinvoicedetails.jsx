@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
   CheckCircle, Clock, Send, FileText, XCircle,
@@ -8,29 +8,57 @@ import {
   Briefcase, ShoppingCart, Users, X, Paperclip, Truck,
   DollarSign, FileEdit, ChevronDown, Search, FileSearch,
 } from 'lucide-react';
-import { getInvoiceById, generateInvoicePdf, cancelInvoice } from '../../services/invoices';
-import { getQuotationById } from '../../services/quotation';
+import {
+  getInvoiceById,
+  getRegulatoryInvoiceById,
+  getExecutionInvoiceById,
+  getPurchaseOrderInvoiceById,
+  generateInvoicePdf,
+  cancelInvoice,
+} from '../../services/invoices';
+import { getQuotationById, getQuotationCompanyName } from '../../services/quotation';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { getVendors } from '../../services/vendors';
 import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
-const COMPLIANCE_CATEGORIES = {
+// Regulatory invoice categories (from quotation/proforma flow)
+const REGULATORY_COMPLIANCE_CATEGORIES = {
   1: 'Construction Certificate',
   2: 'Occupational Certificate',
   3: 'Water Main Commissioning',
   4: 'STP Commissioning',
 };
 
+// Execution & Purchase Order invoice categories
+const EXECUTION_COMPLIANCE_CATEGORIES = {
+  5: 'Water Connection',
+  6: 'SWD Line Work',
+  7: 'Sewer/Drainage Line Work',
+};
+
+// Merged map for display
+const COMPLIANCE_CATEGORIES = {
+  ...REGULATORY_COMPLIANCE_CATEGORIES,
+  ...EXECUTION_COMPLIANCE_CATEGORIES,
+};
+
 const SUB_COMPLIANCE_CATEGORIES = {
+  0: { id: 0, name: 'Default' },
   1: { id: 1, name: 'Plumbing Compliance' },
   2: { id: 2, name: 'PCO Compliance' },
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
-  0: { id: 0, name: 'Default' },
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
 const STATUS_CONFIG = {
@@ -103,9 +131,38 @@ const groupItemsByCategory = (items = []) => {
 };
 
 const calcItemTotal = (item) => {
+  const qty  = parseInt(item.quantity) || 1;
   const prof = parseFloat(item.Professional_amount || 0);
-  const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
-  return parseFloat(((prof + misc) * (parseInt(item.quantity) || 1)).toFixed(2));
+
+  // Execution item: has material or labour fields
+  const isExecItem = (
+    item.material_rate   != null ||
+    item.labour_rate     != null ||
+    item.material_amount != null ||
+    item.labour_amount   != null
+  );
+
+  if (isExecItem) {
+    const matAmt  = parseFloat(item.material_amount) || 0;
+    const labAmt  = parseFloat(item.labour_amount)   || 0;
+    const matRate = parseFloat(item.material_rate)   || 0;
+    const labRate = parseFloat(item.labour_rate)     || 0;
+    const effectiveMat = matAmt > 0 ? matAmt : matRate * qty;
+    const effectiveLab = labAmt > 0 ? labAmt : labRate * qty;
+    if (effectiveMat > 0 || effectiveLab > 0) {
+      return parseFloat((effectiveMat + effectiveLab).toFixed(2));
+    }
+    return parseFloat((prof * qty).toFixed(2));
+  }
+
+  // Regulatory item: consultancy_charges (or miscellaneous_amount fallback)
+  const consultancy = (() => {
+    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
+    if (raw === '--' || raw == null || raw === '') return 0;
+    const n = parseFloat(String(raw).trim());
+    return isNaN(n) ? 0 : n;
+  })();
+  return parseFloat(((prof + consultancy) * qty).toFixed(2));
 };
 
 function numberToWords(n) {
@@ -166,6 +223,34 @@ const hasExecutionCompliance = (items = []) => {
   return items.some(it => [3, 4].includes(it.compliance_category));
 };
 
+const normalizeInvoiceType = (value = '') => {
+  const t = String(value || '').toLowerCase().trim();
+  if (!t) return '';
+  if (t.includes('vendor') || t.includes('purchase')) return 'vendor';
+  if (t.includes('execution')) return 'execution';
+  if (t.includes('regulatory')) return 'regulatory';
+  return '';
+};
+
+const detectInvoiceTypeFromData = (invoiceData = {}) => {
+  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
+  if (normalizedType) return normalizedType;
+  if (invoiceData?.vendor || invoiceData?.vendor_name) return 'vendor';
+  if (Array.isArray(invoiceData?.items)) {
+    const hasRateBreakdown = invoiceData.items.some((item) =>
+      item?.material_rate != null ||
+      item?.labour_rate != null ||
+      item?.material_amount != null ||
+      item?.labour_amount != null
+    );
+    if (hasRateBreakdown) {
+      return invoiceData?.client || invoiceData?.client_name ? 'execution' : 'vendor';
+    }
+  }
+  if (invoiceData?.client || invoiceData?.client_name) return 'regulatory';
+  return '';
+};
+
 // ─── Sub-components ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
@@ -214,11 +299,10 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 
 // ─── Quick Info Card — same structure as proforma ────────────────────────────────
 
-const QuickInfoCard = ({ invoice, client, project }) => {
+const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
   const [activeTab, setActiveTab] = useState('info');
 
-  const isVendorInv = Boolean(invoice.vendor) && !invoice.client;
-  const clientDisplayName = isVendorInv
+  const clientDisplayName = isPurchaseOrder
     ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
     : client
       ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Unknown Client'
@@ -281,16 +365,18 @@ const QuickInfoCard = ({ invoice, client, project }) => {
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <User size={11} color="#fff" />
               </div>
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.1em' }}>Billed To</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.1em' }}>
+                {isPurchaseOrder ? 'Vendor' : 'Billed To'}
+              </span>
             </div>
             <div style={{ padding: '10px 12px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{clientDisplayName}</div>
-              {client?.email && (
+              {!isPurchaseOrder && client?.email && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b', marginBottom: 3 }}>
                   <Mail size={10} style={{ flexShrink: 0 }} /> {client.email}
                 </div>
               )}
-              {client?.phone_number && (
+              {!isPurchaseOrder && client?.phone_number && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
                   <Hash size={10} style={{ flexShrink: 0 }} /> {client.phone_number}
                 </div>
@@ -567,6 +653,7 @@ const SendToClientModal = ({ invoice, client, invNum, issuedDate, onClose }) => 
 export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Role-based access
   const { isAdmin, isManager } = useRole();
@@ -598,6 +685,9 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [poVendorsLoading,  setPoVendorsLoading]  = useState(false);
   const [poSelectedVendor,  setPoSelectedVendor]  = useState(null);
   const [poVendorSearch,    setPoVendorSearch]    = useState('');
+  const preferredInvoiceType = normalizeInvoiceType(
+    location.state?.invoiceType || location.state?.invoiceData?.invoice_type
+  );
 
   // Scroll lock when send modal is open
   useEffect(() => {
@@ -631,68 +721,72 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No invoice ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
+    setVisible(false);
+    setClient(null);
+    setProject(null);
+    setCreatedByName('');
     try {
-      const res = await getInvoiceById(id);
-      if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
-      const inv = res.data;
+      const tryTypedEndpoint = async (fetchFn, type) => {
+        try {
+          const response = await fetchFn(id);
+          const data = response?.data || response;
+          if (!data || (!data.id && !data.invoice_number)) return null;
+          return { data, type };
+        } catch {
+          return null;
+        }
+      };
+
+      const endpointMap = {
+        regulatory: { fetchFn: getRegulatoryInvoiceById, type: 'regulatory' },
+        execution:  { fetchFn: getExecutionInvoiceById, type: 'execution' },
+        vendor:     { fetchFn: getPurchaseOrderInvoiceById, type: 'vendor' },
+      };
+
+      const orderedEndpoints = [
+        preferredInvoiceType,
+        'vendor',
+        'execution',
+        'regulatory',
+      ]
+        .filter(Boolean)
+        .filter((type, index, arr) => arr.indexOf(type) === index)
+        .map((type) => endpointMap[type]);
+
+      let result = null;
+
+      for (const endpoint of orderedEndpoints) {
+        result = await tryTypedEndpoint(endpoint.fetchFn, endpoint.type);
+        if (!result) continue;
+
+        const detectedType = detectInvoiceTypeFromData(result.data);
+        if (!preferredInvoiceType || !detectedType || detectedType === endpoint.type || detectedType === preferredInvoiceType) {
+          break;
+        }
+
+        result = null;
+      }
+
+      if (!result) {
+        const res = await getInvoiceById(id);
+        if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
+        result = {
+          data: res.data,
+          type: detectInvoiceTypeFromData(res.data),
+        };
+      }
+
+      const inv = result.data;
+      inv.invoice_type = inv.invoice_type || result.type;
       setInvoice(inv);
 
-      // ── Resolve client ID and project ID ────────────────────────────────────
-      // When invoice is generated from quotation, backend may not populate:
-      //   inv.client, inv.client_name, inv.project, inv.quotation
-      // Strategy:
-      //   1. Use inv.client / inv.project if present
-      //   2. If inv.quotation is populated, fetch that quotation
-      //   3. If not, find the quotation by matching trailing digits of invoice_number
-      let resolvedClientId  = inv.client  || null;
-      let resolvedProjectId = inv.project || null;
+      // ── Determine invoice kind from response shape ───────────────────────────
+      // PO (vendor) invoices have a `vendor` field; client invoices have `client`.
+      const resolvedInvoiceType = preferredInvoiceType || detectInvoiceTypeFromData(inv) || result.type;
+      const isPoInvoice = resolvedInvoiceType === 'vendor';
 
-      // Only run quotation lookup if we're missing client or project
-      if (!resolvedClientId || !resolvedProjectId) {
-        let quotationData = null;
-
-        // Try 1: use inv.quotation field directly
-        if (inv.quotation) {
-          try {
-            const qRes = await getQuotationById(inv.quotation);
-            quotationData = qRes?.data || qRes;
-          } catch { /* silently ignore */ }
-        }
-
-        // Try 2: match by trailing digits (INV-202603-3075714 → "3075714" → QT-xxx-3075714)
-        if (!quotationData && inv.invoice_number) {
-          try {
-            const invTrailing = String(inv.invoice_number).split('-').pop();
-            const allQ = await api.get('/quotations/get_all_quotations/', {
-              params: { page: 1, page_size: 100 },
-            });
-            const qResults =
-              allQ.data?.data?.results ||
-              allQ.data?.results ||
-              [];
-            const matched = qResults.find((q) => {
-              const qTrailing = String(q.quotation_number || '').split('-').pop();
-              return qTrailing && qTrailing === invTrailing;
-            });
-            if (matched) quotationData = matched;
-          } catch { /* silently ignore */ }
-        }
-
-        if (quotationData) {
-          if (!resolvedClientId  && quotationData.client)  resolvedClientId  = quotationData.client;
-          if (!resolvedProjectId && quotationData.project) resolvedProjectId = quotationData.project;
-        }
-      }
-
-      // ── Load client ──────────────────────────────────────────────────────────
-      if (resolvedClientId) {
-        try {
-          const cr = await getClientById(resolvedClientId);
-          if (cr.status === 'success' && cr.data) setClient(cr.data);
-        } catch {}
-      }
-
-      // ── Load project ──────────────────────────────────────────────────────────
+      // ── Load project ─────────────────────────────────────────────────────────
+      const resolvedProjectId = inv.project || null;
       if (resolvedProjectId) {
         try {
           const pr  = await getProjects({ page: 1, page_size: 500 });
@@ -700,6 +794,61 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           const found = all.find(proj => String(proj.id) === String(resolvedProjectId));
           if (found) setProject(found);
         } catch {}
+      }
+
+      if (isPoInvoice) {
+        // PO invoices: vendor is already embedded in the response as vendor_name.
+        // No client lookup needed. Skip quotation resolution entirely.
+      } else {
+        // ── Client invoices: resolve client ID ─────────────────────────────────
+        // When invoice is generated from quotation, backend may not populate:
+        //   inv.client, inv.client_name, inv.project, inv.quotation
+        // Strategy:
+        //   1. Use inv.client if present
+        //   2. If inv.quotation is populated, fetch that quotation
+        //   3. If not, find the quotation by matching trailing digits of invoice_number
+        let resolvedClientId = inv.client || null;
+
+        if (!resolvedClientId) {
+          let quotationData = null;
+
+          // Try 1: use inv.quotation field directly
+          if (inv.quotation) {
+            try {
+              const qRes = await getQuotationById(inv.quotation);
+              quotationData = qRes?.data || qRes;
+            } catch { /* silently ignore */ }
+          }
+
+          // Try 2: match by trailing digits (INV-202603-3075714 → "3075714" → QT-xxx-3075714)
+          if (!quotationData && inv.invoice_number) {
+            try {
+              const invTrailing = String(inv.invoice_number).split('-').pop();
+              const allQ = await api.get('/quotations/get_all_quotations/', {
+                params: { page: 1, page_size: 100 },
+              });
+              const qResults =
+                allQ.data?.data?.results ||
+                allQ.data?.results ||
+                [];
+              const matched = qResults.find((q) => {
+                const qTrailing = String(q.quotation_number || '').split('-').pop();
+                return qTrailing && qTrailing === invTrailing;
+              });
+              if (matched) quotationData = matched;
+            } catch { /* silently ignore */ }
+          }
+
+          if (quotationData?.client) resolvedClientId = quotationData.client;
+        }
+
+        // ── Load client ────────────────────────────────────────────────────────
+        if (resolvedClientId) {
+          try {
+            const cr = await getClientById(resolvedClientId);
+            if (cr.status === 'success' && cr.data) setClient(cr.data);
+          } catch {}
+        }
       }
 
       // ── Load created-by name ────────────────────────────────────────────────
@@ -719,7 +868,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, preferredInvoiceType]);
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
@@ -836,10 +985,21 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  // Detect vendor invoice: has vendor but no client (generated from a Purchase Order)
-  const isVendorInvoice = Boolean(invoice.vendor) && !invoice.client;
+  // Detect vendor invoice: has vendor field (generated from a Purchase Order)
+  // The backend returns vendor/vendor_name instead of client/client_name for PO invoices
+  const isVendorInvoice = Boolean(invoice.vendor) || String(invoice.invoice_type || '').toLowerCase().includes('purchase order');
 
-  const billedToName = isVendorInvoice
+  // Detect invoice type from invoice_type field (authoritative) with item-level fallback
+  const invoiceTypeRaw   = String(invoice.invoice_type || '').toLowerCase();
+  const isPurchaseOrder  = isVendorInvoice || invoiceTypeRaw.includes('purchase order') || invoiceTypeRaw.includes('vendor');
+  const isExecution      = !isPurchaseOrder && (invoiceTypeRaw.includes('execution') || items.some(it => [5, 6, 7].includes(Number(it.compliance_category))));
+  // Regulatory = everything that is neither Execution nor PO (i.e. categories 1-4 / proforma flow)
+  const isRegulatory     = !isPurchaseOrder && !isExecution;
+
+  // PO invoices share the material/labour column layout with Execution invoices
+  const hasRateColumns   = isExecution || isPurchaseOrder;
+
+  const billedToName = isPurchaseOrder
     ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
     : client
       ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
@@ -861,6 +1021,24 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         : '—';
 
   const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
+  const companyName = invoice.company_name || getQuotationCompanyName(invoice.company) || 'ERP System';
+  const totalProfessionalAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const professional = parseFloat(item.Professional_amount || 0) || 0;
+    return sum + (professional * qty);
+  }, 0);
+  const totalMaterialAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const materialAmount = parseFloat(item.material_amount);
+    const materialRate = parseFloat(item.material_rate || 0) || 0;
+    return sum + (Number.isFinite(materialAmount) ? materialAmount : materialRate * qty);
+  }, 0);
+  const totalLabourAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const labourAmount = parseFloat(item.labour_amount);
+    const labourRate = parseFloat(item.labour_rate || 0) || 0;
+    return sum + (Number.isFinite(labourAmount) ? labourAmount : labourRate * qty);
+  }, 0);
 
   return (
     <>
@@ -872,6 +1050,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         @keyframes vid_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
         @keyframes vid_overlay_in{from{opacity:0}to{opacity:1}}
         @keyframes vid_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes notes_spin{to{transform:rotate(360deg)}}
+        @keyframes notes_slide_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .vid-root{min-height:100vh;padding:0}
         .vid-topbar{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px;flex-wrap:wrap;gap:10px}
         .vid-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
@@ -1016,20 +1196,29 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <button
               className="vid-btn-track"
               title="Track payment for this invoice"
-              onClick={() => navigate(`/invoices/${id}/track-payment`)}
+              onClick={() => navigate(`/invoices/${id}/track-payment`, {
+                state: {
+                  invoice_id:    id,
+                  invoice_type:  isPurchaseOrder ? 'vendor' : isExecution ? 'execution' : 'regulatory',
+                  client_id:     isPurchaseOrder ? null : (invoice.client || client?.id || null),
+                  vendor_id:     isPurchaseOrder ? (invoice.vendor || null) : null,
+                  invoice_number: invoice.invoice_number,
+                  grand_total:   invoice.grand_total || invoice.total_outstanding,
+                },
+              })}
               disabled={isCancelled}
               style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
             >
               <DollarSign size={14} /> Track Payment
             </button>
-            {/* Send to Client */}
+            {/* Send to Client / Vendor */}
             <button
               className="vid-btn-o"
               onClick={() => setSendModal(true)}
               disabled={isCancelled}
               style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
             >
-              <Mail size={14} /> Send to Client
+              <Mail size={14} /> {isPurchaseOrder ? 'Send to Vendor' : 'Send to Client'}
             </button>
             {/* Download Invoice — always active, even when cancelled */}
             <button
@@ -1039,8 +1228,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             >
               {pdfLoading ? <><Loader2 size={14} className="vid-spin" /> Generating…</> : <><Download size={14} /> Download Invoice</>}
             </button>
-            {/* Create Purchase Order — only shown for Execution Compliance invoices */}
-            {!isVendorInvoice && invoice.invoice_type === 'Execution Compliance' && (
+            {/* Create Purchase Order — only shown for Execution Compliance invoices (client invoices, not PO) */}
+            {!isPurchaseOrder && invoice.invoice_type === 'Execution Compliance' && (
               <button
                 className="vid-btn-p"
                 onClick={handleOpenCreatePOModal}
@@ -1083,7 +1272,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               <div className="vid-logo">
                 <div className="vid-logo-badge">ERP</div>
                 <div>
-                  <div className="vid-co-name">ERP System</div>
+                  <div className="vid-co-name">{companyName}</div>
                   <div className="vid-co-sub">Professional Services</div>
                 </div>
               </div>
@@ -1119,12 +1308,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           {/* ══════════ PARTIES ══════════ */}
           <div className="vid-parties">
             <div className="vid-party">
-              <div className="vid-plabel">{isVendorInvoice ? 'Vendor' : 'Billed To'}</div>
-              <div className="vid-pavatar" style={isVendorInvoice ? { background: 'linear-gradient(135deg,#0d9488,#0f766e)' } : {}}>
-                {(billedToName && billedToName !== '—' ? billedToName : isVendorInvoice ? 'V' : '?').charAt(0).toUpperCase()}
+              <div className="vid-plabel">{isPurchaseOrder ? 'Vendor' : 'Billed To'}</div>
+              <div className="vid-pavatar" style={isPurchaseOrder ? { background: 'linear-gradient(135deg,#0d9488,#0f766e)' } : {}}>
+                {(billedToName && billedToName !== '—' ? billedToName : isPurchaseOrder ? 'V' : '?').charAt(0).toUpperCase()}
               </div>
               <div className="vid-pname">{billedToName}</div>
-              {isVendorInvoice ? (
+              {isPurchaseOrder ? (
                 <>
                   {/* Vendor ID hidden from UI but preserved in DOM for track payment & other functionality */}
                   {invoice.vendor && (
@@ -1228,18 +1417,32 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                         <th style={{ width: 32 }}>#</th>
                         <th>Description</th>
                         <th style={{ width: 80 }}>Sub-Category</th>
+                        {hasRateColumns && <th style={{ width: 70 }}>Unit</th>}
                         <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
+                        {hasRateColumns ? (
+                          <>
+                            <th style={{ width: 115, textAlign: 'right' }}>Mat. Rate (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Material Amt (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          </>
+                        ) : (
+                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy</th>
+                        )}
                         <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                        <th style={{ width: 130, textAlign: 'right' }}>Miscellaneous</th>
                         <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
                       </tr>
                     </thead>
                     {groups.map((grp, gi) => {
+                      // #, Description, Sub-Category, [Unit], Qty,
+                      // [Mat.Rate, Lab.Rate, Mat.Amt, Lab.Amt] OR [Consultancy],
+                      // Professional, Item Total
+                      const colSpanCount = hasRateColumns ? 11 : 7;
                       const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
                       return (
                         <tbody key={gi}>
                           <tr className="vid-cat-row">
-                            <td colSpan={7}>
+                            <td colSpan={colSpanCount}>
                               <div className="vid-cat-inner">
                                 <span className="vid-cat-dot" />
                                 {grp.catName}
@@ -1249,32 +1452,66 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                           </tr>
                           {grp.items.map((item, ii) => {
                             const prof    = parseFloat(item.Professional_amount || 0);
-                            const miscRaw = item.miscellaneous_amount;
-                            const miscNum = isMiscNumeric(miscRaw) ? parseFloat(miscRaw) : 0;
                             const qty     = parseInt(item.quantity) || 1;
-                            const total   = (prof + miscNum) * qty;
+                            const total   = calcItemTotal(item);
                             const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                            const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--' ? String(miscRaw).trim() : null;
+
+                            if (hasRateColumns) {
+                              // Execution & Purchase Order columns:
+                              // Mat. Rate | Lab. Rate | Material Amt | Labour Amt | Professional | Total
+                              const matRate = parseFloat(item.material_rate)   || 0;
+                              const labRate = parseFloat(item.labour_rate)     || 0;
+                              const matAmt  = parseFloat(item.material_amount) || 0;
+                              const labAmt  = parseFloat(item.labour_amount)   || 0;
+                              return (
+                                <tr key={ii} className="vid-row">
+                                  <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
+                                  <td><div className="vid-desc">{item.description || '—'}</div></td>
+                                  <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
+                                  <td style={{ fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
+                                  <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
+                                </tr>
+                              );
+                            }
+
+                            // Regulatory columns: Consultancy, Professional, Total
+                            const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
+                            const consultancyStr = consultancyRaw && String(consultancyRaw).trim() && String(consultancyRaw).trim() !== '--'
+                              ? String(consultancyRaw).trim() : null;
                             return (
                               <tr key={ii} className="vid-row">
                                 <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
                                 <td><div className="vid-desc">{item.description || '—'}</div></td>
                                 <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
                                 <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
                                 <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                  {miscStr
-                                    ? isMiscNumeric(miscStr)
-                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                      : <span className="vid-misc-note" title="Note — not in total">{miscStr}</span>
+                                  {consultancyStr
+                                    ? isMiscNumeric(consultancyStr)
+                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
+                                      : <span className="vid-misc-note" title="Note — not in total">{consultancyStr}</span>
                                     : <span style={{ color: '#e2e8f0' }}>—</span>}
                                 </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
                               </tr>
                             );
                           })}
                           <tr className="vid-cat-sub">
-                            <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
+                            <td colSpan={colSpanCount - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
                             <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
                           </tr>
                         </tbody>
@@ -1287,7 +1524,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
             {/* RIGHT: Quick Info Card */}
             <div className="vid-body-right">
-              <QuickInfoCard invoice={invoice} client={client} project={project} />
+              <QuickInfoCard
+                invoice={invoice}
+                client={client}
+                project={project}
+                isPurchaseOrder={isPurchaseOrder}
+              />
             </div>
           </div>
 
@@ -1301,8 +1543,34 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Compliance Groups</span><span className="vid-sum-val">{groups.length}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">SAC Code</span><span className="vid-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{invoice.sac_code || '—'}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Status</span><span><StatusPill status={status} /></span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">{isPurchaseOrder ? 'Vendor' : 'Client'}</span><span className="vid-sum-val">{billedToName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Project</span><span className="vid-sum-val">{projName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Company</span><span className="vid-sum-val">{companyName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Issue Date</span><span className="vid-sum-val">{fmtDate(invoice.issue_date || invoice.created_at)}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Last Updated</span><span className="vid-sum-val">{fmtDate(invoice.updated_at)}</span></div>
                 {createdByName && <div className="vid-sum-item"><span className="vid-sum-lbl">Prepared By</span><span className="vid-sum-val">{createdByName}</span></div>}
               </div>
+              {hasRateColumns && (
+                <div style={{ marginTop: 18, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 12 }}>
+                    {isPurchaseOrder ? 'Purchase Order Cost Breakdown' : 'Execution Cost Breakdown'}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Professional Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalProfessionalAmount)}</span>
+                    </div>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Material Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalMaterialAmount)}</span>
+                    </div>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Labour Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalLabourAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               {invoice.notes && (
                 <div style={{ marginTop: 18 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 6 }}>Notes</div>
@@ -1338,6 +1606,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           </div>
 
         </div>{/* end .vid-doc */}
+
+        {/* ══════════ NOTES SECTION ══════════ */}
+        {!loading && invoice && (
+          <Notes entityType={NOTE_ENTITY.INVOICE} entityId={invoice.id} />
+        )}
+
       </div>{/* end .vid-root */}
 
       {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
@@ -1742,7 +2016,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           </div>
         </div>
       )}
-
     </>
   );
 }

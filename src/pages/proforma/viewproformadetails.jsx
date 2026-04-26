@@ -7,15 +7,18 @@ import {
   Tag, Percent, ChevronRight, Mail, FileEdit,
   ThumbsUp, ThumbsDown, Receipt,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Edit, X, Paperclip, FileSearch,
+  Edit, X, Paperclip, FileSearch, Wrench,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf, sendProformaToClient } from '../../services/proforma';
-import { createInvoice } from '../../services/invoices';
+import { getProformaById, updateProformaFull, updateRegulatoryProforma, updateExecutionProforma, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf, sendProformaToClient } from '../../services/proforma';
+import { createRegulatoryInvoice, createExecutionInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { useRole } from '../../components/RoleContext';
+import { getQuotationCompanyName } from '../../services/quotation';
 import api from '../../services/api';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,9 @@ const COMPLIANCE_CATEGORIES = {
   2: 'Occupational Certificate',
   3: 'Water Main Commissioning',
   4: 'STP Commissioning',
+  5: 'Water Connection',
+  6: 'SWD Line Work',
+  7: 'Sewer/Drainage Line Work',
 };
 
 const SUB_COMPLIANCE_CATEGORIES = {
@@ -32,11 +38,16 @@ const SUB_COMPLIANCE_CATEGORIES = {
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
   0: { id: 0, name: 'Default' },
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
 const COMPLIANCE_GROUPS = {
   certificates: [1, 2],
-  execution: [3, 4],
+  execution: [5, 6, 7],
 };
 
 // STATUS_CONFIG — aligned with backend Proforma model:
@@ -114,8 +125,8 @@ const groupItemsByCategory = (items = []) => {
  * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
  */
 const getComplianceType = (items = []) => {
-  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
-  const hasExec  = items.some(it => [3, 4].includes(it.compliance_category));
+  const hasCerts = items.some(it => [1, 2, 3, 4].includes(Number(it.compliance_category)));
+  const hasExec  = items.some(it => [5, 6, 7].includes(Number(it.compliance_category)));
   if (hasCerts && hasExec) return 'mixed';
   if (hasCerts) return 'certificates';
   if (hasExec)  return 'execution';
@@ -128,8 +139,8 @@ const getComplianceType = (items = []) => {
 const getComplianceTypeLabel = (items = []) => {
   const type = getComplianceType(items);
   switch (type) {
-    case 'certificates': return 'Certificates (Construction & Occupational)';
-    case 'execution':    return 'Execution (Water Main & STP)';
+    case 'certificates': return 'Regulatory Compliance';
+    case 'execution':    return 'Execution Compliance';
     case 'mixed':        return 'Mixed Compliance (Certificates & Execution)';
     default:             return 'No Compliance Items';
   }
@@ -440,9 +451,44 @@ const QuickInfoCard = ({ proforma, client, project }) => {
 };
 
 const calcItemTotal = (item) => {
+  const qty = parseInt(item.quantity) || 1;
+
+  if (
+    item.material_amount !== undefined ||
+    item.labour_amount !== undefined ||
+    item.material_rate !== undefined ||
+    item.labour_rate !== undefined
+  ) {
+    const prof = parseFloat(item.Professional_amount) || 0;
+    const matRate = parseFloat(item.material_rate) || 0;
+    const labRate = parseFloat(item.labour_rate) || 0;
+    const matAmt = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+    const labAmt = (parseFloat(item.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
+    if (matAmt > 0 || labAmt > 0) {
+      return parseFloat((matAmt + labAmt).toFixed(2));
+    }
+    return parseFloat((prof * qty).toFixed(2));
+  }
+
   const prof = parseFloat(item.Professional_amount || 0);
-  const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
-  return parseFloat(((prof + misc) * (parseInt(item.quantity) || 1)).toFixed(2));
+  const miscSource = item.consultancy_charges ?? item.miscellaneous_amount;
+  const misc = isMiscNumeric(miscSource) ? parseFloat(miscSource) : 0;
+  return parseFloat(((prof + misc) * qty).toFixed(2));
+};
+
+const getExecutionDisplayValues = (item) => {
+  const qty = parseInt(item.quantity) || 1;
+  const prof = parseFloat(item.Professional_amount) || 0;
+  const matRate = parseFloat(item.material_rate || 0);
+  const labRate = parseFloat(item.labour_rate || 0);
+  const matAmt = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+  const labAmt = (parseFloat(item.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
+  return { qty, prof, matRate, labRate, matAmt, labAmt };
+};
+
+const hasExecutionRateBreakdown = (item) => {
+  const { matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
+  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
 };
 
 
@@ -701,10 +747,46 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   /**
    * Called by AddComplianceModal when user clicks "Save Compliance".
-   * newFlatItems is already correctly tagged per category — just append to editItems.
+   * Normalizes modal-emitted items into the editItems shape — mirrors viewquotationdetails.jsx exactly.
+   * Modal emits: description, compliance_category, sub_compliance_category,
+   *              Professional_amount, miscellaneous_amount (regulatory),
+   *              material_rate, material_amount, labour_rate, labour_amount, sac_code (execution)
    */
   const handleComplianceSave = (newFlatItems) => {
-    setEditItems(prev => [...prev, ...newFlatItems]);
+    const EXECUTION_CATS = [5, 6, 7];
+    const normalized = newFlatItems.map(item => {
+      const isExec = EXECUTION_CATS.includes(parseInt(item.compliance_category));
+      const base = {
+        id:                      null, // new — backend assigns
+        description:             String(item.description || '').trim(),
+        quantity:                parseInt(item.quantity) || 1,
+        unit:                    String(item.unit || '').trim() || '',
+        compliance_category:     parseInt(item.compliance_category) || (isExec ? 5 : 1),
+        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        Professional_amount:     parseFloat(item.Professional_amount) || 0,
+        total_amount:            parseFloat(item.total_amount) || 0,
+      };
+      if (isExec) {
+        // Execution: include all rate/amount fields; omit consultancy_charges/miscellaneous_amount
+        return {
+          ...base,
+          sac_code:             String(item.sac_code || '').trim(),
+          material_rate:        parseFloat(item.material_rate)   || 0,
+          material_amount:      parseFloat(item.material_amount) || 0,
+          labour_rate:          parseFloat(item.labour_rate)     || 0,
+          labour_amount:        parseFloat(item.labour_amount)   || 0,
+        };
+      } else {
+        // Regulatory: include consultancy_charges; do NOT include execution rate fields
+        const miscRaw = item.miscellaneous_amount ?? item.consultancy_charges ?? '';
+        return {
+          ...base,
+          consultancy_charges:   (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
+          miscellaneous_amount:  (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '' : String(miscRaw),
+        };
+      }
+    });
+    setEditItems(prev => [...prev, ...normalized]);
     setShowAddSection(false);
   };
 
@@ -721,8 +803,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
+      unit:                    (it.unit && it.unit !== 'N/A') ? it.unit : '',
+      sac_code:                it.sac_code || it.item_sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
-      miscellaneous_amount:    (it.miscellaneous_amount === '--' || it.miscellaneous_amount === null) ? '' : (it.miscellaneous_amount || ''),
+      miscellaneous_amount:    (it.consultancy_charges ?? it.miscellaneous_amount) === '--' || (it.consultancy_charges ?? it.miscellaneous_amount) === null ? '' : ((it.consultancy_charges ?? it.miscellaneous_amount) || ''),
+      consultancy_charges:     (it.consultancy_charges === '--' || it.consultancy_charges === null) ? '' : (it.consultancy_charges || ''),
+      material_rate:           parseFloat(it.material_rate || 0),
+      material_amount:         parseFloat(it.material_amount || 0),
+      labour_rate:             parseFloat(it.labour_rate || 0),
+      labour_amount:           parseFloat(it.labour_amount || 0),
       compliance_category:     it.compliance_category ?? 1,
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
@@ -747,6 +836,25 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setEditItems(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, [field]: value };
+      const qty = parseInt(updated.quantity) || 1;
+
+      // Bidirectional rate/amount sync for Execution items
+      if (field === 'material_rate') {
+        updated.material_amount = parseFloat(((parseFloat(value) || 0) * qty).toFixed(2));
+      } else if (field === 'material_amount') {
+        updated.material_rate = parseFloat((qty > 0 ? (parseFloat(value) || 0) / qty : 0).toFixed(6));
+      } else if (field === 'labour_rate') {
+        updated.labour_amount = parseFloat(((parseFloat(value) || 0) * qty).toFixed(2));
+      } else if (field === 'labour_amount') {
+        updated.labour_rate = parseFloat((qty > 0 ? (parseFloat(value) || 0) / qty : 0).toFixed(6));
+      } else if (field === 'quantity') {
+        const newQty = parseInt(value) || 1;
+        const matRate = parseFloat(updated.material_rate) || 0;
+        const labRate = parseFloat(updated.labour_rate) || 0;
+        if (matRate > 0) updated.material_amount = parseFloat((matRate * newQty).toFixed(2));
+        if (labRate > 0) updated.labour_amount = parseFloat((labRate * newQty).toFixed(2));
+      }
+
       updated.total_amount = calcItemTotal(updated);
       return updated;
     }));
@@ -760,7 +868,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     for (const it of editItems) {
       if (!String(it.description).trim()) { setSaveError('All items must have a description.'); return; }
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
-      if ((parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all items.'); return; }
+      const isExecutionItem =
+        [5, 6, 7].includes(Number(it.compliance_category)) ||
+        it.material_rate != null || it.material_amount != null ||
+        it.labour_rate != null || it.labour_amount != null;
+      const hasExecutionValue =
+        (parseFloat(it.material_rate) || 0) > 0 ||
+        (parseFloat(it.material_amount) || 0) > 0 ||
+        (parseFloat(it.labour_rate) || 0) > 0 ||
+        (parseFloat(it.labour_amount) || 0) > 0 ||
+        (parseFloat(it.Professional_amount) || 0) > 0;
+      if (isExecutionItem && !hasExecutionValue) { setSaveError('Execution items must have a professional, material, or labour amount greater than 0.'); return; }
+      if (!isExecutionItem && (parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all regulatory items.'); return; }
     }
     if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
     // All fields valid — open reason modal before submitting
@@ -781,34 +900,25 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       const gst   = calcEditGstAmt(sub, disc);
       const grand = sub - disc + gst;
 
+      // All payload building and item serialization is handled by the service layer.
+      // JSX only passes the raw UI state values — service decides routing + shape.
       const payload = {
         id:               parseInt(proforma.id),
+        proforma_type:    proforma.proforma_type || '',
         client:           parseInt(proforma.client),
         project:          parseInt(proforma.project),
+        company:          parseInt(proforma.company) || 1,
         issue_date:       proforma.issue_date  || new Date().toISOString(),
-        valid_until:      proforma.valid_until || new Date().toISOString(),
+        valid_until:      proforma.valid_until  || new Date().toISOString(),
         sac_code:         editSacCode.trim(),
-        gst_rate:         String(parseFloat(editGstRate || 0).toFixed(2)),
+        gst_rate:         String(parseFloat(editGstRate  || 0).toFixed(2)),
         discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
-        total_amount:     String(parseFloat(sub.toFixed(2))),
-        total_gst_amount: String(parseFloat(gst.toFixed(2))),
-        grand_total:      String(parseFloat(grand.toFixed(2))),
+        total_amount:     String(sub.toFixed(2)),
+        total_gst_amount: String(gst.toFixed(2)),
+        grand_total:      String(grand.toFixed(2)),
         reason:           updateReason.trim(),
         status:           getProformaStatus() || 1,
-        items: editItems.map(it => {
-          const rawId  = it.id != null ? parseInt(it.id) : null;
-          const itemId = rawId && rawId > 0 ? rawId : null;
-          return {
-            id:                      itemId,
-            description:             String(it.description).trim(),
-            quantity:                parseInt(it.quantity) || 1,
-            Professional_amount:     String(parseFloat((parseFloat(it.Professional_amount) || 0).toFixed(2))),
-            miscellaneous_amount:    String(it.miscellaneous_amount ?? '').trim() || '--',
-            total_amount:            String(parseFloat(calcItemTotal(it).toFixed(2))),
-            compliance_category:     parseInt(it.compliance_category) || 1,
-            sub_compliance_category: parseInt(it.sub_compliance_category) || 0,
-          };
-        }),
+        items:            editItems,   // raw items — service layer normalizes fields
       };
 
       const data = await updateProformaFull(payload);
@@ -823,7 +933,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           total_amount:  sub, total_gst_amount: gst, grand_total: grand,
           items: updated.items || editItems.map(it => ({
             ...it,
-            miscellaneous_amount: String(it.miscellaneous_amount ?? '').trim() || '--',
+            miscellaneous_amount: String(it.consultancy_charges ?? it.miscellaneous_amount ?? '').trim() || '--',
             total_amount: calcItemTotal(it),
           })),
         }));
@@ -1064,10 +1174,27 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         setInvoiceGenerating(false);
         return;
       }
-      const res = await createInvoice({
-        proforma:       proforma.id,
-        advance_amount: String(advance.toFixed(2)),
-      });
+
+      const advanceStr = String(advance.toFixed(2));
+
+      // ── Route to the correct endpoint based on proforma type ─────────────────
+      // Regulatory Compliance → create_purchase_order_invoice (needs quotation id)
+      // Execution Compliance  → create_execution_invoice       (needs proforma id)
+      let res;
+      if (isRegulatory) {
+        // Regulatory: endpoint expects { proforma, advance_amount }
+        res = await createRegulatoryInvoice({
+          proforma:       proforma.id,
+          advance_amount: advanceStr,
+        });
+      } else {
+        // Execution: endpoint expects { proforma, advance_amount }
+        res = await createExecutionInvoice({
+          proforma:       proforma.id,
+          advance_amount: advanceStr,
+        });
+      }
+
       const created = res?.data || res;
       if (!created?.id && !created?.invoice_number) {
         setInvoiceError('Invoice created but response was unexpected. Please check Invoice List.');
@@ -1113,8 +1240,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       const res = await getProformaById(id);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load proforma');
       const p = res.data;
-      // Debug: log exact status values so we can verify backend response
-      console.log('[Proforma] Loaded status:', p.status, '| status_display:', p.status_display);
       setProforma(p);
 
       if (p.client) {
@@ -1195,6 +1320,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const items      = proforma.items || [];
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
+  const pTypeRaw   = proforma.proforma_type || '';
+  const isExecution = pTypeRaw.toLowerCase().includes('execution') || getComplianceType(items) === 'execution';
+  const isRegulatory = !isExecution;
+  const companyName = proforma.company_name || getQuotationCompanyName(proforma.company) || 'ERP System';
 
   const clientName = client
     ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
@@ -1344,6 +1473,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-modal-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
         .vpd-success-toast{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:10px;background:#0f766e;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,118,110,.4);animation:vpd_toast_in .3s cubic-bezier(.16,1,.3,1)}
         @keyframes vpd_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes notes_spin{to{transform:rotate(360deg)}}
+        @keyframes notes_slide_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes vqd_pulse_ring{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
         @keyframes vpd_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
         @keyframes vpd_overlay_in{from{opacity:0}to{opacity:1}}
@@ -1480,18 +1611,21 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         {/* ── Edit mode banner ── */}
         {editMode && (
           <div className="vpd-edit-banner">
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <PenLine size={15} color="#fff" />
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(217,119,6,.3)' }}>
+              <PenLine size={17} color="#fff" />
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>Edit Mode Active</div>
-              <div style={{ fontSize: 11, color: '#a16207', marginTop: 1 }}>
-                Edit any field inline or click "+ Add Item" to add new compliance items. Click "Save Changes" when done.
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                Edit Mode Active
+                <span style={{ fontSize: 9, background: '#f59e0b', color: '#fff', padding: '2px 7px', borderRadius: 20, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>LIVE</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: '#a16207', marginTop: 3, lineHeight: 1.5 }}>
+                Edit fields inline below. Use &quot;+ Add Item&quot; to add compliance items. Click <strong>Save Changes</strong> in the top-right when done.
               </div>
             </div>
             {saveError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#dc2626', fontWeight: 500 }}>
-                <AlertCircle size={13} /> {saveError}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#dc2626', fontWeight: 500, maxWidth: 320, lineHeight: 1.4 }}>
+                <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {saveError}
               </div>
             )}
           </div>
@@ -1533,11 +1667,23 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <div className="vpd-logo">
                 <div className="vpd-logo-badge">ERP</div>
                 <div>
-                  <div className="vpd-co-name">ERP System</div>
+                  <div className="vpd-co-name">{companyName}</div>
                   <div className="vpd-co-sub">Professional Services</div>
                 </div>
               </div>
-              <StatusPill status={status} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <StatusPill status={status} />
+                {/* Proforma type badge in header */}
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)',
+                  color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                  letterSpacing: '0.03em',
+                }}>
+                  {isExecution ? <Wrench size={11} /> : <FileText size={11} />}
+                  {pTypeRaw || 'Proforma'}
+                </span>
+              </div>
             </div>
             <div className="vpd-hdr-r">
               <div className="vpd-doc-label">Proforma Invoice</div>
@@ -1574,6 +1720,22 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             )}
             <div className="vpd-meta-sep" />
             <MetaBlock icon={Hash}     label="Proforma No."  value={pNum} accent />
+            <div className="vpd-meta-sep" />
+            {/* Proforma Type in meta — matches quotation's Type pill exactly */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: isExecution ? '#f5f3ff' : '#f0f9ff',
+                border: `1.5px solid ${isExecution ? '#ddd6fe' : '#bae6fd'}`,
+                color: isExecution ? '#7c3aed' : '#0369a1',
+                fontSize: 11, fontWeight: 700,
+                padding: '3px 9px', borderRadius: 20,
+              }}>
+                {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
+                {isExecution ? 'Execution' : 'Regulatory'}
+              </span>
+            </div>
             {createdByName && <>
               <div className="vpd-meta-sep" />
               <MetaBlock icon={User} label="Prepared By" value={createdByName} />
@@ -1699,26 +1861,44 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 <div className="vpd-table-wrap">
                   <table className="vpd-table">
                     <thead>
-                      <tr>
-                        <th style={{ width: 32 }}>#</th>
-                        <th>Service Description</th>
-                        <th style={{ width: 110 }}>Sub-Category</th>
-                        <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-                        <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                        <th style={{ width: 130, textAlign: 'right' }}>Miscellaneous</th>
-                        <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                      </tr>
+                      {isRegulatory ? (
+                        <tr>
+                          <th style={{ width: 32 }}>#</th>
+                          <th>Service Description</th>
+                          <th style={{ width: 110 }}>Sub-Category</th>
+                          <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                          <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                          <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
+                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy / Misc</th>
+                          <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                        </tr>
+                      ) : (
+                        <>
+                          <tr>
+                            <th rowSpan={2} style={{ width: 32 }}>#</th>
+                            <th rowSpan={2}>Service Description</th>
+                            <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
+                            <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                            <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                            <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
+                            <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                          </tr>
+                          <tr>
+                            <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
+                            <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
+                            <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
+                            <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          </tr>
+                        </>
+                      )}
                     </thead>
                     {groups.map((grp, gi) => {
-                      const grpTotal = grp.items.reduce((s, it) => {
-                        const prof = parseFloat(it.Professional_amount || 0);
-                        const misc = isMiscNumeric(it.miscellaneous_amount) ? parseFloat(it.miscellaneous_amount) : 0;
-                        return s + (prof + misc) * (parseInt(it.quantity) || 1);
-                      }, 0);
+                      const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
+                      const colSpan = isExecution ? 10 : 8;
                       return (
                         <tbody key={gi}>
                           <tr className="vpd-cat-row">
-                            <td colSpan={7}>
+                            <td colSpan={colSpan}>
                               <div className="vpd-cat-inner">
                                 <span className="vpd-cat-dot" />
                                 {grp.catName}
@@ -1728,32 +1908,74 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                           </tr>
                           {grp.items.map((item, ii) => {
                             const prof    = parseFloat(item.Professional_amount || 0);
-                            const miscRaw = item.miscellaneous_amount;
-                            const miscNum = isMiscNumeric(miscRaw) ? parseFloat(miscRaw) : 0;
                             const qty     = parseInt(item.quantity) || 1;
-                            const total   = (prof + miscNum) * qty;
+                            const total   = calcItemTotal(item);
                             const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
+                            const consultancy = item.consultancy_charges;
+                            const miscRaw = item.miscellaneous_amount;
+                            const consultancyStr = consultancy && String(consultancy).trim() ? String(consultancy).trim() : null;
                             const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--' ? String(miscRaw).trim() : null;
+                            const { matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
+                            const itemSacCode = item.sac_code;
+                            const showExecBreakdown = hasExecutionRateBreakdown(item);
                             return (
                               <tr key={ii} className="vpd-row">
                                 <td className="vpd-row-idx">{ii + 1}</td>
-                                <td><div className="vpd-desc">{item.description || item.compliance_name || '—'}</div></td>
+                                <td>
+                                  <div className="vpd-desc">{item.description || item.compliance_name || '—'}</div>
+                                  {isExecution && itemSacCode && (
+                                    <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
+                                    </div>
+                                  )}
+                                </td>
                                 <td>{subCat ? <span className="vpd-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
                                 <td style={{ textAlign: 'center' }}><span className="vpd-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                  {miscStr
-                                    ? isMiscNumeric(miscStr)
-                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                      : <span className="vpd-misc-note" title="Note — not in total">{miscStr}</span>
-                                    : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                  {item.unit || '—'}
                                 </td>
+                                {isRegulatory ? (
+                                  <>
+                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
+                                    <td style={{ textAlign: 'right', fontSize: 12 }}>
+                                      {consultancyStr
+                                        ? isMiscNumeric(consultancyStr)
+                                          ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
+                                          : <span className="vpd-misc-note" title="Note — not in total">{consultancyStr}</span>
+                                        : miscStr
+                                          ? isMiscNumeric(miscStr)
+                                            ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
+                                            : <span className="vpd-misc-note" title="Note — not in total">{miscStr}</span>
+                                          : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                  </>
+                                ) : showExecBreakdown ? (
+                                  <>
+                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                      {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                      {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                      {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                                      {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                    </td>
+                                  </>
+                                ) : (
+                                  <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                    {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                )}
                                 <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
                               </tr>
                             );
                           })}
                           <tr className="vpd-cat-sub">
-                            <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
+                            <td colSpan={colSpan - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
                             <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
                           </tr>
                         </tbody>
@@ -1763,12 +1985,12 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 </div>
               ))}
 
-              {/* ── EDIT MODE TABLE ── */}
+              {/* ── EDIT MODE ── */}
               {editMode && (
-                <div className="vpd-table-wrap">
+                <div style={{ marginTop: 4 }}>
                   {editItems.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 8 }}>
-                      <FileText size={28} color="#e2e8f0" />
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: 10, background: '#f8fafc', borderRadius: 12, border: '1.5px dashed #e2e8f0' }}>
+                      <FileText size={32} color="#e2e8f0" />
                       <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No items. Click "+ Add Item" above to get started.</p>
                     </div>
                   ) : (() => {
@@ -1779,80 +2001,143 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                       if (!editGroups[key]) editGroups[key] = { catId, catName: COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`, rows: [] };
                       editGroups[key].rows.push({ it, globalIdx });
                     });
-                    return (
-                      <table className="vpd-table" style={{ tableLayout: 'fixed' }}>
-                        <thead>
-                          <tr>
-                            <th style={{ width: 32 }}>#</th>
-                            <th style={{ width: 'auto' }}>Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
-                            <th style={{ width: 58, textAlign: 'center' }}>Qty</th>
-                            <th style={{ width: 130, textAlign: 'right' }}>Professional (₹)</th>
-                            <th style={{ width: 130, textAlign: 'right' }}>Misc (₹ or note)</th>
-                            <th style={{ width: 110, textAlign: 'right' }}>Item Total</th>
-                            <th style={{ width: 40 }}></th>
-                          </tr>
-                        </thead>
-                        {Object.values(editGroups).map((grp, gi) => {
-                          const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
-                          return (
-                            <tbody key={gi}>
-                              <tr className="vpd-cat-row">
-                                <td colSpan={7}>
-                                  <div className="vpd-cat-inner">
-                                    <span className="vpd-cat-dot" />{grp.catName}
-                                    <span className="vpd-cat-cnt">{grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}</span>
+
+                    return Object.values(editGroups).map((grp, gi) => {
+                      const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
+                      return (
+                        <div key={gi} style={{ marginBottom: 20 }}>
+                          {/* Category header */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: 'linear-gradient(135deg,#f0fdf4,#ecfdf5)', border: '1.5px solid #bbf7d0', borderRadius: '10px 10px 0 0', marginBottom: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#0d9488', display: 'inline-block', flexShrink: 0 }} />
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.08em' }}>{grp.catName}</span>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8' }}>{grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: '#0f766e' }}>Subtotal: ₹&nbsp;{fmtINR(grpEditTotal)}</span>
+                          </div>
+
+                          {/* Item cards */}
+                          <div style={{ border: '1.5px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
+                            {grp.rows.map(({ it, globalIdx }, rowIdx) => (
+                              <div key={globalIdx} style={{ background: rowIdx % 2 === 0 ? '#fafffe' : '#f0fdf4', borderTop: rowIdx > 0 ? '1px solid #e8f5f0' : 'none', padding: '14px 16px' }}>
+
+                                {/* Item header row */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ width: 22, height: 22, borderRadius: 6, background: '#0f766e', color: '#fff', fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{globalIdx + 1}</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.06em' }}>Line Item</span>
                                   </div>
-                                </td>
-                              </tr>
-                              {grp.rows.map(({ it, globalIdx }) => (
-                                <tr key={globalIdx} className="vpd-edit-row">
-                                  <td style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', fontWeight: 700 }}>{globalIdx + 1}</td>
-                                  <td>
-                                    <textarea className="vpd-edit-input" value={it.description}
-                                      onChange={e => updateItem(globalIdx, 'description', e.target.value)}
-                                      rows={2} style={{ resize: 'vertical', minHeight: 42, fontSize: 12 }} placeholder="Service description…" />
-                                  </td>
-                                  <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 14, fontWeight: 800, color: '#0f766e' }}>₹&nbsp;{fmtINR(calcItemTotal(it))}</span>
+                                    <button onClick={() => removeItem(globalIdx)}
+                                      style={{ width: 28, height: 28, border: 'none', background: '#fef2f2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626', flexShrink: 0 }}
+                                      title="Remove item"><Trash2 size={13} /></button>
+                                  </div>
+                                </div>
+
+                                {/* Description full width */}
+                                <div style={{ marginBottom: 10 }}>
+                                  <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Description</label>
+                                  <textarea className="vpd-edit-input" value={it.description}
+                                    onChange={e => updateItem(globalIdx, 'description', e.target.value)}
+                                    rows={2} style={{ resize: 'vertical', minHeight: 44, fontSize: 13, width: '100%' }} placeholder="Service description…" />
+                                </div>
+
+                                {/* Qty + Unit row */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                  <div>
+                                    <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Quantity</label>
                                     <input type="number" min="1" className="vpd-edit-input" value={it.quantity}
                                       onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
                                       style={{ textAlign: 'center', width: '100%' }} />
-                                  </td>
-                                  <td>
-                                    <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                      value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                      onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                  </td>
-                                  <td>
-                                    <input type="text" className="vpd-edit-input" value={it.miscellaneous_amount}
-                                      onChange={e => updateItem(globalIdx, 'miscellaneous_amount', e.target.value)}
-                                      placeholder="Amount or note"
-                                      style={{ textAlign: 'right', width: '100%', borderColor: it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) ? '#fbbf24' : undefined }} />
-                                    {it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) && (
-                                      <div style={{ fontSize: 10, color: '#d97706', marginTop: 2 }}>Note only — not calculated</div>
-                                    )}
-                                  </td>
-                                  <td style={{ textAlign: 'right' }}>
-                                    <span style={{ fontSize: 13, fontWeight: 800, color: '#0f766e' }}>₹&nbsp;{fmtINR(calcItemTotal(it))}</span>
-                                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>(Prof+Misc)×Qty</div>
-                                  </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    <button onClick={() => removeItem(globalIdx)}
-                                      style={{ width: 28, height: 28, border: 'none', background: '#fef2f2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}
-                                      title="Remove item"><Trash2 size={13} /></button>
-                                  </td>
-                                </tr>
-                              ))}
-                              <tr className="vpd-cat-sub">
-                                <td colSpan={5} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpEditTotal)}</td>
-                                <td />
-                              </tr>
-                            </tbody>
-                          );
-                        })}
-                      </table>
-                    );
+                                  </div>
+                                  <div>
+                                    <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Unit</label>
+                                    <input type="text" className="vpd-edit-input" value={it.unit || ''}
+                                      onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                      placeholder="e.g. Nos, m, sqm"
+                                      style={{ textAlign: 'center', width: '100%' }} />
+                                  </div>
+                                </div>
+
+                                {isRegulatory ? (
+                                  /* Regulatory: Professional + Consultancy */
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                    <div>
+                                      <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Professional Amount (₹)</label>
+                                      <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                        value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                        onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Consultancy / Misc</label>
+                                      <input type="text" className="vpd-edit-input"
+                                        value={it.consultancy_charges ?? it.miscellaneous_amount ?? ''}
+                                        onChange={e => {
+                                          updateItem(globalIdx, 'consultancy_charges', e.target.value);
+                                          updateItem(globalIdx, 'miscellaneous_amount', e.target.value);
+                                        }}
+                                        placeholder="Amount or note"
+                                        style={{ textAlign: 'right', width: '100%', borderColor: (it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) ? '#fbbf24' : undefined }} />
+                                      {(it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) && (
+                                        <div style={{ fontSize: 10, color: '#d97706', marginTop: 3 }}>⚠ Note only — not included in calculation</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* Execution: Professional + Material Rate + Labour Rate + Material Amt + Labour Amt */
+                                  <>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 10 }}>
+                                      <div>
+                                        <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Professional Amount (₹)</label>
+                                        <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                          value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                          onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                      </div>
+                                    </div>
+                                    <div style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', padding: '10px 12px', marginTop: 2 }}>
+                                      <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Rate &amp; Amount Breakdown</div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                        <div>
+                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Material Rate (₹)</label>
+                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                            value={it.material_rate === 0 ? '' : it.material_rate}
+                                            onChange={e => updateItem(globalIdx, 'material_rate', parseFloat(e.target.value) || 0)}
+                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Labour Rate (₹)</label>
+                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                            value={it.labour_rate === 0 ? '' : it.labour_rate}
+                                            onChange={e => updateItem(globalIdx, 'labour_rate', parseFloat(e.target.value) || 0)}
+                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Material Amount (₹)</label>
+                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                            value={it.material_amount === 0 ? '' : it.material_amount}
+                                            onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
+                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Labour Amount (₹)</label>
+                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
+                                            value={it.labour_amount === 0 ? '' : it.labour_amount}
+                                            onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    });
                   })()}
                 </div>
               )}
@@ -1876,8 +2161,42 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">SAC Code</span><span className="vpd-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{editMode ? (editSacCode || '—') : (proforma.sac_code || '—')}</span></div>
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Version</span><span className="vpd-sum-val">v{proforma.version || 1}</span></div>
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Status</span><span><StatusPill status={status} /></span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Client</span><span className="vpd-sum-val">{clientName}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Project</span><span className="vpd-sum-val">{projName}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Company</span><span className="vpd-sum-val">{companyName}</span></div>
                 {createdByName && <div className="vpd-sum-item"><span className="vpd-sum-lbl">Prepared By</span><span className="vpd-sum-val">{createdByName}</span></div>}
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Issue Date</span><span className="vpd-sum-val">{fmtDate(proforma.issue_date || proforma.created_at)}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Last Updated</span><span className="vpd-sum-val">{fmtDate(proforma.updated_at)}</span></div>
               </div>
+
+              {/* Execution-specific breakdown — matches quotation exactly */}
+              {isExecution && items.length > 0 && !editMode && (
+                <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Wrench size={11} /> Execution Cost Breakdown
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Professional</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + (hasExecutionRateBreakdown(it) ? 0 : ((parseFloat(it.Professional_amount || 0) || 0) * (parseInt(it.quantity) || 1))), 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Material</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + getExecutionDisplayValues(it).matAmt, 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Labour</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + getExecutionDisplayValues(it).labAmt, 0))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {proforma.notes && <div className="vpd-remarks"><div className="vpd-rem-title">Notes</div><p className="vpd-rem-text">{proforma.notes}</p></div>}
               {proforma.terms && <div className="vpd-remarks"><div className="vpd-rem-title">Terms &amp; Conditions</div><p className="vpd-rem-text">{proforma.terms}</p></div>}
             </div>
@@ -1949,7 +2268,13 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           </div>
 
         </div>{/* end .vpd-doc */}
-      </div>
+
+        {/* ══════════ NOTES SECTION ══════════ */}
+        {!loading && proforma && (
+          <Notes entityType={NOTE_ENTITY.PROFORMA} entityId={proforma.id} />
+        )}
+
+      </div>{/* end .vpd-root */}
 
       {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
       {sendModal && (
@@ -1962,13 +2287,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         />
       )}
 
-      {/* ══════════ SUCCESS TOAST ══════════ */}
-      {saveSuccess && (
-        <div className="vpd-success-toast">
-          <CheckCircle size={16} /> Proforma updated successfully!
-        </div>
-      )}
-
       {/* ══════════ ADD COMPLIANCE MODAL ══════════ */}
       <AddComplianceModal
         isOpen={showAddSection}
@@ -1976,14 +2294,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         onSave={handleComplianceSave}
         existingItems={editItems}
         fetchDescriptions={fetchDescriptionsForModal}
+        quotationType={proforma?.proforma_type || ''}
       />
-
-      {/* ══════════ SUCCESS TOAST ══════════ */}
-      {saveSuccess && (
-        <div className="vpd-success-toast">
-          <CheckCircle size={16} /> Proforma updated successfully!
-        </div>
-      )}
 
       {/* ══════════ APPROVAL TOASTS ══════════ */}
       {approvalToast === 'sent' && (
