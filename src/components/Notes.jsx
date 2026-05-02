@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { StickyNote, Plus, Trash2, Loader2, AlertCircle, User, Clock, ChevronLeft, ChevronRight, Eye, X } from 'lucide-react';
 import { createNote, getAllNotes, deleteNote } from '../services/notes';
 
@@ -192,7 +193,14 @@ function NotesPaginationBar({ currentPage, totalPages, totalItems, onPrev, onNex
 // ── View All Notes Modal ──────────────────────────────────────────────────────
 
 function ViewAllNotesModal({ notes, onClose, onDelete, deleting }) {
-  return (
+  // Handle Escape key to close modal
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => { document.removeEventListener('keydown', handleKey); };
+  }, [onClose]);
+
+  return createPortal(
     <div
       onClick={onClose}
       style={{
@@ -202,6 +210,7 @@ function ViewAllNotesModal({ notes, onClose, onDelete, deleting }) {
         padding: 16, fontFamily: "'Outfit','Inter',sans-serif",
       }}
     >
+      <style>{`@keyframes notes_slide_in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -262,7 +271,7 @@ function ViewAllNotesModal({ notes, onClose, onDelete, deleting }) {
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 // ── Main component ────────────────────────────────────────────────────────────

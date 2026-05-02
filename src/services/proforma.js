@@ -16,29 +16,21 @@ const serviceLogger = {
 };
 
 const ENDPOINTS = {
-  GET_ALL:          '/proformas/get_all_proformas/',
-  GET_BY_ID:        '/proformas/get_proforma/',
-  GET_REGULATORY:   '/proformas/get_regulatory_proforma/',
-  GET_EXECUTION:    '/proformas/get_execuation_proforma/',
-  CREATE_REGULATORY:'/proformas/create_regulatory_proforma/',
-  CREATE_EXECUTION: '/proformas/create_execution_proforma/',
-  UPDATE:                '/proformas/',
-  UPDATE_FULL:           '/proformas/update_proforma/',
-  UPDATE_REGULATORY:     '/proformas/update_regulatory_proforma/',
-  UPDATE_EXECUTION:      '/proformas/update_execution_proforma/',
-  DELETE:                '/proformas/',
-  SEND_FOR_APPROVAL:'/proformas/send_for_approval/',
-  APPROVE:          '/proformas/approve_proforma/',
-  REJECT:           '/proformas/reject_proforma/',
-};
-
-const generateProformaNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const random = Math.floor(1000 + Math.random() * 9000);
-  return Number(`${year}${month}${day}${random}`);
+  GET_ALL:                   '/proformas/get_all_proformas/',
+  GET_REGULATORY:            '/proformas/get_regulatory_proforma/',
+  GET_EXECUTION:             '/proformas/get_execuation_proforma/',
+  CREATE_REGULATORY:         '/proformas/create_regulatory_proforma/',
+  CREATE_EXECUTION:          '/proformas/create_execution_proforma/',
+  UPDATE:                    '/proformas/',
+  UPDATE_FULL:               '/proformas/update_proforma/',
+  UPDATE_REGULATORY:         '/proformas/update_regulatory_proforma/',
+  UPDATE_EXECUTION:          '/proformas/update_execution_proforma/',
+  DELETE:                    '/proformas/',
+  SEND_FOR_APPROVAL:         '/proformas/send_for_approval/',
+  APPROVE:                   '/proformas/approve_proforma/',
+  REJECT:                    '/proformas/reject_proforma/',
+  GENERATE_PDF_CONSTRUCTIVE: '/proformas/generate_constructive_proforma_pdf/',
+  GENERATE_PDF_OTHER:        '/proformas/generate_other_proforma_pdf/',
 };
 
 const calculateStatsFromTotal = (totalCount) => ({
@@ -76,23 +68,6 @@ export const getProformaById = async (id) => {
 
   try {
     serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}`);
-
-    const genericResult = await tryEndpoint(ENDPOINTS.GET_BY_ID);
-    if (genericResult) {
-      const proformaType = String(genericResult?.data?.proforma_type || '').toLowerCase();
-
-      if (proformaType.includes('execution')) {
-        const detailedExecution = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
-        if (detailedExecution) return detailedExecution;
-      }
-
-      if (proformaType.includes('regulatory')) {
-        const detailedRegulatory = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
-        if (detailedRegulatory) return detailedRegulatory;
-      }
-
-      return genericResult;
-    }
 
     const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
     if (executionResult) return executionResult;
@@ -467,54 +442,131 @@ export const deleteProformaById = async (id) => {
 };
 
 /**
- * Generate and download the PDF for a proforma.
- * GET /api/proformas/generate_pdf/?id=<id>&scope_of_work=<scope_of_work>
+ * Helper — triggers a browser download from a blob response.
+ */
+const _triggerPdfDownload = (blob, fileName) => {
+  if (!blob || blob.size === 0) {
+    throw new Error('Empty PDF received from server. Please try again.');
+  }
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
+
+/**
+ * Generate and download PDF for Constructive India (company ID = 1).
+ * POST /api/proformas/generate_constructive_proforma_pdf/
  *
- * The backend starts an async task and returns a URL string (the PDF URL).
- * We then fetch that URL as a blob and trigger a browser download.
- *
- * @param {number|string} id           - Proforma ID (required)
- * @param {string}        scopeOfWork  - Scope of work text to embed in the PDF (required)
- * @param {string}        fileName     - Suggested download filename (e.g. "PF-2026-00001.pdf")
+ * @param {Object} params
+ * @param {number|string} params.id             - Proforma ID
+ * @param {string}        params.company_name
+ * @param {string}        params.address
+ * @param {string}        params.gst_no
+ * @param {string}        params.scope_of_work
+ * @param {string}        params.sac_code
+ * @param {string}        params.invoice_date   - "YYYY-MM-DD"
+ * @param {string}        params.work_order_date - "YYYY-MM-DD"
+ * @param {string}        params.valid_from      - "YYYY-MM-DD"
+ * @param {string}        params.valid_till      - "YYYY-MM-DD"
+ * @param {string}        params.vendor_code
+ * @param {string}        params.po_no
+ * @param {string}        params.schedule_date   - "YYYY-MM-DD"
+ * @param {string}        params.state
+ * @param {string}        params.code
+ * @param {string}        fileName               - Suggested download filename
  * @returns {Promise<void>}
  */
-export const generateProformaPdf = async (id, scopeOfWork, fileName = 'proforma.pdf') => {
+export const generateConstructiveProformaPdf = async (params, fileName = 'proforma.pdf') => {
   try {
-    if (!id)               throw new Error('Proforma ID is required');
-    if (!scopeOfWork?.trim()) throw new Error('Scope of work is required');
+    if (!params.id) throw new Error('Proforma ID is required');
+    if (!params.scope_of_work?.trim()) throw new Error('Scope of work is required');
 
-    serviceLogger.log(`[Proforma Service] Generating PDF for proforma ${id}`);
+    serviceLogger.log(`[Proforma Service] Generating Constructive India PDF for proforma ${params.id}`);
 
-    // Step 1 — call the generate endpoint and receive the PDF as a blob directly
-    const response = await api.get('/proformas/generate_pdf/', {
-      params: {
-        id:            parseInt(id),
-        scope_of_work: scopeOfWork.trim(),
-      },
+    const payload = {
+      id:              parseInt(params.id),
+      company_name:    params.company_name    || '',
+      address:         params.address         || '',
+      gst_no:          params.gst_no          || '',
+      scope_of_work:   params.scope_of_work.trim(),
+      sac_code:        params.sac_code        || '',
+      invoice_date:    params.invoice_date    || '',
+      work_order_date: params.work_order_date || '',
+      valid_from:      params.valid_from      || '',
+      valid_till:      params.valid_till      || '',
+      vendor_code:     params.vendor_code     || '',
+      po_no:           params.po_no           || '',
+      schedule_date:   params.schedule_date   || '',
+      state:           params.state           || '',
+      code:            params.code            || '',
+    };
+
+    const response = await api.post(ENDPOINTS.GENERATE_PDF_CONSTRUCTIVE, payload, {
       responseType: 'blob',
     });
 
-    // Step 2 — response.data is already a Blob; trigger browser download
-    const blob = response.data;
-
-    if (!blob || blob.size === 0) {
-      throw new Error('Empty PDF received from server. Please try again.');
-    }
-
-    const objectUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(objectUrl);
-
-    serviceLogger.log(`[Proforma Service] PDF downloaded: ${fileName}`);
+    _triggerPdfDownload(response.data, fileName);
+    serviceLogger.log(`[Proforma Service] Constructive India PDF downloaded: ${fileName}`);
 
   } catch (error) {
-    serviceLogger.error(`[Proforma Service] generateProformaPdf(${id}) failed:`, error.message);
-    // Re-throw a clean error message for the UI layer
+    serviceLogger.error(`[Proforma Service] generateConstructiveProformaPdf(${params.id}) failed:`, error.message);
+    if (error.message) throw new Error(error.message);
+    throw new Error('Failed to generate PDF. Please try again.');
+  }
+};
+
+/**
+ * Generate and download PDF for other companies (company ID = 2, 3, or 4).
+ * POST /api/proformas/generate_other_proforma_pdf/
+ *
+ * @param {Object} params
+ * @param {number|string} params.id           - Proforma ID
+ * @param {string}        params.company_name
+ * @param {string}        params.address
+ * @param {string}        params.gst_no
+ * @param {string}        params.scope_of_work
+ * @param {string}        params.po_no
+ * @param {string}        params.schedule_date - "YYYY-MM-DD"
+ * @param {string}        params.sac_code
+ * @param {string}        params.state
+ * @param {string}        params.code
+ * @param {string}        fileName             - Suggested download filename
+ * @returns {Promise<void>}
+ */
+export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf') => {
+  try {
+    if (!params.id) throw new Error('Proforma ID is required');
+    if (!params.scope_of_work?.trim()) throw new Error('Scope of work is required');
+
+    serviceLogger.log(`[Proforma Service] Generating Other Company PDF for proforma ${params.id}`);
+
+    const payload = {
+      id:            parseInt(params.id),
+      company_name:  params.company_name  || '',
+      address:       params.address       || '',
+      gst_no:        params.gst_no        || '',
+      scope_of_work: params.scope_of_work.trim(),
+      po_no:         params.po_no         || '',
+      schedule_date: params.schedule_date || '',
+      sac_code:      params.sac_code      || '',
+      state:         params.state         || '',
+      code:          params.code          || '',
+    };
+
+    const response = await api.post(ENDPOINTS.GENERATE_PDF_OTHER, payload, {
+      responseType: 'blob',
+    });
+
+    _triggerPdfDownload(response.data, fileName);
+    serviceLogger.log(`[Proforma Service] Other Company PDF downloaded: ${fileName}`);
+
+  } catch (error) {
+    serviceLogger.error(`[Proforma Service] generateOtherProformaPdf(${params.id}) failed:`, error.message);
     if (error.message) throw new Error(error.message);
     throw new Error('Failed to generate PDF. Please try again.');
   }
@@ -760,7 +812,8 @@ export default {
   deleteProformaById,
   getProformaStats,
   getComplianceByCategory,
-  generateProformaPdf,
+  generateConstructiveProformaPdf,
+  generateOtherProformaPdf,
   sendProformaForApproval,
   approveProforma,
   rejectProforma,

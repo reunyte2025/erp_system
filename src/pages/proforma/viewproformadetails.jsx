@@ -9,7 +9,7 @@ import {
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
   Edit, X, Paperclip, FileSearch, Wrench,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, updateRegulatoryProforma, updateExecutionProforma, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateProformaPdf, sendProformaToClient } from '../../services/proforma';
+import { getProformaById, updateProformaFull, updateRegulatoryProforma, updateExecutionProforma, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateConstructiveProformaPdf, generateOtherProformaPdf, sendProformaToClient } from '../../services/proforma';
 import { createRegulatoryInvoice, createExecutionInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
@@ -659,6 +659,21 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [scopeOfWork,   setScopeOfWork]   = useState('');
   const [scopeError,    setScopeError]    = useState('');
   const [pdfError,      setPdfError]      = useState('');
+
+  // ── PDF modal extra fields (company-specific) ────────────────────────────────
+  const [pdfCompanyName,   setPdfCompanyName]   = useState('');
+  const [pdfAddress,       setPdfAddress]       = useState('');
+  const [pdfGstNo,         setPdfGstNo]         = useState('');
+  const [pdfSacCode,       setPdfSacCode]       = useState('');
+  const [pdfInvoiceDate,   setPdfInvoiceDate]   = useState('');
+  const [pdfWorkOrderDate, setPdfWorkOrderDate] = useState('');
+  const [pdfValidFrom,     setPdfValidFrom]     = useState('');
+  const [pdfValidTill,     setPdfValidTill]     = useState('');
+  const [pdfVendorCode,    setPdfVendorCode]    = useState('');
+  const [pdfPoNo,          setPdfPoNo]          = useState('');
+  const [pdfScheduleDate,  setPdfScheduleDate]  = useState('');
+  const [pdfState,         setPdfState]         = useState('');
+  const [pdfCode,          setPdfCode]          = useState('');
   const [visible,       setVisible]       = useState(false);
 
   // ── Edit mode state (mirrors viewquotationdetails exactly) ───────────────────
@@ -693,6 +708,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     open: false,
     invoiceId: null,
     invoiceNum: '',
+    invoiceType: '',
     alreadyExists: false,
     genericError: '',
   });
@@ -881,7 +897,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       if (isExecutionItem && !hasExecutionValue) { setSaveError('Execution items must have a professional, material, or labour amount greater than 0.'); return; }
       if (!isExecutionItem && (parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all regulatory items.'); return; }
     }
-    if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
+    // For Regulatory: top-level SAC code is required.
+    // For Execution: top-level SAC code is optional — each item carries its own sac_code.
+    const isExecType = (proforma?.proforma_type || '').toLowerCase().includes('execution') ||
+      editItems.some(it => [5, 6, 7].includes(Number(it.compliance_category)));
+    if (!isExecType && !editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
     // All fields valid — open reason modal before submitting
     setUpdateReason('');
     setUpdateReasonError('');
@@ -1121,7 +1141,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   // ── Dismiss invoice modal helper ─────────────────────────────────────────────
   const dismissInvoiceModal = () =>
-    setInvoiceModal({ open: false, invoiceId: null, invoiceNum: '', alreadyExists: false, genericError: '' });
+    setInvoiceModal({ open: false, invoiceId: null, invoiceNum: '', invoiceType: '', alreadyExists: false, genericError: '' });
 
   // ── Generate Invoice button click ─────────────────────────────────────────────
   // Pre-checks for an existing invoice BEFORE opening the modal so the modal
@@ -1137,6 +1157,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           open: true,
           invoiceId: existing.id,
           invoiceNum: fmtInvNum(existing.invoice_number),
+          invoiceType: existing.invoice_type || '',
           alreadyExists: true,
           genericError: '',
         });
@@ -1217,7 +1238,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             existingNum = fmtInvNum(match.invoice_number);
           }
         } catch { /* silently ignore */ }
-        setInvoiceModal({ open: true, invoiceId: existingId, invoiceNum: existingNum, alreadyExists: true, genericError: '' });
+        setInvoiceModal({ open: true, invoiceId: existingId, invoiceNum: existingNum, invoiceType: '', alreadyExists: true, genericError: '' });
         return;
       }
 
@@ -1280,10 +1301,23 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setScopeOfWork('');
     setScopeError('');
     setPdfError('');
+    setPdfCompanyName('');
+    setPdfAddress('');
+    setPdfGstNo('');
+    setPdfSacCode('');
+    setPdfInvoiceDate('');
+    setPdfWorkOrderDate('');
+    setPdfValidFrom('');
+    setPdfValidTill('');
+    setPdfVendorCode('');
+    setPdfPoNo('');
+    setPdfScheduleDate('');
+    setPdfState('');
+    setPdfCode('');
     setShowPdfModal(true);
   };
 
-  // Called when user confirms inside the scope-of-work modal
+  // Called when user confirms inside the PDF modal
   const handleConfirmPdfDownload = async () => {
     if (!scopeOfWork.trim()) {
       setScopeError('Scope of work is required to generate the PDF.');
@@ -1293,8 +1327,43 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setPdfError('');
     setPdfLoading(true);
     try {
-      const fileName = `${fmtPNum(proforma?.proforma_number)}.pdf`;
-      await generateProformaPdf(id, scopeOfWork, fileName);
+      const fileName    = `${fmtPNum(proforma?.proforma_number)}.pdf`;
+      const companyId   = parseInt(proforma?.company) || 0;
+      const isConstructive = companyId === 1;
+
+      if (isConstructive) {
+        await generateConstructiveProformaPdf({
+          id:              proforma.id,
+          company_name:    pdfCompanyName,
+          address:         pdfAddress,
+          gst_no:          pdfGstNo,
+          scope_of_work:   scopeOfWork,
+          sac_code:        pdfSacCode,
+          invoice_date:    pdfInvoiceDate,
+          work_order_date: pdfWorkOrderDate,
+          valid_from:      pdfValidFrom,
+          valid_till:      pdfValidTill,
+          vendor_code:     pdfVendorCode,
+          po_no:           pdfPoNo,
+          schedule_date:   pdfScheduleDate,
+          state:           pdfState,
+          code:            pdfCode,
+        }, fileName);
+      } else {
+        await generateOtherProformaPdf({
+          id:            proforma.id,
+          company_name:  pdfCompanyName,
+          address:       pdfAddress,
+          gst_no:        pdfGstNo,
+          scope_of_work: scopeOfWork,
+          po_no:         pdfPoNo,
+          schedule_date: pdfScheduleDate,
+          sac_code:      pdfSacCode,
+          state:         pdfState,
+          code:          pdfCode,
+        }, fileName);
+      }
+
       setShowPdfModal(false);
     } catch (e) {
       setPdfError(e.message || 'Failed to generate PDF. Please try again.');
@@ -2494,7 +2563,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
                     <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`); }}
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`, { state: { invoiceType: invoiceSuccess.invoice_type || (isExecution ? 'Execution Compliance' : 'Regulatory Compliance'), invoiceData: invoiceSuccess } }); }}
                       style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
                     >
                       <Receipt size={15} /> View Invoice
@@ -2660,45 +2729,186 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             </div>
 
             {/* ── Body ── */}
-            <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+            <div style={{ padding: '22px 24px 24px', background: '#fafafa', maxHeight: '70vh', overflowY: 'auto' }}>
 
               {/* Info banner */}
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
                 <AlertCircle size={14} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
                 <p style={{ margin: 0, fontSize: 12, color: '#065f46', lineHeight: 1.6 }}>
-                  Enter the scope of work to be included in the PDF. This text will appear in the generated proforma document sent to the client.
+                  Fill in the details to be included in the PDF. These will appear in the generated proforma document.
                 </p>
               </div>
 
-              {/* Scope of work textarea */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
-                  Scope of Work <span style={{ color: '#dc2626' }}>*</span>
-                </div>
-                <textarea
-                  rows={4}
-                  placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
-                  value={scopeOfWork}
-                  onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
-                  onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
-                  onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
-                  disabled={pdfLoading}
-                  autoFocus
-                  style={{
-                    width: '100%', padding: '10px 12px',
-                    border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`,
-                    borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
-                    color: '#1e293b', resize: 'vertical', minHeight: 110,
-                    outline: 'none', transition: 'border-color .15s, box-shadow .15s',
-                    boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
-                  }}
-                />
-                {scopeError && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
-                    <AlertCircle size={12} /> {scopeError}
-                  </div>
-                )}
-              </div>
+              {/* ── Shared field helper ── */}
+              {(() => {
+                const isConstructive = parseInt(proforma?.company) === 1;
+
+                const inputStyle = (err) => ({
+                  width: '100%', padding: '8px 11px',
+                  border: `1.5px solid ${err ? '#fca5a5' : '#e2e8f0'}`,
+                  borderRadius: 9, fontSize: 13, fontFamily: 'inherit',
+                  color: '#1e293b', outline: 'none',
+                  transition: 'border-color .15s, box-shadow .15s',
+                  boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                });
+
+                const labelStyle = {
+                  fontSize: 11, fontWeight: 700, color: '#475569',
+                  textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5,
+                };
+
+                const fieldWrap = { marginBottom: 13 };
+
+                const onFocus = (e) => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
+                const onBlur  = (e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; };
+
+                return (
+                  <>
+                    {/* ── Row: Company Name + Address ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                      <div>
+                        <div style={labelStyle}>Company Name</div>
+                        <input type="text" placeholder="e.g. Constructive India Pvt. Ltd." value={pdfCompanyName}
+                          onChange={e => setPdfCompanyName(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                      <div>
+                        <div style={labelStyle}>Address</div>
+                        <input type="text" placeholder="e.g. Mumbai, Maharashtra" value={pdfAddress}
+                          onChange={e => setPdfAddress(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                    </div>
+
+                    {/* ── Row: GST No + SAC Code ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                      <div>
+                        <div style={labelStyle}>GST No</div>
+                        <input type="text" placeholder="e.g. 27AABCU9603R1ZX" value={pdfGstNo}
+                          onChange={e => setPdfGstNo(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                      <div>
+                        <div style={labelStyle}>SAC Code</div>
+                        <input type="text" placeholder="e.g. 998311" value={pdfSacCode}
+                          onChange={e => setPdfSacCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                    </div>
+
+                    {/* ── Row: PO No + Schedule Date ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                      <div>
+                        <div style={labelStyle}>PO No</div>
+                        <input type="text" placeholder="e.g. PO-2026-001" value={pdfPoNo}
+                          onChange={e => setPdfPoNo(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                      <div>
+                        <div style={labelStyle}>Schedule Date</div>
+                        <input type="date" value={pdfScheduleDate}
+                          onChange={e => setPdfScheduleDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                    </div>
+
+                    {/* ── Row: State + Code ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                      <div>
+                        <div style={labelStyle}>State</div>
+                        <input type="text" placeholder="e.g. Maharashtra" value={pdfState}
+                          onChange={e => setPdfState(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                      <div>
+                        <div style={labelStyle}>Code</div>
+                        <input type="text" placeholder="e.g. MH" value={pdfCode}
+                          onChange={e => setPdfCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                          disabled={pdfLoading} style={inputStyle(false)} />
+                      </div>
+                    </div>
+
+                    {/* ── Constructive India only extra fields ── */}
+                    {isConstructive && (
+                      <>
+                        {/* Divider */}
+                        <div style={{ borderTop: '1.5px dashed #e2e8f0', margin: '4px 0 14px' }} />
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 12 }}>Constructive India Additional Details</div>
+
+                        {/* ── Row: Invoice Date + Work Order Date ── */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                          <div>
+                            <div style={labelStyle}>Invoice Date</div>
+                            <input type="date" value={pdfInvoiceDate}
+                              onChange={e => setPdfInvoiceDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                              disabled={pdfLoading} style={inputStyle(false)} />
+                          </div>
+                          <div>
+                            <div style={labelStyle}>Work Order Date</div>
+                            <input type="date" value={pdfWorkOrderDate}
+                              onChange={e => setPdfWorkOrderDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                              disabled={pdfLoading} style={inputStyle(false)} />
+                          </div>
+                        </div>
+
+                        {/* ── Row: Valid From + Valid Till ── */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                          <div>
+                            <div style={labelStyle}>Valid From</div>
+                            <input type="date" value={pdfValidFrom}
+                              onChange={e => setPdfValidFrom(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                              disabled={pdfLoading} style={inputStyle(false)} />
+                          </div>
+                          <div>
+                            <div style={labelStyle}>Valid Till</div>
+                            <input type="date" value={pdfValidTill}
+                              onChange={e => setPdfValidTill(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                              disabled={pdfLoading} style={inputStyle(false)} />
+                          </div>
+                        </div>
+
+                        {/* ── Vendor Code ── */}
+                        <div style={fieldWrap}>
+                          <div style={labelStyle}>Vendor Code</div>
+                          <input type="text" placeholder="e.g. VND-001" value={pdfVendorCode}
+                            onChange={e => setPdfVendorCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+                            disabled={pdfLoading} style={inputStyle(false)} />
+                        </div>
+                      </>
+                    )}
+
+                    {/* ── Scope of Work (always last, always required) ── */}
+                    <div style={{ borderTop: '1.5px dashed #e2e8f0', margin: '4px 0 14px' }} />
+                    <div style={fieldWrap}>
+                      <div style={{ ...labelStyle, marginBottom: 6 }}>
+                        Scope of Work <span style={{ color: '#dc2626' }}>*</span>
+                      </div>
+                      <textarea
+                        rows={4}
+                        placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
+                        value={scopeOfWork}
+                        onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
+                        onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
+                        onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                        disabled={pdfLoading}
+                        style={{
+                          width: '100%', padding: '10px 12px',
+                          border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`,
+                          borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
+                          color: '#1e293b', resize: 'vertical', minHeight: 100,
+                          outline: 'none', transition: 'border-color .15s, box-shadow .15s',
+                          boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                        }}
+                      />
+                      {scopeError && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
+                          <AlertCircle size={12} /> {scopeError}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* PDF generation / API error */}
               {pdfError && (
@@ -2762,7 +2972,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {invoiceModal.invoiceId && (
                 <button
-                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`); }}
+                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`, { state: { invoiceType: invoiceModal.invoiceType || '' } }); }}
                   style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <Receipt size={11} /> {invoiceModal.invoiceNum ? `View ${invoiceModal.invoiceNum}` : 'View Invoice'}

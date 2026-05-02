@@ -388,6 +388,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [pdfAddress,         setPdfAddress]         = useState('');
   const [pdfContactPerson,   setPdfContactPerson]   = useState('');
   const [pdfSubject,         setPdfSubject]         = useState('');
+  const [pdfExtraNotes,      setPdfExtraNotes]      = useState(['']);
   const [pdfFormError,       setPdfFormError]       = useState('');
   const [pdfApiError,        setPdfApiError]        = useState('');
 
@@ -607,9 +608,11 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       if (!String(it.description).trim()) { setSaveError('All items must have a description.'); return; }
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
     }
-    if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
-
     const isExec = (quotation.quotation_type || '').toLowerCase().includes('execution');
+
+    // For Regulatory: top-level SAC code is required.
+    // For Execution: top-level SAC code is optional — each item carries its own sac_code.
+    if (!isExec && !editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
     setSaving(true);
 
     try {
@@ -761,6 +764,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     setPdfAddress('');
     setPdfContactPerson('');
     setPdfSubject('');
+    setPdfExtraNotes(['']);
     setPdfFormError('');
     setPdfApiError('');
     setShowPdfModal(true);
@@ -777,6 +781,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         address:         pdfAddress.trim(),
         contact_person:  pdfContactPerson.trim(),
         subject:         pdfSubject.trim(),
+        extra_notes:     pdfExtraNotes.map(n => n.trim()).filter(Boolean),
       }, fileName);
       setShowPdfModal(false);
     } catch (e) {
@@ -1947,6 +1952,57 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                     />
                   </div>
                 ))}
+
+                {/* Extra Notes */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                      Extra Notes
+                    </div>
+                    <button
+                      type="button"
+                      disabled={pdfLoading}
+                      onClick={() => setPdfExtraNotes(prev => [...prev, ''])}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', background: '#f0fdf4', border: '1.5px solid #6ee7b7', borderRadius: 7, fontSize: 11, fontWeight: 700, color: '#0f766e', cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                    >
+                      <Plus size={11} /> Add Note
+                    </button>
+                  </div>
+                  {pdfExtraNotes.map((note, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <input
+                        type="text"
+                        value={note}
+                        placeholder={`e.g. Note ${idx + 1}`}
+                        disabled={pdfLoading}
+                        onChange={e => {
+                          const updated = [...pdfExtraNotes];
+                          updated[idx] = e.target.value;
+                          setPdfExtraNotes(updated);
+                          setPdfFormError('');
+                          setPdfApiError('');
+                        }}
+                        onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
+                        onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                        style={{
+                          flex: 1, padding: '9px 12px',
+                          border: '1.5px solid #e2e8f0', borderRadius: 10,
+                          fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                          outline: 'none', transition: 'border-color .15s, box-shadow .15s',
+                          boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={pdfLoading || pdfExtraNotes.length === 1}
+                        onClick={() => setPdfExtraNotes(prev => prev.filter((_, i) => i !== idx))}
+                        style={{ flexShrink: 0, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: pdfExtraNotes.length === 1 ? '#f1f5f9' : '#fef2f2', border: `1.5px solid ${pdfExtraNotes.length === 1 ? '#e2e8f0' : '#fca5a5'}`, borderRadius: 8, cursor: (pdfLoading || pdfExtraNotes.length === 1) ? 'not-allowed' : 'pointer', color: pdfExtraNotes.length === 1 ? '#cbd5e1' : '#dc2626' }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
 
                 {/* Validation error */}
                 {pdfFormError && (
