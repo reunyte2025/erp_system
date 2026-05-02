@@ -19,6 +19,7 @@ import {
 import { getComplianceByCategory } from '../../services/proforma';
 import { getProjects } from '../../services/projects';
 import { createPurchaseOrderInvoice } from '../../services/invoices';
+import { getVendorById, getVendors } from '../../services/vendors';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
@@ -275,6 +276,30 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       const res = await getPurchaseOrderById(id);
       const poData = res.data;
       setPo(poData);
+
+      if (!poData.vendor_name && poData.vendor) {
+        try {
+          const vendorRes = await getVendorById(poData.vendor);
+          const vendorData = vendorRes?.data || vendorRes;
+          const vendorName = vendorData?.name || vendorData?.vendor_name || '';
+          if (vendorName) {
+            poData.vendor_name = vendorName;
+            setPo({ ...poData });
+          }
+        } catch {
+          try {
+            const listRes = await getVendors({ page: 1, page_size: 500 });
+            const allVendors = listRes?.data?.results || listRes?.results || [];
+            const found = allVendors.find((vendor) => String(vendor.id) === String(poData.vendor));
+            if (found?.name) {
+              poData.vendor_name = found.name;
+              setPo({ ...poData });
+            }
+          } catch {
+            // Keep the detail page usable even if vendor lookup fails.
+          }
+        }
+      }
 
       if (poData.project) {
         try {
@@ -662,7 +687,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  const vendorName = po.vendor_name || (po.vendor ? `Vendor` : '—');
+  const vendorName = po.vendor_name || (po.vendor ? `Vendor #${po.vendor}` : '—');
   const projName   = project
     ? (project.name || project.title || `Project #${po.project}`)
     : po.project_name || (po.project ? `Project #${po.project}` : '—');
@@ -1552,7 +1577,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
                     <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`); }}
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`, { state: { invoiceType: 'Vendor Compliance' } }); }}
                       style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
                     >
                       <Receipt size={15} /> View Invoice
@@ -1703,7 +1728,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {invoiceModal.invoiceId && (
                 <button
-                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`); }}
+                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`, { state: { invoiceType: 'Vendor Compliance' } }); }}
                   style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <Receipt size={11} /> {invoiceModal.invoiceNum ? `View ${invoiceModal.invoiceNum}` : 'View Invoice'}

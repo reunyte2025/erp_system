@@ -534,13 +534,13 @@ export const deleteQuotation = deleteQuotationById;
 // PDF
 // ============================================================================
 
-export const generateQuotationPdf = async (id, { company_name = '', address = '', contact_person = '', subject = '' } = {}, fileName = null) => {
+export const generateQuotationPdf = async (id, { company_name = '', address = '', contact_person = '', subject = '', extra_notes = [] } = {}, fileName = null) => {
   if (!id) throw new Error('Quotation ID is required');
   try {
     serviceLogger.log(`Generating PDF for quotation ${id}…`);
     const response = await api.post(
       ENDPOINTS.GENERATE_PDF,
-      { id: parseInt(id), company_name, address, contact_person, subject },
+      { id: parseInt(id), company_name, address, contact_person, subject, extra_notes },
       { responseType: 'blob' }
     );
     const url  = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
