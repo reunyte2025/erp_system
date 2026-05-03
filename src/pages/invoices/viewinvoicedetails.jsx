@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
   CheckCircle, Clock, Send, FileText, XCircle,
@@ -8,29 +8,62 @@ import {
   Briefcase, ShoppingCart, Users, X, Paperclip, Truck,
   DollarSign, FileEdit, ChevronDown, Search, FileSearch,
 } from 'lucide-react';
-import { getInvoiceById, generateInvoicePdf, cancelInvoice } from '../../services/invoices';
-import { getQuotationById } from '../../services/quotation';
+import {
+  getInvoiceById,
+  getInvoices,
+  getRegulatoryInvoiceById,
+  getExecutionInvoiceById,
+  getPurchaseOrderInvoiceById,
+  generateConstructiveInvoicePdf,
+  generateOtherCompanyInvoicePdf,
+  generatePaymentReceivedPdf,
+  cancelInvoice,
+  CONSTRUCTIVE_INDIA_COMPANY_ID,
+} from '../../services/invoices';
+import { getQuotationById, getQuotationCompanyName } from '../../services/quotation';
+import { getPurchaseOrderById } from '../../services/purchase';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
-import { getVendors } from '../../services/vendors';
+import { getVendors, getVendorById } from '../../services/vendors';
 import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
-const COMPLIANCE_CATEGORIES = {
+// Regulatory invoice categories (from quotation/proforma flow)
+const REGULATORY_COMPLIANCE_CATEGORIES = {
   1: 'Construction Certificate',
   2: 'Occupational Certificate',
   3: 'Water Main Commissioning',
   4: 'STP Commissioning',
 };
 
+// Execution & Purchase Order invoice categories
+const EXECUTION_COMPLIANCE_CATEGORIES = {
+  5: 'Water Connection',
+  6: 'SWD Line Work',
+  7: 'Sewer/Drainage Line Work',
+};
+
+// Merged map for display
+const COMPLIANCE_CATEGORIES = {
+  ...REGULATORY_COMPLIANCE_CATEGORIES,
+  ...EXECUTION_COMPLIANCE_CATEGORIES,
+};
+
 const SUB_COMPLIANCE_CATEGORIES = {
+  0: { id: 0, name: 'Default' },
   1: { id: 1, name: 'Plumbing Compliance' },
   2: { id: 2, name: 'PCO Compliance' },
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
-  0: { id: 0, name: 'Default' },
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
 const STATUS_CONFIG = {
@@ -103,9 +136,77 @@ const groupItemsByCategory = (items = []) => {
 };
 
 const calcItemTotal = (item) => {
-  const prof = parseFloat(item.Professional_amount || 0);
-  const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
-  return parseFloat(((prof + misc) * (parseInt(item.quantity) || 1)).toFixed(2));
+  const qty  = parseInt(item.quantity) || 1;
+  const prof = parseFloat(item.Professional_amount) || 0;
+
+  const isExecItem = (
+    item.material_rate   != null ||
+    item.labour_rate     != null ||
+    item.material_amount != null ||
+    item.labour_amount   != null
+  );
+
+  if (isExecItem) {
+    // material_amount / labour_amount are server-computed aggregate totals (rate × qty).
+    // Professional_amount is per-unit — must be multiplied by qty separately.
+    const matAmt  = parseFloat(item.material_amount) || 0;
+    const labAmt  = parseFloat(item.labour_amount)   || 0;
+    const matRate = parseFloat(item.material_rate)   || 0;
+    const labRate = parseFloat(item.labour_rate)     || 0;
+    if (matAmt > 0 || labAmt > 0) {
+      return parseFloat((matAmt + labAmt + prof * qty).toFixed(2));
+    }
+    // Fallback: all fields are per-unit
+    return parseFloat(((matRate + labRate + prof) * qty).toFixed(2));
+  }
+
+  // Regulatory: both per-unit fees × qty
+  const consultancy = (() => {
+    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
+    if (raw === '--' || raw == null || raw === '') return 0;
+    const n = parseFloat(String(raw).trim());
+    return isNaN(n) ? 0 : n;
+  })();
+  return parseFloat(((prof + consultancy) * qty).toFixed(2));
+};
+
+/**
+ * Returns the PER-UNIT amount for one piece of a line item.
+ * Used in the PDF modal checklist so lineTotal = unitAmt × selectedQty is always correct.
+ *
+ * EXECUTION items  → mat_rate + lab_rate + Professional_amount  (all per-unit)
+ *   Fallback when rates absent: (matAmt + labAmt) / qty + prof
+ * REGULATORY items → Professional_amount + consultancy_charges  (both already per-unit)
+ */
+const calcItemUnitAmount = (item) => {
+  const qty  = parseInt(item.quantity) || 1;
+  const prof = parseFloat(item.Professional_amount) || 0;
+
+  const isExecItem = (
+    item.material_rate   != null ||
+    item.labour_rate     != null ||
+    item.material_amount != null ||
+    item.labour_amount   != null
+  );
+
+  if (isExecItem) {
+    const matRate = parseFloat(item.material_rate) || 0;
+    const labRate = parseFloat(item.labour_rate)   || 0;
+    if (matRate > 0 || labRate > 0) {
+      return parseFloat((matRate + labRate + prof).toFixed(2));
+    }
+    const matAmt = parseFloat(item.material_amount) || 0;
+    const labAmt = parseFloat(item.labour_amount)   || 0;
+    return parseFloat(((matAmt + labAmt) / qty + prof).toFixed(2));
+  }
+
+  const consultancy = (() => {
+    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
+    if (raw === '--' || raw == null || raw === '') return 0;
+    const n = parseFloat(String(raw).trim());
+    return isNaN(n) ? 0 : n;
+  })();
+  return parseFloat((prof + consultancy).toFixed(2));
 };
 
 function numberToWords(n) {
@@ -166,6 +267,73 @@ const hasExecutionCompliance = (items = []) => {
   return items.some(it => [3, 4].includes(it.compliance_category));
 };
 
+const normalizeInvoiceType = (value = '') => {
+  const t = String(value || '').toLowerCase().trim();
+  if (!t) return '';
+  if (t.includes('vendor') || t.includes('purchase')) return 'vendor';
+  if (t.includes('execution')) return 'execution';
+  if (t.includes('regulatory')) return 'regulatory';
+  return '';
+};
+
+/**
+ * Detect the true invoice type from response data using STRUCTURAL validation.
+ *
+ * WHY NOT trust invoice_type string alone:
+ *   The backend's /get_purchase_order_invoice/ endpoint may return data for
+ *   ANY invoice ID (not just vendor invoices), with invoice_type = "Vendor
+ *   Compliance". Trusting that string causes execution invoices to be
+ *   misidentified. We must cross-check the structural fields instead.
+ *
+ * Rule priority (most reliable → least reliable):
+ *   1. vendor field is non-null  →  vendor
+ *   2. client field is non-null  →  check items for rate breakdown to distinguish
+ *      execution (has material_rate/labour_rate) from regulatory (does not)
+ *   3. invoice_type string       →  only used when structural fields are absent
+ *      (e.g., both client and vendor are null/undefined in response)
+ */
+const detectInvoiceTypeFromData = (invoiceData = {}) => {
+  // ── Structural check 1: vendor field present and non-null → vendor invoice ─
+  // A true vendor/PO invoice will always have a non-null vendor field.
+  if (invoiceData?.vendor != null && invoiceData.vendor !== '') return 'vendor';
+
+  // ── Structural check 2: client field present and non-null → client invoice ─
+  if (invoiceData?.client != null && invoiceData.client !== '') {
+    // Distinguish execution vs regulatory by items
+    if (Array.isArray(invoiceData?.items)) {
+      const hasRateBreakdown = invoiceData.items.some((item) =>
+        (item?.material_rate != null && parseFloat(item.material_rate) !== 0) ||
+        (item?.labour_rate   != null && parseFloat(item.labour_rate)   !== 0) ||
+        (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
+        (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
+      );
+      if (hasRateBreakdown) return 'execution';
+    }
+    return 'regulatory';
+  }
+
+  // ── Structural check 3: vendor_name set but vendor ID null ─────────────────
+  if (invoiceData?.vendor_name) return 'vendor';
+
+  // ── Fallback: trust invoice_type string only when structural fields absent ──
+  // This handles edge cases where the response omits client/vendor entirely.
+  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
+  if (normalizedType) return normalizedType;
+
+  // ── Last resort: items analysis without client/vendor context ──────────────
+  if (Array.isArray(invoiceData?.items)) {
+    const hasRateBreakdown = invoiceData.items.some((item) =>
+      (item?.material_rate   != null && parseFloat(item.material_rate)   !== 0) ||
+      (item?.labour_rate     != null && parseFloat(item.labour_rate)     !== 0) ||
+      (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
+      (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
+    );
+    if (hasRateBreakdown) return 'execution'; // default to execution not vendor when ambiguous
+  }
+
+  return '';
+};
+
 // ─── Sub-components ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
@@ -214,11 +382,10 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 
 // ─── Quick Info Card — same structure as proforma ────────────────────────────────
 
-const QuickInfoCard = ({ invoice, client, project }) => {
+const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
   const [activeTab, setActiveTab] = useState('info');
 
-  const isVendorInv = Boolean(invoice.vendor) && !invoice.client;
-  const clientDisplayName = isVendorInv
+  const clientDisplayName = isPurchaseOrder
     ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
     : client
       ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Unknown Client'
@@ -281,16 +448,18 @@ const QuickInfoCard = ({ invoice, client, project }) => {
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <User size={11} color="#fff" />
               </div>
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.1em' }}>Billed To</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.1em' }}>
+                {isPurchaseOrder ? 'Vendor' : 'Billed To'}
+              </span>
             </div>
             <div style={{ padding: '10px 12px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{clientDisplayName}</div>
-              {client?.email && (
+              {!isPurchaseOrder && client?.email && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b', marginBottom: 3 }}>
                   <Mail size={10} style={{ flexShrink: 0 }} /> {client.email}
                 </div>
               )}
-              {client?.phone_number && (
+              {!isPurchaseOrder && client?.phone_number && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
                   <Hash size={10} style={{ flexShrink: 0 }} /> {client.phone_number}
                 </div>
@@ -567,6 +736,7 @@ const SendToClientModal = ({ invoice, client, invNum, issuedDate, onClose }) => 
 export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Role-based access
   const { isAdmin, isManager } = useRole();
@@ -578,11 +748,31 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [createdByName, setCreatedByName] = useState('');
   const [loading,       setLoading]       = useState(true);
   const [fetchError,    setFetchError]    = useState('');
-  const [pdfLoading,    setPdfLoading]    = useState(false);
-  const [showPdfModal,  setShowPdfModal]  = useState(false);
-  const [scopeOfWork,   setScopeOfWork]   = useState('');
-  const [scopeError,    setScopeError]    = useState('');
-  const [pdfError,      setPdfError]      = useState('');
+  // ── Invoice PDF modal (Download Invoice) ─────────────────────────────────
+  const [pdfLoading,          setPdfLoading]          = useState(false);
+  const [showPdfModal,        setShowPdfModal]        = useState(false);
+  const [pdfError,            setPdfError]            = useState('');
+  // Shared form fields across both invoice PDF modals
+  const [pdfForm, setPdfForm] = useState({
+    company_name: '', address: '', gst_no: '', state: '', sac_code: '',
+    code: '', invoice_number: '', invoice_date: '', work_order_date: '',
+    valid_from: '', valid_till: '', vendor_code: '', po_no: '',
+    schedule_date: '', scope_of_work: '',
+  });
+  const [pdfFormErrors, setPdfFormErrors] = useState({});
+  // Item checklist: { [itemKey]: { selected: bool, quantity: number } }
+  const [pdfItemSelections, setPdfItemSelections] = useState({});
+
+  // ── Payment Received PDF modal ────────────────────────────────────────────
+  const [showPaymentPdfModal,   setShowPaymentPdfModal]   = useState(false);
+  const [paymentPdfLoading,     setPaymentPdfLoading]     = useState(false);
+  const [paymentPdfError,       setPaymentPdfError]       = useState('');
+  const [paymentPdfForm, setPaymentPdfForm] = useState({
+    invoice_number: '', company_name: '', address: '', gst_no: '',
+    state: '', sac_code: '', po_no: '', schedule_date: '',
+    scope_of_work: '', received_amount: '',
+  });
+  const [paymentPdfFormErrors, setPaymentPdfFormErrors] = useState({});
   const [visible,       setVisible]       = useState(false);
   const [sendModal,     setSendModal]     = useState(false);
 
@@ -598,6 +788,9 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [poVendorsLoading,  setPoVendorsLoading]  = useState(false);
   const [poSelectedVendor,  setPoSelectedVendor]  = useState(null);
   const [poVendorSearch,    setPoVendorSearch]    = useState('');
+  const preferredInvoiceType = normalizeInvoiceType(
+    location.state?.invoiceType || location.state?.invoiceData?.invoice_type
+  );
 
   // Scroll lock when send modal is open
   useEffect(() => {
@@ -631,68 +824,116 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No invoice ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
+    setVisible(false);
+    setClient(null);
+    setProject(null);
+    setCreatedByName('');
     try {
-      const res = await getInvoiceById(id);
-      if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
-      const inv = res.data;
+      /**
+       * tryTypedEndpoint: call one endpoint, return { data, type } or null.
+       *
+       * CRITICAL VALIDATION — why we re-detect after fetching:
+       *   The backend returns HTTP 200 from ALL three invoice endpoints for ANY
+       *   valid invoice ID, but with different (sometimes wrong) invoice_type
+       *   strings. E.g. /get_purchase_order_invoice/?id=36 returns the execution
+       *   invoice data with invoice_type="Vendor Compliance" and vendor=null.
+       *
+       *   We use detectInvoiceTypeFromData() which does STRUCTURAL validation
+       *   (vendor non-null → vendor, client non-null + rate breakdown → execution)
+       *   to check whether the endpoint actually owns this invoice.
+       *
+       *   Accept the result only when:
+       *     a) detectedType matches endpointType (the endpoint owns this invoice), OR
+       *     b) detectedType is empty (can't determine structurally — trust the endpoint)
+       */
+      const tryTypedEndpoint = async (fetchFn, endpointType) => {
+        try {
+          const response = await fetchFn(id);
+          const data = response?.data || response;
+          if (!data || (!data.id && !data.invoice_number)) return null;
+
+          const detectedType = detectInvoiceTypeFromData(data);
+
+          // Structural mismatch — this endpoint doesn't own the invoice.
+          // E.g. /get_purchase_order_invoice/ returned data but structural
+          // check says it's an execution invoice (client non-null, has rates).
+          if (detectedType && detectedType !== endpointType) return null;
+
+          return { data, type: endpointType };
+        } catch {
+          return null;
+        }
+      };
+
+      const endpointMap = {
+        regulatory: { fetchFn: getRegulatoryInvoiceById, type: 'regulatory' },
+        execution:  { fetchFn: getExecutionInvoiceById,  type: 'execution' },
+        vendor:     { fetchFn: getPurchaseOrderInvoiceById, type: 'vendor' },
+      };
+
+      let listInvoiceData = location.state?.invoiceData || null;
+      let listInvoiceType = '';
+
+      if (!preferredInvoiceType) {
+        if (!listInvoiceData || String(listInvoiceData.id || '') !== String(id)) {
+          try {
+            const listRes = await getInvoices({ page: 1, page_size: 1000 });
+            const listRows = listRes?.data?.results || listRes?.results || [];
+            listInvoiceData = listRows.find((row) => String(row.id) === String(id)) || listInvoiceData;
+          } catch {
+            // Endpoint cascade below remains the final source of truth.
+          }
+        }
+        listInvoiceType = normalizeInvoiceType(listInvoiceData?.invoice_type) ||
+          ((listInvoiceData?.vendor || listInvoiceData?.vendor_name || listInvoiceData?.quotation) ? 'vendor' : '');
+      }
+
+      /**
+       * Trial order strategy:
+       *
+       * 1. If we have a preferredInvoiceType hint (from location.state), try
+       *    that endpoint FIRST — it's the cheapest and most accurate path.
+       *
+       * 2. Default fallback order: regulatory → execution → vendor
+       *    (NOT vendor-first, because /get_purchase_order_invoice/ responds to
+       *    ALL invoice IDs and may return misleading data for client invoices)
+       */
+      const defaultOrder = ['regulatory', 'execution', 'vendor'];
+      const hintedInvoiceType = preferredInvoiceType || listInvoiceType;
+      const orderedTypes = hintedInvoiceType
+        ? [hintedInvoiceType, ...defaultOrder.filter(t => t !== hintedInvoiceType)]
+        : defaultOrder;
+
+      const orderedEndpoints = orderedTypes.map(t => endpointMap[t]).filter(Boolean);
+
+      let result = null;
+
+      for (const endpoint of orderedEndpoints) {
+        result = await tryTypedEndpoint(endpoint.fetchFn, endpoint.type);
+        if (result) break; // structural validation passed — accept this result
+      }
+
+      // Ultimate fallback: use getInvoiceById (regulatory → execution → vendor cascade)
+      if (!result) {
+        const res = await getInvoiceById(id);
+        if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
+        result = {
+          data: res.data,
+          type: detectInvoiceTypeFromData(res.data),
+        };
+      }
+
+      const inv = { ...(listInvoiceData || {}), ...result.data };
+      inv.invoice_type = inv.invoice_type || result.type;
       setInvoice(inv);
 
-      // ── Resolve client ID and project ID ────────────────────────────────────
-      // When invoice is generated from quotation, backend may not populate:
-      //   inv.client, inv.client_name, inv.project, inv.quotation
-      // Strategy:
-      //   1. Use inv.client / inv.project if present
-      //   2. If inv.quotation is populated, fetch that quotation
-      //   3. If not, find the quotation by matching trailing digits of invoice_number
-      let resolvedClientId  = inv.client  || null;
-      let resolvedProjectId = inv.project || null;
+      // ── Determine invoice kind from response shape ───────────────────────────
+      // PO (vendor) invoices have a `vendor` field; client invoices have `client`.
+      const resolvedInvoiceType = preferredInvoiceType || listInvoiceType || detectInvoiceTypeFromData(inv) || result.type;
+      const isPoInvoice = resolvedInvoiceType === 'vendor';
 
-      // Only run quotation lookup if we're missing client or project
-      if (!resolvedClientId || !resolvedProjectId) {
-        let quotationData = null;
-
-        // Try 1: use inv.quotation field directly
-        if (inv.quotation) {
-          try {
-            const qRes = await getQuotationById(inv.quotation);
-            quotationData = qRes?.data || qRes;
-          } catch { /* silently ignore */ }
-        }
-
-        // Try 2: match by trailing digits (INV-202603-3075714 → "3075714" → QT-xxx-3075714)
-        if (!quotationData && inv.invoice_number) {
-          try {
-            const invTrailing = String(inv.invoice_number).split('-').pop();
-            const allQ = await api.get('/quotations/get_all_quotations/', {
-              params: { page: 1, page_size: 100 },
-            });
-            const qResults =
-              allQ.data?.data?.results ||
-              allQ.data?.results ||
-              [];
-            const matched = qResults.find((q) => {
-              const qTrailing = String(q.quotation_number || '').split('-').pop();
-              return qTrailing && qTrailing === invTrailing;
-            });
-            if (matched) quotationData = matched;
-          } catch { /* silently ignore */ }
-        }
-
-        if (quotationData) {
-          if (!resolvedClientId  && quotationData.client)  resolvedClientId  = quotationData.client;
-          if (!resolvedProjectId && quotationData.project) resolvedProjectId = quotationData.project;
-        }
-      }
-
-      // ── Load client ──────────────────────────────────────────────────────────
-      if (resolvedClientId) {
-        try {
-          const cr = await getClientById(resolvedClientId);
-          if (cr.status === 'success' && cr.data) setClient(cr.data);
-        } catch {}
-      }
-
-      // ── Load project ──────────────────────────────────────────────────────────
+      // ── Load project ─────────────────────────────────────────────────────────
+      const resolvedProjectId = inv.project || null;
       if (resolvedProjectId) {
         try {
           const pr  = await getProjects({ page: 1, page_size: 500 });
@@ -700,6 +941,99 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           const found = all.find(proj => String(proj.id) === String(resolvedProjectId));
           if (found) setProject(found);
         } catch {}
+      }
+
+      if (isPoInvoice) {
+        // PO invoices: vendor name is usually embedded as vendor_name.
+        // If missing (e.g. navigated without location.state), resolve it by fetching the vendor by ID.
+        if (!inv.vendor_name && inv.vendor) {
+          try {
+            const vendorRes = await getVendorById(inv.vendor);
+            // getVendorById returns { status, data } or the object directly
+            const vendorData = vendorRes?.data || vendorRes;
+            if (vendorData?.name) {
+              inv.vendor_name = vendorData.name;
+              setInvoice({ ...inv });
+            }
+          } catch {
+            // Fallback: try from paginated list
+            try {
+              const listRes = await getVendors({ page: 1, page_size: 500 });
+              const allVendors = listRes?.data?.results || listRes?.results || [];
+              const found = allVendors.find(v => String(v.id) === String(inv.vendor));
+              if (found?.name) {
+                inv.vendor_name = found.name;
+                setInvoice({ ...inv });
+              }
+            } catch { /* silently ignore — billedToName will fall back to "Vendor #ID" */ }
+          }
+        }
+
+        if ((!inv.vendor_name || !inv.vendor) && inv.quotation) {
+          try {
+            const poRes = await getPurchaseOrderById(inv.quotation);
+            const poData = poRes?.data || poRes;
+            if (poData) {
+              inv.vendor = inv.vendor || poData.vendor;
+              inv.vendor_name = inv.vendor_name || poData.vendor_name;
+              inv.project = inv.project || poData.project;
+              inv.project_name = inv.project_name || poData.project_name;
+              setInvoice({ ...inv });
+            }
+          } catch {
+            // Some older invoices may not keep a quotation/PO link.
+          }
+        }
+      } else {
+        // ── Client invoices: resolve client ID ─────────────────────────────────
+        // When invoice is generated from quotation, backend may not populate:
+        //   inv.client, inv.client_name, inv.project, inv.quotation
+        // Strategy:
+        //   1. Use inv.client if present
+        //   2. If inv.quotation is populated, fetch that quotation
+        //   3. If not, find the quotation by matching trailing digits of invoice_number
+        let resolvedClientId = inv.client || null;
+
+        if (!resolvedClientId) {
+          let quotationData = null;
+
+          // Try 1: use inv.quotation field directly
+          if (inv.quotation) {
+            try {
+              const qRes = await getQuotationById(inv.quotation);
+              quotationData = qRes?.data || qRes;
+            } catch { /* silently ignore */ }
+          }
+
+          // Try 2: match by trailing digits (INV-202603-3075714 → "3075714" → QT-xxx-3075714)
+          if (!quotationData && inv.invoice_number) {
+            try {
+              const invTrailing = String(inv.invoice_number).split('-').pop();
+              const allQ = await api.get('/quotations/get_all_quotations/', {
+                params: { page: 1, page_size: 100 },
+              });
+              const qResults =
+                allQ.data?.data?.results ||
+                allQ.data?.results ||
+                [];
+              const matched = qResults.find((q) => {
+                const qTrailing = String(q.quotation_number || '').split('-').pop();
+                return qTrailing && qTrailing === invTrailing;
+              });
+              if (matched) quotationData = matched;
+            } catch { /* silently ignore */ }
+          }
+
+          if (quotationData?.client) resolvedClientId = quotationData.client;
+        }
+
+        // ── Load client ────────────────────────────────────────────────────────
+        if (resolvedClientId) {
+          try {
+            const cr = await getClientById(resolvedClientId);
+            if (cr.status === 'success' && cr.data) setClient(cr.data);
+          } catch {}
+        }
       }
 
       // ── Load created-by name ────────────────────────────────────────────────
@@ -719,33 +1053,180 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, preferredInvoiceType, location.state]);
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
+  /**
+   * Open the Download Invoice PDF modal.
+   * Pre-fills form fields from invoice data and initialises the item checklist.
+   * Company ID 1 (Constructive India) → constructive endpoint (extra fields + items).
+   * Company ID 2/3/4 → other-company endpoint (fewer fields + items).
+   */
   const handleDownload = () => {
-    setScopeOfWork('');
-    setScopeError('');
+    // Pre-fill shared form from invoice data
+    const today = new Date().toISOString().split('T')[0];
+    setPdfForm({
+      company_name:   invoice?.company_name  || '',
+      address:        invoice?.address       || '',
+      gst_no:         invoice?.gst_no        || '',
+      state:          invoice?.state         || '',
+      sac_code:       invoice?.sac_code      || '',
+      code:           invoice?.code          || '',
+      invoice_number: invoice?.invoice_number || '',
+      invoice_date:   invoice?.issue_date    ? invoice.issue_date.split('T')[0] : today,
+      work_order_date: invoice?.work_order_date ? invoice.work_order_date.split('T')[0] : today,
+      valid_from:     invoice?.valid_from    ? invoice.valid_from.split('T')[0]  : today,
+      valid_till:     invoice?.valid_until   ? invoice.valid_until.split('T')[0] : today,
+      vendor_code:    invoice?.vendor_code   || '',
+      po_no:          invoice?.po_no         || '',
+      schedule_date:  invoice?.schedule_date ? invoice.schedule_date.split('T')[0] : today,
+      scope_of_work:  '',
+    });
+    setPdfFormErrors({});
+    // Initialise item checklist — all selected, quantity = item's actual quantity
+    const initSelections = {};
+    (invoice?.items || []).forEach((item, idx) => {
+      const key = item.id != null ? String(item.id) : `idx_${idx}`;
+      initSelections[key] = {
+        selected: true,
+        quantity: parseInt(item.quantity) || 1,
+        maxQty:   parseInt(item.quantity) || 1,
+        item,
+        idx,
+      };
+    });
+    setPdfItemSelections(initSelections);
     setPdfError('');
     setShowPdfModal(true);
   };
 
+  /** Validate and submit invoice PDF download (constructive or other-company) */
   const handleConfirmPdfDownload = async () => {
-    if (!scopeOfWork.trim()) {
-      setScopeError('Scope of work is required to generate the PDF.');
-      return;
+    const errors = {};
+    if (!pdfForm.scope_of_work?.trim()) errors.scope_of_work = 'Scope of work is required.';
+    if (!pdfForm.schedule_date)         errors.schedule_date  = 'Schedule date is required.';
+    // Constructive India extra validations
+    const companyId = parseInt(invoice?.company) || 0;
+    const isConstructive = companyId === CONSTRUCTIVE_INDIA_COMPANY_ID;
+    if (isConstructive) {
+      if (!pdfForm.invoice_date)    errors.invoice_date    = 'Invoice date is required.';
+      if (!pdfForm.work_order_date) errors.work_order_date = 'Work order date is required.';
+      if (!pdfForm.valid_from)      errors.valid_from      = 'Valid from is required.';
+      if (!pdfForm.valid_till)      errors.valid_till      = 'Valid till is required.';
     }
-    setScopeError('');
+    if (Object.keys(errors).length > 0) { setPdfFormErrors(errors); return; }
+
+    // Build items array from selected checklist rows
+    const selectedItems = Object.values(pdfItemSelections)
+      .filter(sel => sel.selected)
+      .map(sel => ({
+        item_id:  sel.item?.id != null ? Number(sel.item.id) : sel.idx,
+        quantity: Number(sel.quantity),
+      }));
+    if (selectedItems.length === 0) {
+      setPdfError('Please select at least one item to include in the PDF.'); return;
+    }
+
+    setPdfFormErrors({});
     setPdfError('');
     setPdfLoading(true);
     try {
       const fileName = `${fmtInvNum(invoice?.invoice_number)}.pdf`;
-      await generateInvoicePdf(id, scopeOfWork, fileName);
+      if (isConstructive) {
+        await generateConstructiveInvoicePdf({
+          id:             Number(id),
+          company_name:   pdfForm.company_name,
+          address:        pdfForm.address,
+          gst_no:         pdfForm.gst_no,
+          state:          pdfForm.state,
+          sac_code:       pdfForm.sac_code,
+          code:           pdfForm.code,
+          invoice_number: pdfForm.invoice_number,
+          invoice_date:   pdfForm.invoice_date,
+          work_order_date: pdfForm.work_order_date,
+          valid_from:     pdfForm.valid_from,
+          valid_till:     pdfForm.valid_till,
+          vendor_code:    pdfForm.vendor_code,
+          po_no:          pdfForm.po_no,
+          schedule_date:  pdfForm.schedule_date,
+          scope_of_work:  pdfForm.scope_of_work,
+          items:          selectedItems,
+        }, fileName);
+      } else {
+        await generateOtherCompanyInvoicePdf({
+          id:             Number(id),
+          invoice_number: pdfForm.invoice_number,
+          company_name:   pdfForm.company_name,
+          address:        pdfForm.address,
+          gst_no:         pdfForm.gst_no,
+          state:          pdfForm.state,
+          sac_code:       pdfForm.sac_code,
+          po_no:          pdfForm.po_no,
+          schedule_date:  pdfForm.schedule_date,
+          scope_of_work:  pdfForm.scope_of_work,
+          items:          selectedItems,
+        }, fileName);
+      }
       setShowPdfModal(false);
     } catch (e) {
       setPdfError(e.message || 'Failed to generate PDF. Please try again.');
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  /** Open the Payment Received PDF modal and pre-fill from invoice */
+  const handleOpenPaymentPdf = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setPaymentPdfForm({
+      invoice_number: invoice?.invoice_number || '',
+      company_name:   invoice?.company_name   || '',
+      address:        invoice?.address        || '',
+      gst_no:         invoice?.gst_no         || '',
+      state:          invoice?.state          || '',
+      sac_code:       invoice?.sac_code       || '',
+      po_no:          invoice?.po_no          || '',
+      schedule_date:  invoice?.schedule_date  ? invoice.schedule_date.split('T')[0] : today,
+      scope_of_work:  '',
+      received_amount: '',
+    });
+    setPaymentPdfFormErrors({});
+    setPaymentPdfError('');
+    setShowPaymentPdfModal(true);
+  };
+
+  /** Validate and submit Payment Received PDF download */
+  const handleConfirmPaymentPdfDownload = async () => {
+    const errors = {};
+    if (!paymentPdfForm.scope_of_work?.trim())  errors.scope_of_work  = 'Scope of work is required.';
+    if (!paymentPdfForm.received_amount?.trim()) errors.received_amount = 'Received amount is required.';
+    if (!paymentPdfForm.schedule_date)           errors.schedule_date   = 'Schedule date is required.';
+    if (Object.keys(errors).length > 0) { setPaymentPdfFormErrors(errors); return; }
+
+    setPaymentPdfFormErrors({});
+    setPaymentPdfError('');
+    setPaymentPdfLoading(true);
+    try {
+      const fileName = `payment-received-${fmtInvNum(invoice?.invoice_number)}.pdf`;
+      await generatePaymentReceivedPdf({
+        id:              Number(id),
+        invoice_number:  paymentPdfForm.invoice_number,
+        company_name:    paymentPdfForm.company_name,
+        address:         paymentPdfForm.address,
+        gst_no:          paymentPdfForm.gst_no,
+        state:           paymentPdfForm.state,
+        sac_code:        paymentPdfForm.sac_code,
+        po_no:           paymentPdfForm.po_no,
+        schedule_date:   paymentPdfForm.schedule_date,
+        scope_of_work:   paymentPdfForm.scope_of_work,
+        received_amount: paymentPdfForm.received_amount,
+      }, fileName);
+      setShowPaymentPdfModal(false);
+    } catch (e) {
+      setPaymentPdfError(e.message || 'Failed to generate PDF. Please try again.');
+    } finally {
+      setPaymentPdfLoading(false);
     }
   };
 
@@ -836,10 +1317,23 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  // Detect vendor invoice: has vendor but no client (generated from a Purchase Order)
-  const isVendorInvoice = Boolean(invoice.vendor) && !invoice.client;
+  // Detect vendor invoice: has vendor field (generated from a Purchase Order)
+  // The backend returns vendor/vendor_name instead of client/client_name for PO invoices
+  const isVendorInvoice = Boolean(invoice.vendor) ||
+    String(invoice.invoice_type || '').toLowerCase().includes('purchase order') ||
+    String(invoice.invoice_type || '').toLowerCase().includes('vendor');
 
-  const billedToName = isVendorInvoice
+  // Detect invoice type from invoice_type field (authoritative) with item-level fallback
+  const invoiceTypeRaw   = String(invoice.invoice_type || '').toLowerCase();
+  const isPurchaseOrder  = isVendorInvoice || invoiceTypeRaw.includes('purchase order') || invoiceTypeRaw.includes('vendor');
+  const isExecution      = !isPurchaseOrder && (invoiceTypeRaw.includes('execution') || items.some(it => [5, 6, 7].includes(Number(it.compliance_category))));
+  // Regulatory = everything that is neither Execution nor PO (i.e. categories 1-4 / proforma flow)
+  const isRegulatory     = !isPurchaseOrder && !isExecution;
+
+  // PO invoices share the material/labour column layout with Execution invoices
+  const hasRateColumns   = isExecution || isPurchaseOrder;
+
+  const billedToName = isPurchaseOrder
     ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
     : client
       ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
@@ -861,6 +1355,24 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         : '—';
 
   const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
+  const companyName = invoice.company_name || getQuotationCompanyName(invoice.company) || 'ERP System';
+  const totalProfessionalAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const professional = parseFloat(item.Professional_amount || 0) || 0;
+    return sum + (professional * qty);
+  }, 0);
+  const totalMaterialAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const materialAmount = parseFloat(item.material_amount);
+    const materialRate = parseFloat(item.material_rate || 0) || 0;
+    return sum + (Number.isFinite(materialAmount) ? materialAmount : materialRate * qty);
+  }, 0);
+  const totalLabourAmount = items.reduce((sum, item) => {
+    const qty = parseInt(item.quantity) || 1;
+    const labourAmount = parseFloat(item.labour_amount);
+    const labourRate = parseFloat(item.labour_rate || 0) || 0;
+    return sum + (Number.isFinite(labourAmount) ? labourAmount : labourRate * qty);
+  }, 0);
 
   return (
     <>
@@ -872,6 +1384,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         @keyframes vid_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
         @keyframes vid_overlay_in{from{opacity:0}to{opacity:1}}
         @keyframes vid_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes notes_spin{to{transform:rotate(360deg)}}
+        @keyframes notes_slide_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .vid-root{min-height:100vh;padding:0}
         .vid-topbar{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px;flex-wrap:wrap;gap:10px}
         .vid-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
@@ -1016,20 +1530,29 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <button
               className="vid-btn-track"
               title="Track payment for this invoice"
-              onClick={() => navigate(`/invoices/${id}/track-payment`)}
+              onClick={() => navigate(`/invoices/${id}/track-payment`, {
+                state: {
+                  invoice_id:    id,
+                  invoice_type:  isPurchaseOrder ? 'vendor' : isExecution ? 'execution' : 'regulatory',
+                  client_id:     isPurchaseOrder ? null : (invoice.client || client?.id || null),
+                  vendor_id:     isPurchaseOrder ? (invoice.vendor || null) : null,
+                  invoice_number: invoice.invoice_number,
+                  grand_total:   invoice.grand_total || invoice.total_outstanding,
+                },
+              })}
               disabled={isCancelled}
               style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
             >
               <DollarSign size={14} /> Track Payment
             </button>
-            {/* Send to Client */}
+            {/* Send to Client / Vendor */}
             <button
               className="vid-btn-o"
               onClick={() => setSendModal(true)}
               disabled={isCancelled}
               style={isCancelled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
             >
-              <Mail size={14} /> Send to Client
+              <Mail size={14} /> {isPurchaseOrder ? 'Send to Vendor' : 'Send to Client'}
             </button>
             {/* Download Invoice — always active, even when cancelled */}
             <button
@@ -1039,8 +1562,17 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             >
               {pdfLoading ? <><Loader2 size={14} className="vid-spin" /> Generating…</> : <><Download size={14} /> Download Invoice</>}
             </button>
-            {/* Create Purchase Order — only shown for Execution Compliance invoices */}
-            {!isVendorInvoice && invoice.invoice_type === 'Execution Compliance' && (
+            {/* Download Payment Received PDF — separate button, always active */}
+            <button
+              className="vid-btn-p"
+              onClick={handleOpenPaymentPdf}
+              disabled={paymentPdfLoading}
+              style={{ background: 'linear-gradient(135deg,#0d9488,#0891b2)', boxShadow: '0 2px 8px rgba(8,145,178,.25)' }}
+            >
+              {paymentPdfLoading ? <><Loader2 size={14} className="vid-spin" /> Generating…</> : <><Receipt size={14} /> Payment Received PDF</>}
+            </button>
+            {/* Create Purchase Order — only shown for Execution Compliance invoices (client invoices, not PO) */}
+            {!isPurchaseOrder && invoice.invoice_type === 'Execution Compliance' && (
               <button
                 className="vid-btn-p"
                 onClick={handleOpenCreatePOModal}
@@ -1083,7 +1615,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               <div className="vid-logo">
                 <div className="vid-logo-badge">ERP</div>
                 <div>
-                  <div className="vid-co-name">ERP System</div>
+                  <div className="vid-co-name">{companyName}</div>
                   <div className="vid-co-sub">Professional Services</div>
                 </div>
               </div>
@@ -1119,12 +1651,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           {/* ══════════ PARTIES ══════════ */}
           <div className="vid-parties">
             <div className="vid-party">
-              <div className="vid-plabel">{isVendorInvoice ? 'Vendor' : 'Billed To'}</div>
-              <div className="vid-pavatar" style={isVendorInvoice ? { background: 'linear-gradient(135deg,#0d9488,#0f766e)' } : {}}>
-                {(billedToName && billedToName !== '—' ? billedToName : isVendorInvoice ? 'V' : '?').charAt(0).toUpperCase()}
+              <div className="vid-plabel">{isPurchaseOrder ? 'Vendor' : 'Billed To'}</div>
+              <div className="vid-pavatar" style={isPurchaseOrder ? { background: 'linear-gradient(135deg,#0d9488,#0f766e)' } : {}}>
+                {(billedToName && billedToName !== '—' ? billedToName : isPurchaseOrder ? 'V' : '?').charAt(0).toUpperCase()}
               </div>
               <div className="vid-pname">{billedToName}</div>
-              {isVendorInvoice ? (
+              {isPurchaseOrder ? (
                 <>
                   {/* Vendor ID hidden from UI but preserved in DOM for track payment & other functionality */}
                   {invoice.vendor && (
@@ -1228,18 +1760,32 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                         <th style={{ width: 32 }}>#</th>
                         <th>Description</th>
                         <th style={{ width: 80 }}>Sub-Category</th>
+                        {hasRateColumns && <th style={{ width: 70 }}>Unit</th>}
                         <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
+                        {hasRateColumns ? (
+                          <>
+                            <th style={{ width: 115, textAlign: 'right' }}>Mat. Rate (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Material Amt (₹)</th>
+                            <th style={{ width: 115, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          </>
+                        ) : (
+                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy</th>
+                        )}
                         <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                        <th style={{ width: 130, textAlign: 'right' }}>Miscellaneous</th>
                         <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
                       </tr>
                     </thead>
                     {groups.map((grp, gi) => {
+                      // #, Description, Sub-Category, [Unit], Qty,
+                      // [Mat.Rate, Lab.Rate, Mat.Amt, Lab.Amt] OR [Consultancy],
+                      // Professional, Item Total
+                      const colSpanCount = hasRateColumns ? 11 : 7;
                       const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
                       return (
                         <tbody key={gi}>
                           <tr className="vid-cat-row">
-                            <td colSpan={7}>
+                            <td colSpan={colSpanCount}>
                               <div className="vid-cat-inner">
                                 <span className="vid-cat-dot" />
                                 {grp.catName}
@@ -1249,32 +1795,66 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                           </tr>
                           {grp.items.map((item, ii) => {
                             const prof    = parseFloat(item.Professional_amount || 0);
-                            const miscRaw = item.miscellaneous_amount;
-                            const miscNum = isMiscNumeric(miscRaw) ? parseFloat(miscRaw) : 0;
                             const qty     = parseInt(item.quantity) || 1;
-                            const total   = (prof + miscNum) * qty;
+                            const total   = calcItemTotal(item);
                             const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                            const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--' ? String(miscRaw).trim() : null;
+
+                            if (hasRateColumns) {
+                              // Execution & Purchase Order columns:
+                              // Mat. Rate | Lab. Rate | Material Amt | Labour Amt | Professional | Total
+                              const matRate = parseFloat(item.material_rate)   || 0;
+                              const labRate = parseFloat(item.labour_rate)     || 0;
+                              const matAmt  = parseFloat(item.material_amount) || 0;
+                              const labAmt  = parseFloat(item.labour_amount)   || 0;
+                              return (
+                                <tr key={ii} className="vid-row">
+                                  <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
+                                  <td><div className="vid-desc">{item.description || '—'}</div></td>
+                                  <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
+                                  <td style={{ fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
+                                  <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
+                                </tr>
+                              );
+                            }
+
+                            // Regulatory columns: Consultancy, Professional, Total
+                            const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
+                            const consultancyStr = consultancyRaw && String(consultancyRaw).trim() && String(consultancyRaw).trim() !== '--'
+                              ? String(consultancyRaw).trim() : null;
                             return (
                               <tr key={ii} className="vid-row">
                                 <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
                                 <td><div className="vid-desc">{item.description || '—'}</div></td>
                                 <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
                                 <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
                                 <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                  {miscStr
-                                    ? isMiscNumeric(miscStr)
-                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                      : <span className="vid-misc-note" title="Note — not in total">{miscStr}</span>
+                                  {consultancyStr
+                                    ? isMiscNumeric(consultancyStr)
+                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
+                                      : <span className="vid-misc-note" title="Note — not in total">{consultancyStr}</span>
                                     : <span style={{ color: '#e2e8f0' }}>—</span>}
                                 </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
                               </tr>
                             );
                           })}
                           <tr className="vid-cat-sub">
-                            <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
+                            <td colSpan={colSpanCount - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
                             <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
                           </tr>
                         </tbody>
@@ -1287,7 +1867,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
             {/* RIGHT: Quick Info Card */}
             <div className="vid-body-right">
-              <QuickInfoCard invoice={invoice} client={client} project={project} />
+              <QuickInfoCard
+                invoice={invoice}
+                client={client}
+                project={project}
+                isPurchaseOrder={isPurchaseOrder}
+              />
             </div>
           </div>
 
@@ -1301,8 +1886,34 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Compliance Groups</span><span className="vid-sum-val">{groups.length}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">SAC Code</span><span className="vid-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{invoice.sac_code || '—'}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Status</span><span><StatusPill status={status} /></span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">{isPurchaseOrder ? 'Vendor' : 'Client'}</span><span className="vid-sum-val">{billedToName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Project</span><span className="vid-sum-val">{projName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Company</span><span className="vid-sum-val">{companyName}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Issue Date</span><span className="vid-sum-val">{fmtDate(invoice.issue_date || invoice.created_at)}</span></div>
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Last Updated</span><span className="vid-sum-val">{fmtDate(invoice.updated_at)}</span></div>
                 {createdByName && <div className="vid-sum-item"><span className="vid-sum-lbl">Prepared By</span><span className="vid-sum-val">{createdByName}</span></div>}
               </div>
+              {hasRateColumns && (
+                <div style={{ marginTop: 18, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 12 }}>
+                    {isPurchaseOrder ? 'Purchase Order Cost Breakdown' : 'Execution Cost Breakdown'}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Professional Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalProfessionalAmount)}</span>
+                    </div>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Material Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalMaterialAmount)}</span>
+                    </div>
+                    <div className="vid-sum-item">
+                      <span className="vid-sum-lbl">Labour Amount</span>
+                      <span className="vid-sum-val">₹ {fmtINR(totalLabourAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               {invoice.notes && (
                 <div style={{ marginTop: 18 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 6 }}>Notes</div>
@@ -1328,6 +1939,14 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               <button className="vid-dl-btn" onClick={handleDownload} disabled={pdfLoading}>
                 {pdfLoading ? <><Loader2 size={15} className="vid-spin" /> Generating PDF…</> : <><Download size={15} /> Download Invoice</>}
               </button>
+              <button
+                className="vid-dl-btn"
+                onClick={handleOpenPaymentPdf}
+                disabled={paymentPdfLoading}
+                style={{ marginTop: 8 }}
+              >
+                {paymentPdfLoading ? <><Loader2 size={15} className="vid-spin" /> Generating…</> : <><Receipt size={15} /> Payment Received PDF</>}
+              </button>
             </div>
           </div>
 
@@ -1338,6 +1957,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           </div>
 
         </div>{/* end .vid-doc */}
+
+        {/* ══════════ NOTES SECTION ══════════ */}
+        {!loading && invoice && (
+          <Notes entityType={NOTE_ENTITY.INVOICE} entityId={invoice.id} />
+        )}
+
       </div>{/* end .vid-root */}
 
       {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
@@ -1527,87 +2152,600 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         );
       })()}
 
-      {showPdfModal && (
+      {/* ══════════ DOWNLOAD INVOICE PDF MODAL ══════════ */}
+      {showPdfModal && (() => {
+        const companyId = parseInt(invoice?.company) || 0;
+        const isConstructive = companyId === CONSTRUCTIVE_INDIA_COMPANY_ID;
+        const allItems = invoice?.items || [];
+
+        // ── Invoice-type flags (mirror outer-scope derivations so checklist is type-aware) ──
+        const modalInvoiceTypeRaw = String(invoice?.invoice_type || '').toLowerCase();
+        const modalIsExecution    = !isPurchaseOrder && (
+          modalInvoiceTypeRaw.includes('execution') ||
+          allItems.some(it => [5, 6, 7].includes(Number(it.compliance_category)))
+        );
+        const modalIsRegulatory   = !isPurchaseOrder && !modalIsExecution;
+
+        // ── Selected Items Total (uses correct per-unit helper) ──
+        const selectedTotal = parseFloat(
+          Object.values(pdfItemSelections)
+            .filter(s => s.selected)
+            .reduce((sum, s) => {
+              const unitAmt = s.item ? calcItemUnitAmount(s.item) : 0;
+              return sum + unitAmt * (parseInt(s.quantity) || 0);
+            }, 0)
+          .toFixed(2)
+        );
+        const field = (key, label, required = false, type = 'text', extra = {}) => (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
+              {label}{required && <span style={{ color: '#dc2626', marginLeft: 3 }}>*</span>}
+            </div>
+            <input
+              type={type}
+              value={pdfForm[key] || ''}
+              onChange={e => { setPdfForm(p => ({ ...p, [key]: e.target.value })); setPdfFormErrors(p => ({ ...p, [key]: '' })); }}
+              disabled={pdfLoading}
+              style={{
+                width: '100%', padding: '8px 11px',
+                border: `1.5px solid ${pdfFormErrors[key] ? '#fca5a5' : '#e2e8f0'}`,
+                borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                outline: 'none', boxSizing: 'border-box',
+                background: pdfLoading ? '#f8fafc' : '#fff',
+              }}
+              {...extra}
+            />
+            {pdfFormErrors[key] && (
+              <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <AlertCircle size={11} /> {pdfFormErrors[key]}
+              </div>
+            )}
+          </div>
+        );
+        return (
+          <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+            <div
+              className="absolute inset-0 bg-black/50 pointer-events-auto"
+              style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+              onClick={() => !pdfLoading && setShowPdfModal(false)}
+            />
+            <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+              <div
+                style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 620, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.28)', fontFamily: "'Outfit', sans-serif", display: 'flex', flexDirection: 'column' }}
+                className="pointer-events-auto"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* ── Header ── */}
+                <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px', position: 'sticky', top: 0, zIndex: 2, borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <FileSearch size={17} color="#fff" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Download Invoice PDF</div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>
+                          {fmtInvNum(invoice?.invoice_number)}&nbsp;·&nbsp;
+                          {isConstructive ? 'Constructive India (GST Invoice)' : 'Other Company Invoice'}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => !pdfLoading && setShowPdfModal(false)}
+                      style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Body ── */}
+                <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+
+                  {/* Company badge */}
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: isConstructive ? '#f0fdf4' : '#eff6ff', border: `1px solid ${isConstructive ? '#86efac' : '#bfdbfe'}`, borderRadius: 20, padding: '5px 12px', marginBottom: 18, fontSize: 12, fontWeight: 700, color: isConstructive ? '#059669' : '#2563eb' }}>
+                    <Building2 size={13} />
+                    {isConstructive ? 'Constructive India — GST endpoint' : 'Other Company — generic endpoint'}
+                  </div>
+
+                  {/* ── Form fields grid ── */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                    {field('invoice_number', 'Invoice Number', false)}
+                    {field('company_name',   'Company Name', false)}
+                    {field('address',        'Address', false)}
+                    {field('gst_no',         'GST No.', false)}
+                    {field('state',          'State', false)}
+                    {field('sac_code',       'SAC Code', false)}
+                    {field('po_no',          'PO No.', false)}
+                    {field('schedule_date',  'Schedule Date', true, 'date')}
+                    {isConstructive && field('invoice_date',    'Invoice Date', true, 'date')}
+                    {isConstructive && field('work_order_date', 'Work Order Date', true, 'date')}
+                    {isConstructive && field('valid_from',      'Valid From', true, 'date')}
+                    {isConstructive && field('valid_till',      'Valid Till', true, 'date')}
+                    {isConstructive && field('vendor_code',     'Vendor Code', false)}
+                    {isConstructive && field('code',            'Code', false)}
+                  </div>
+
+                  {/* Scope of Work */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
+                      Scope of Work <span style={{ color: '#dc2626' }}>*</span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. Supply, installation and commissioning of plumbing works…"
+                      value={pdfForm.scope_of_work || ''}
+                      onChange={e => { setPdfForm(p => ({ ...p, scope_of_work: e.target.value })); setPdfFormErrors(p => ({ ...p, scope_of_work: '' })); }}
+                      disabled={pdfLoading}
+                      style={{
+                        width: '100%', padding: '9px 11px',
+                        border: `1.5px solid ${pdfFormErrors.scope_of_work ? '#fca5a5' : '#e2e8f0'}`,
+                        borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                        resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                        background: pdfLoading ? '#f8fafc' : '#fff',
+                      }}
+                    />
+                    {pdfFormErrors.scope_of_work && (
+                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <AlertCircle size={11} /> {pdfFormErrors.scope_of_work}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Items Checklist ── */}
+                  {allItems.length > 0 && (() => {
+                    // ── Build groups in the exact same order as the main invoice table ──
+                    // groupItemsByCategory preserves insertion order; we then sort groups
+                    // by compliance_category ID ascending (1→2→3→4→5→6→7→null-last)
+                    // so the checklist always matches the view-page table precisely.
+                    const checklistGroups = groupItemsByCategory(allItems)
+                      .slice()
+                      .sort((a, b) => {
+                        if (a.catId == null && b.catId == null) return 0;
+                        if (a.catId == null) return 1;   // nulls go last
+                        if (b.catId == null) return -1;
+                        return Number(a.catId) - Number(b.catId);
+                      });
+
+                    // Flat ordered list used only for border-bottom logic
+                    const flatOrdered = checklistGroups.flatMap(g => g.items);
+                    const totalFlat   = flatOrdered.length;
+
+                    return (
+                      <div style={{ marginBottom: 20 }}>
+                        {/* Header row */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                            Select Items for PDF
+                            <span style={{ marginLeft: 8, background: '#f0fdf4', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: 20, padding: '1px 8px', fontSize: 10.5, fontWeight: 700 }}>
+                              {Object.values(pdfItemSelections).filter(s => s.selected).length} / {allItems.length} selected
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              onClick={() => setPdfItemSelections(prev => {
+                                const next = {};
+                                Object.keys(prev).forEach(k => { next[k] = { ...prev[k], selected: true }; });
+                                return next;
+                              })}
+                              style={{ fontSize: 11, fontWeight: 600, color: '#0f766e', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                            >Select All</button>
+                            <button
+                              onClick={() => setPdfItemSelections(prev => {
+                                const next = {};
+                                Object.keys(prev).forEach(k => { next[k] = { ...prev[k], selected: false }; });
+                                return next;
+                              })}
+                              style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                            >Deselect All</button>
+                          </div>
+                        </div>
+
+                        {/* Grouped list — one section per compliance category, same order as main table */}
+                        <div style={{ border: '1.5px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                          {checklistGroups.map((grp, grpIdx) => {
+                            const isLastGroup = grpIdx === checklistGroups.length - 1;
+                            return (
+                              <div key={grp.catId ?? 'other'}>
+
+                                {/* ── Category header ── */}
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                  padding: '7px 14px',
+                                  background: '#f8fafc',
+                                  borderBottom: '1px solid #e2e8f0',
+                                  borderTop: grpIdx > 0 ? '1.5px solid #e2e8f0' : 'none',
+                                }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#0f766e', flexShrink: 0, display: 'inline-block' }} />
+                                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                                    {grp.catName}
+                                  </span>
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>
+                                    {grp.items.length} item{grp.items.length !== 1 ? 's' : ''}
+                                  </span>
+                                </div>
+
+                                {/* ── Items within this category ── */}
+                                {grp.items.map((item, itemIdx) => {
+                                  const key = item.id != null ? String(item.id) : `idx_${allItems.indexOf(item)}`;
+                                  const sel = pdfItemSelections[key] || {
+                                    selected: false,
+                                    quantity: parseInt(item.quantity) || 1,
+                                    maxQty:   parseInt(item.quantity) || 1,
+                                  };
+
+                                  // Use safe numeric qty (handles mid-typing empty string)
+                                  const selQty = parseInt(sel.quantity) || 0;
+
+                                  const prof    = parseFloat(item.Professional_amount) || 0;
+                                  const matRate = parseFloat(item.material_rate) || 0;
+                                  const labRate = parseFloat(item.labour_rate)   || 0;
+                                  const matAmt  = parseFloat(item.material_amount) || 0;
+                                  const labAmt  = parseFloat(item.labour_amount)   || 0;
+                                  const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
+                                  const consultancyNum = (() => {
+                                    if (consultancyRaw === '--' || consultancyRaw == null || consultancyRaw === '') return 0;
+                                    const n = parseFloat(String(consultancyRaw).trim());
+                                    return isNaN(n) ? 0 : n;
+                                  })();
+
+                                  // Per-unit rates for Mat and Lab (prefer rate field, fallback to amount/maxQty)
+                                  const matRatePerUnit = matRate > 0 ? matRate : (matAmt > 0 ? matAmt / (parseInt(item.quantity) || 1) : 0);
+                                  const labRatePerUnit = labRate > 0 ? labRate : (labAmt > 0 ? labAmt / (parseInt(item.quantity) || 1) : 0);
+
+                                  // Dynamic amounts based on currently selected quantity
+                                  const dynamicMatAmt = parseFloat((matRatePerUnit * selQty).toFixed(2));
+                                  const dynamicLabAmt = parseFloat((labRatePerUnit * selQty).toFixed(2));
+                                  const dynamicProfAmt = parseFloat((prof * selQty).toFixed(2));
+
+                                  // Line total using dynamic qty
+                                  const unitAmt  = calcItemUnitAmount(item);
+                                  const lineTotal = parseFloat((unitAmt * selQty).toFixed(2));
+
+                                  // isExecution covers both execution and vendor compliance invoice types
+                                  const itemIsExec = (
+                                    item.material_rate   != null ||
+                                    item.labour_rate     != null ||
+                                    item.material_amount != null ||
+                                    item.labour_amount   != null
+                                  );
+                                  // Show execution-style breakdown for exec AND vendor invoices
+                                  const showExecBreakdown = itemIsExec && (modalIsExecution || isPurchaseOrder);
+
+                                  const isLastItemInGroup  = itemIdx === grp.items.length - 1;
+                                  const showBottomBorder   = !(isLastGroup && isLastItemInGroup);
+
+                                  return (
+                                    <div
+                                      key={key}
+                                      style={{
+                                        display: 'flex', alignItems: 'flex-start', gap: 12,
+                                        padding: '10px 14px',
+                                        borderBottom: showBottomBorder ? '1px solid #f0f4f8' : 'none',
+                                        background: sel.selected ? '#fafffe' : '#fff',
+                                        transition: 'background .1s',
+                                      }}
+                                    >
+                                      {/* Checkbox */}
+                                      <div
+                                        onClick={() => setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, selected: !sel.selected } }))}
+                                        style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${sel.selected ? '#0f766e' : '#d1d5db'}`, background: sel.selected ? '#0f766e' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 2, transition: 'all .12s' }}
+                                      >
+                                        {sel.selected && (
+                                          <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                                            <path d="M1 4.5L4 7.5L10 1.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                          </svg>
+                                        )}
+                                      </div>
+
+                                      {/* Description + sub-category + per-type rate chips */}
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3 }}>
+                                          {item.description || `Item #${itemIdx + 1}`}
+                                        </div>
+
+                                        {/* Sub-category badge */}
+                                        {item.sub_compliance_category != null && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] && (
+                                          <span style={{ fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 7px', borderRadius: 20, border: '1px solid #e2e8f0', fontWeight: 600, display: 'inline-block', marginBottom: 4 }}>
+                                            {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category].name}
+                                          </span>
+                                        )}
+
+                                        {/* Execution / Vendor: mat / lab / prof — shows per-unit rate AND dynamic total for selected qty */}
+                                        {showExecBreakdown && (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
+                                            {matRatePerUnit > 0 && (
+                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
+                                                Mat: ₹{fmtINR(matRatePerUnit)}/unit
+                                                {selQty > 1 && sel.selected && (
+                                                  <span style={{ color: '#0369a1', fontWeight: 700 }}> = ₹{fmtINR(dynamicMatAmt)}</span>
+                                                )}
+                                              </span>
+                                            )}
+                                            {labRatePerUnit > 0 && (
+                                              <span style={{ fontSize: 10, color: sel.selected ? '#7c3aed' : '#d1d5db', fontWeight: 600 }}>
+                                                Lab: ₹{fmtINR(labRatePerUnit)}/unit
+                                                {selQty > 1 && sel.selected && (
+                                                  <span style={{ color: '#7c3aed', fontWeight: 700 }}> = ₹{fmtINR(dynamicLabAmt)}</span>
+                                                )}
+                                              </span>
+                                            )}
+                                            {prof > 0 && (
+                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
+                                                Prof: ₹{fmtINR(prof)}/unit
+                                                {selQty > 1 && sel.selected && (
+                                                  <span style={{ color: '#0f766e', fontWeight: 700 }}> = ₹{fmtINR(dynamicProfAmt)}</span>
+                                                )}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Regulatory: consultancy + prof per-unit */}
+                                        {!showExecBreakdown && !itemIsExec && (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
+                                            {consultancyNum > 0 && (
+                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
+                                                Consultancy: ₹{fmtINR(consultancyNum)}/unit
+                                              </span>
+                                            )}
+                                            {prof > 0 && (
+                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
+                                                Professional: ₹{fmtINR(prof)}/unit
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Quantity input + line total */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>QTY</span>
+                                          <input
+                                            type="number"
+                                            min={1}
+                                            max={sel.maxQty}
+                                            value={sel.quantity}
+                                            disabled={!sel.selected || pdfLoading}
+                                            onChange={e => {
+                                              // Allow free typing (including clearing with backspace)
+                                              const raw = e.target.value;
+                                              if (raw === '' || raw === '-') {
+                                                setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: raw } }));
+                                                return;
+                                              }
+                                              let v = parseInt(raw, 10);
+                                              if (isNaN(v)) return;
+                                              if (v < 1) v = 1;
+                                              if (v > sel.maxQty) v = sel.maxQty;
+                                              setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: v } }));
+                                            }}
+                                            onBlur={e => {
+                                              // Clamp on blur — if user left it empty, restore to 1
+                                              let v = parseInt(e.target.value, 10);
+                                              if (isNaN(v) || v < 1) v = 1;
+                                              if (v > sel.maxQty) v = sel.maxQty;
+                                              setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: v } }));
+                                            }}
+                                            style={{
+                                              width: 52, padding: '4px 6px', fontSize: 13, fontWeight: 700,
+                                              border: `1.5px solid ${sel.selected ? '#0f766e' : '#e2e8f0'}`,
+                                              borderRadius: 7, textAlign: 'center', outline: 'none',
+                                              color: sel.selected ? '#1e293b' : '#94a3b8',
+                                              background: sel.selected ? '#fff' : '#f8fafc',
+                                              fontFamily: 'inherit',
+                                            }}
+                                          />
+                                          <span style={{ fontSize: 10, color: '#94a3b8' }}>/ {sel.maxQty}</span>
+                                        </div>
+                                        <div style={{ fontSize: 11.5, fontWeight: 700, color: sel.selected ? '#0f766e' : '#d1d5db' }}>
+                                          ₹ {fmtINR(lineTotal)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Selected total */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10 }}>
+                          <span style={{ fontSize: 12, color: '#064e3b', fontWeight: 600 }}>Selected Items Total:</span>
+                          <span style={{ fontSize: 15, fontWeight: 900, color: '#0f766e' }}>₹ {fmtINR(selectedTotal)}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* API error */}
+                  {pdfError && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div>
+                        <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
+                        <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Buttons */}
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => !pdfLoading && setShowPdfModal(false)}
+                      disabled={pdfLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmPdfDownload}
+                      disabled={pdfLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : '#0f766e', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                    >
+                      {pdfLoading
+                        ? <><Loader2 size={13} style={{ animation: 'vid_spin 0.7s linear infinite' }} /> Generating…</>
+                        : <><Download size={13} /> Generate &amp; Download</>
+                      }
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════ PAYMENT RECEIVED PDF MODAL ══════════ */}
+      {showPaymentPdfModal && (
         <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
           <div
             className="absolute inset-0 bg-black/50 pointer-events-auto"
             style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={() => !pdfLoading && setShowPdfModal(false)}
+            onClick={() => !paymentPdfLoading && setShowPaymentPdfModal(false)}
           />
           <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
             <div
-              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }}
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.28)', fontFamily: "'Outfit', sans-serif", display: 'flex', flexDirection: 'column' }}
               className="pointer-events-auto"
               onClick={e => e.stopPropagation()}
             >
-              {/* Header */}
-              <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px' }}>
+              {/* ── Header ── */}
+              <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px', position: 'sticky', top: 0, zIndex: 2, borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <FileSearch size={17} color="#fff" />
+                      <Receipt size={17} color="#fff" />
                     </div>
                     <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Download Invoice PDF</div>
-                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{fmtInvNum(invoice?.invoice_number)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Payment Received PDF</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>Acknowledge received payment · {fmtInvNum(invoice?.invoice_number)}</div>
                     </div>
                   </div>
                   <button
-                    onClick={() => !pdfLoading && setShowPdfModal(false)}
-                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                    onClick={() => !paymentPdfLoading && setShowPaymentPdfModal(false)}
+                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: paymentPdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
                   >
                     <X size={15} />
                   </button>
                 </div>
               </div>
 
-              {/* Body */}
+              {/* ── Body ── */}
               <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
-                {/* Info banner */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
-                  <AlertCircle size={14} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ margin: 0, fontSize: 12, color: '#065f46', lineHeight: 1.6 }}>
-                    Enter the scope of work to be included in the PDF. This text will appear in the generated invoice document sent to the client.
+                {/* Info */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+                  <AlertCircle size={14} color="#0d9488" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: '#134e4a', lineHeight: 1.6 }}>
+                    This PDF acknowledges a payment received for this invoice. Enter the received amount and other details below.
                   </p>
                 </div>
 
-                {/* Scope textarea */}
+                {/* Form fields */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                  {[
+                    ['invoice_number', 'Invoice Number', false, 'text'],
+                    ['company_name',   'Company Name',   false, 'text'],
+                    ['address',        'Address',        false, 'text'],
+                    ['gst_no',         'GST No.',        false, 'text'],
+                    ['state',          'State',          false, 'text'],
+                    ['sac_code',       'SAC Code',       false, 'text'],
+                    ['po_no',          'PO No.',         false, 'text'],
+                    ['schedule_date',  'Schedule Date',  true,  'date'],
+                  ].map(([key, label, req, type]) => (
+                    <div key={key} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
+                        {label}{req && <span style={{ color: '#dc2626', marginLeft: 3 }}>*</span>}
+                      </div>
+                      <input
+                        type={type}
+                        value={paymentPdfForm[key] || ''}
+                        onChange={e => { setPaymentPdfForm(p => ({ ...p, [key]: e.target.value })); setPaymentPdfFormErrors(p => ({ ...p, [key]: '' })); }}
+                        disabled={paymentPdfLoading}
+                        style={{
+                          width: '100%', padding: '8px 11px',
+                          border: `1.5px solid ${paymentPdfFormErrors[key] ? '#fca5a5' : '#e2e8f0'}`,
+                          borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                          outline: 'none', boxSizing: 'border-box',
+                          background: paymentPdfLoading ? '#f8fafc' : '#fff',
+                        }}
+                      />
+                      {paymentPdfFormErrors[key] && (
+                        <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <AlertCircle size={11} /> {paymentPdfFormErrors[key]}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Scope of Work */}
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
                     Scope of Work <span style={{ color: '#dc2626' }}>*</span>
                   </div>
                   <textarea
-                    rows={4}
-                    placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
-                    value={scopeOfWork}
-                    onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
-                    onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
-                    onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
-                    disabled={pdfLoading}
-                    autoFocus
+                    rows={3}
+                    placeholder="e.g. Supply, installation and commissioning of plumbing works…"
+                    value={paymentPdfForm.scope_of_work || ''}
+                    onChange={e => { setPaymentPdfForm(p => ({ ...p, scope_of_work: e.target.value })); setPaymentPdfFormErrors(p => ({ ...p, scope_of_work: '' })); }}
+                    disabled={paymentPdfLoading}
                     style={{
-                      width: '100%', padding: '10px 12px',
-                      border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`,
-                      borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
-                      color: '#1e293b', resize: 'vertical', minHeight: 110,
-                      outline: 'none', transition: 'border-color .15s, box-shadow .15s',
-                      boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                      width: '100%', padding: '9px 11px',
+                      border: `1.5px solid ${paymentPdfFormErrors.scope_of_work ? '#fca5a5' : '#e2e8f0'}`,
+                      borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                      resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                      background: paymentPdfLoading ? '#f8fafc' : '#fff',
                     }}
                   />
-                  {scopeError && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
-                      <AlertCircle size={12} /> {scopeError}
+                  {paymentPdfFormErrors.scope_of_work && (
+                    <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <AlertCircle size={11} /> {paymentPdfFormErrors.scope_of_work}
                     </div>
                   )}
                 </div>
 
+                {/* Received Amount — highlighted */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
+                    Received Amount <span style={{ color: '#dc2626' }}>*</span>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, fontWeight: 700, color: '#0d9488' }}>₹</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 50000.00"
+                      value={paymentPdfForm.received_amount || ''}
+                      onChange={e => { setPaymentPdfForm(p => ({ ...p, received_amount: e.target.value })); setPaymentPdfFormErrors(p => ({ ...p, received_amount: '' })); }}
+                      disabled={paymentPdfLoading}
+                      style={{
+                        width: '100%', padding: '10px 12px 10px 28px',
+                        border: `2px solid ${paymentPdfFormErrors.received_amount ? '#fca5a5' : '#0d9488'}`,
+                        borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'inherit', color: '#0f766e',
+                        outline: 'none', boxSizing: 'border-box',
+                        background: paymentPdfLoading ? '#f8fafc' : '#f0fdfa',
+                      }}
+                    />
+                  </div>
+                  {paymentPdfFormErrors.received_amount && (
+                    <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <AlertCircle size={11} /> {paymentPdfFormErrors.received_amount}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 5 }}>
+                    Grand total for reference: <strong style={{ color: '#0f766e' }}>₹ {fmtINR(grandTotal)}</strong>
+                  </div>
+                </div>
+
                 {/* API error */}
-                {pdfError && (
+                {paymentPdfError && (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
                     <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                     <div>
                       <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
-                      <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                      <div style={{ fontWeight: 400 }}>{paymentPdfError}</div>
                     </div>
                   </div>
                 )}
@@ -1615,19 +2753,19 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 {/* Buttons */}
                 <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
                   <button
-                    onClick={() => !pdfLoading && setShowPdfModal(false)}
-                    disabled={pdfLoading}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => !paymentPdfLoading && setShowPaymentPdfModal(false)}
+                    disabled={paymentPdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: paymentPdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={handleConfirmPdfDownload}
-                    disabled={pdfLoading}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                    onClick={handleConfirmPaymentPdfDownload}
+                    disabled={paymentPdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: paymentPdfLoading ? '#d1d5db' : '#0f766e', color: '#fff', fontSize: 13, fontWeight: 700, cursor: paymentPdfLoading ? 'not-allowed' : 'pointer', boxShadow: paymentPdfLoading ? 'none' : '0 2px 8px rgba(13,148,136,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
                   >
-                    {pdfLoading
-                      ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Generating…</>
+                    {paymentPdfLoading
+                      ? <><Loader2 size={13} style={{ animation: 'vid_spin 0.7s linear infinite' }} /> Generating…</>
                       : <><Download size={13} /> Generate &amp; Download</>
                     }
                   </button>
@@ -1742,7 +2880,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           </div>
         </div>
       )}
-
     </>
   );
 }

@@ -38,6 +38,7 @@ const DynamicList = ({
   statsCards = null,
   actionHandlers = {},
   noBorder = false,
+  headerControls = null,
 }) => {
   if (!config) {
     return (
@@ -141,6 +142,7 @@ const DynamicList = ({
           onFilterToggle={onFilterToggle}
           filterActive={showFilter}
           note={config.note}
+          controls={headerControls}
         />
 
         <div className={`${config.layoutType === 'cards' ? 'p-6 lg:p-8' : ''}`}>

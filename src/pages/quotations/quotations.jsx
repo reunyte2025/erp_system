@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Plus, User, ChevronDown, Trash2, Edit, FileText, Download, Send, X, Loader2, AlertCircle, CheckCircle, Building2, ChevronRight } from 'lucide-react';
-import { createQuotation, updateQuotationFull, getComplianceByCategory, getSubComplianceCategories, generateQuotationPdf } from '../../services/quotation';
+import { Search, Plus, User, ChevronDown, Trash2, Edit, FileText, Download, X, Loader2, AlertCircle, CheckCircle, Building2, ChevronRight } from 'lucide-react';
+import { createRegulatoryQuotation, createExecutionQuotation, updateQuotationFull, getComplianceByCategory, getSubComplianceCategories, generateQuotationPdf, QUOTATION_COMPANIES } from '../../services/quotation';
 import { getClients, getClientProjects } from '../../services/clients';
 import api from '../../services/api';
 
@@ -12,25 +12,59 @@ const logger = {
   error: (...args) => console.error(...args),
 };
 
+// ── Regulatory categories: 1–4, Execution categories: 5–7 ──────────────────
 const COMPLIANCE_CATEGORIES = {
-  1: { id: 1, name: 'Construction Certificate', shortName: 'Construction Certificate' },
-  2: { id: 2, name: 'Occupational Certificate', shortName: 'Occupational Certificate' },
-  3: { id: 3, name: 'To obtain permission and commissioning of Internal Water Main', shortName: 'Water Main' },
-  4: { id: 4, name: 'To obtain permission and commissioning of STP', shortName: 'STP' }
+  // Regulatory
+  1: { id: 1, name: 'Construction Certificate',                                             shortName: 'Construction Certificate', type: 'regulatory' },
+  2: { id: 2, name: 'Occupational Certificate',                                             shortName: 'Occupational Certificate',  type: 'regulatory' },
+  3: { id: 3, name: 'To obtain permission and commissioning of Internal Water Main',        shortName: 'Water Main',                type: 'regulatory' },
+  4: { id: 4, name: 'To obtain permission and commissioning of STP',                        shortName: 'STP',                       type: 'regulatory' },
+  // Execution
+  5: { id: 5, name: 'Water Connection',                                                     shortName: 'Water Connection',          type: 'execution'  },
+  6: { id: 6, name: 'SWD Line Work',                                                        shortName: 'SWD Line Work',             type: 'execution'  },
+  7: { id: 7, name: 'Sewer/Drainage Line Work',                                             shortName: 'Sewer/Drainage',            type: 'execution'  },
 };
 
 const COMPLIANCE_GROUPS = {
-  certificates: [1, 2],
-  execution: [3, 4]
+  certificates:            [1, 2],      // Regulatory - with sub-compliance, use Professional_amount
+  regulatory:              [3, 4],      // Regulatory - no sub-compliance, use Professional_amount
+  regulatory_permissions:  [1, 2, 3, 4], // Merged: all Regulatory cats (shown as one option in dropdown)
+  execution:               [5, 6, 7],  // Execution  - use material/labour rates
 };
 
-// Sub-Category Definitions
+// All regulatory categories combined (for type-checking)
+const REGULATORY_CATS = [1, 2, 3, 4];
+const EXECUTION_CATS  = [5, 6, 7];
+
+// ── Company options (matches backend Company class) ──────────────────────────
+const COMPANIES = QUOTATION_COMPANIES;
+
+// Sub-categories per compliance category
+// Categories 1–2 (certificates): sub 1–4
+// Category  5   (Water Connection): sub 5–6
+// Categories 6–7 (SWD/Sewer): sub 7–9
+const SUB_COMPLIANCE_BY_CATEGORY = {
+  1: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
+  2: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
+  3: [],
+  4: [],
+  5: [ { id: 5, name: 'Internal Water Main' }, { id: 6, name: 'Permanent Water Connection' } ],
+  6: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
+  7: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
+};
+
+// Flat lookup for display purposes
 const SUB_COMPLIANCE_CATEGORIES = {
+  0: { id: 0, name: 'Default' },
   1: { id: 1, name: 'Plumbing Compliance' },
   2: { id: 2, name: 'PCO Compliance' },
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
-  0: { id: 0, name: 'Default' }
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
 // ============================================================================
@@ -62,9 +96,7 @@ const SubComplianceDropdown = ({
   // Reset search when closed
   useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
 
-  const allSubCategories = [1, 2].includes(categoryId)
-    ? [SUB_COMPLIANCE_CATEGORIES[1], SUB_COMPLIANCE_CATEGORIES[2], SUB_COMPLIANCE_CATEGORIES[3], SUB_COMPLIANCE_CATEGORIES[4]]
-    : [];
+  const allSubCategories = SUB_COMPLIANCE_BY_CATEGORY[categoryId] || [];
 
   const filteredList = allSubCategories.filter(item =>
     item.name.toLowerCase().includes(search.toLowerCase())
@@ -435,6 +467,8 @@ export default function Quotations({ onUpdateNavigation }) {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdQuotation, setCreatedQuotation] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, type: null, sectionIndex: null, itemIndex: null });
+  const [selectedCompany, setSelectedCompany] = useState(COMPANIES[0]);
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
   const [selectedCategoryType, setSelectedCategoryType] = useState(null);
   const [_categoryCompliance, setCategoryCompliance] = useState([]);
@@ -498,6 +532,10 @@ export default function Quotations({ onUpdateNavigation }) {
       if (editQuotation._clientObj)  setSelectedClient(editQuotation._clientObj);
       if (editQuotation._projectObj) setSelectedProject(editQuotation._projectObj);
 
+      // Company — restore from existing quotation or default to Constructive India
+      const editCompany = COMPANIES.find(c => c.id === (editQuotation.company || 1)) || COMPANIES[0];
+      setSelectedCompany(editCompany);
+
       // Rebuild sections from flat items array
       if (editQuotation.items?.length) {
         const COMPLIANCE_CATEGORY_NAMES = {
@@ -517,15 +555,24 @@ export default function Quotations({ onUpdateNavigation }) {
             };
           }
           grouped[catId].items.push({
-            compliance_name:     item.description || '',
-            compliance_id:       item.compliance_id || null,
-            sub_compliance_id:   item.sub_compliance_category || null,
-            quantity:            item.quantity || 1,
+            compliance_name:      item.description || '',
+            compliance_id:        item.compliance_id || null,
+            sub_compliance_id:    item.sub_compliance_category || null,
+            quantity:             item.quantity || 1,
             miscellaneous_amount: item.miscellaneous_amount === '--' ? '' : (item.miscellaneous_amount || ''),
-            Professional_amount: parseFloat(item.Professional_amount || 0),
-            total_amount:        parseFloat(item.total_amount || 0),
+            Professional_amount:  parseFloat(item.Professional_amount || 0),
+            unit:                 (item.unit && item.unit !== 'N/A') ? item.unit : '',
+            total_amount:         parseFloat(item.total_amount || 0),
+            // Execution fields — present for execution items, 0 for regulatory
+            material_rate:        parseFloat(item.material_rate  || 0),
+            material_amount:      parseFloat(item.material_amount || 0),
+            labour_rate:          parseFloat(item.labour_rate    || 0),
+            labour_amount:        parseFloat(item.labour_amount  || 0),
+            item_sac_code:        item.sac_code || item.item_sac_code || '',
             // Keep original item id so update API can match it
-            _itemId:             item.id || null,
+            _itemId:              item.id || null,
+            // Category id needed by calcItemTotal when activeCategoryId is null
+            _categoryId:          catId,
           });
         });
         setSections(Object.values(grouped));
@@ -536,7 +583,14 @@ export default function Quotations({ onUpdateNavigation }) {
     // ── Normal create mode: restore draft if available ─────────────────────
     const draft = loadDraft();
     if (draft) {
-      if (draft.sections?.length)      setSections(draft.sections);
+      if (draft.sections?.length) {
+        // Ensure every item has _categoryId stamped (may be missing in older drafts)
+        const stampedSections = draft.sections.map(s => ({
+          ...s,
+          items: (s.items || []).map(item => ({ ...item, _categoryId: item._categoryId ?? s.category_id })),
+        }));
+        setSections(stampedSections);
+      }
       if (draft.selectedClient)        setSelectedClient(draft.selectedClient);
       if (draft.selectedProject)       setSelectedProject(draft.selectedProject);
       if (draft.sacCode)               setSacCode(draft.sacCode);
@@ -545,10 +599,22 @@ export default function Quotations({ onUpdateNavigation }) {
       if (draft.gstRate !== undefined)    setGstRate(draft.gstRate);
       if (draft.discountType)          setDiscountType(draft.discountType);
       if (draft.discountValue !== undefined) setDiscountValue(draft.discountValue);
+      if (draft.selectedCompany)        setSelectedCompany(draft.selectedCompany);
     } else {
       generateQuotationNumber();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── GST is only applicable for Company ID 1 (Constructive India) ────────────
+  // When the user switches to any other company, automatically disable GST.
+  // When switching back to Constructive India, re-enable it.
+  useEffect(() => {
+    if (selectedCompany?.id !== 1) {
+      setGstEnabled(false);
+    } else {
+      setGstEnabled(true);
+    }
+  }, [selectedCompany?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save draft whenever key state changes
   useEffect(() => {
@@ -556,6 +622,7 @@ export default function Quotations({ onUpdateNavigation }) {
       sections,
       selectedClient,
       selectedProject,
+      selectedCompany,
       sacCode,
       quotationNumber,
       gstEnabled,
@@ -563,7 +630,7 @@ export default function Quotations({ onUpdateNavigation }) {
       discountType,
       discountValue,
     });
-  }, [sections, selectedClient, selectedProject, sacCode, quotationNumber, gstEnabled, gstRate, discountType, discountValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, selectedClient, selectedProject, selectedCompany, sacCode, quotationNumber, gstEnabled, gstRate, discountType, discountValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const generateQuotationNumber = () => {
     const now = new Date();
@@ -577,7 +644,17 @@ export default function Quotations({ onUpdateNavigation }) {
   };
 
   // ── Per-category helpers ──────────────────────────────────────────────────
-  const BLANK_ITEM_FORM = { compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1, miscellaneous_amount: '', Professional_amount: 0 };
+  // Regulatory fields: Professional_amount, miscellaneous_amount
+  // Execution fields:  material_rate, material_amount, labour_rate, labour_amount, unit, sac_code
+  const BLANK_ITEM_FORM = {
+    compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1,
+    miscellaneous_amount: '', Professional_amount: 0,
+    unit: '', item_sac_code: '',
+    // execution_rate = the "Rate (Rs.) per unit" field — stored in Professional_amount for execution
+    // material_rate/material_amount/labour_rate/labour_amount are INDEPENDENT optional breakdown fields
+    material_rate: 0, material_amount: 0,
+    labour_rate: 0, labour_amount: 0,
+  };
 
   const getActiveItemForm = () => itemFormMap[activeCategoryId] || { ...BLANK_ITEM_FORM };
   const setActiveItemForm = (updater) => {
@@ -725,6 +802,9 @@ export default function Quotations({ onUpdateNavigation }) {
       if (!e.target.closest('.section-dropdown')) {
         setShowSectionDropdown(false);
       }
+      if (!e.target.closest('.company-dropdown')) {
+        setShowCompanyDropdown(false);
+      }
       if (!e.target.closest('.description-dropdown')) {
         setShowDescriptionDropdown(false);
       }
@@ -783,12 +863,37 @@ export default function Quotations({ onUpdateNavigation }) {
    * displayed as a note alongside the item total.
    * Single source of truth — never use stored item.total_amount for math.
    */
-  const calcItemTotal = (item) => {
-    const prof = parseFloat(item.Professional_amount) || 0;
-    const misc = isMiscNumeric(item.miscellaneous_amount)
-      ? parseFloat(item.miscellaneous_amount)
-      : 0;
+  /**
+   * Calculate item total. Works for both quotation types:
+   *   Regulatory: (Professional_amount + miscellaneous_amount) × qty
+   *   Execution:  material_amount + labour_amount (qty already baked into these)
+   */
+  const calcItemTotal = (item, categoryId) => {
     const qty = parseInt(item.quantity, 10) || 1;
+    // Resolve the category: prefer explicit categoryId arg, then item._categoryId, then activeCategoryId
+    const resolvedCatId = categoryId ?? item._categoryId ?? activeCategoryId;
+    const isExecItem = (parseFloat(item.material_rate) > 0) || (parseFloat(item.labour_rate) > 0)
+                    || (parseFloat(item.material_amount) > 0) || (parseFloat(item.labour_amount) > 0)
+                    || (EXECUTION_CATS.includes(resolvedCatId) && parseFloat(item.Professional_amount) > 0);
+    if (isExecItem) {
+      const matAmt = parseFloat(item.material_amount) || 0;
+      const labAmt = parseFloat(item.labour_amount)   || 0;
+      const matRate = parseFloat(item.material_rate) || 0;
+      const labRate = parseFloat(item.labour_rate)   || 0;
+      // If material/labour breakdown is provided, use that; else use Professional_amount (Rate field) × qty
+      if (matAmt > 0 || labAmt > 0) {
+        return Math.round((matAmt + labAmt) * 100) / 100;
+      }
+      if (matRate > 0 || labRate > 0) {
+        return Math.round(((matRate + labRate) * qty) * 100) / 100;
+      }
+      // Rate field (Professional_amount) × qty
+      const profRate = parseFloat(item.Professional_amount) || 0;
+      return Math.round((profRate * qty) * 100) / 100;
+    }
+    // Regulatory
+    const prof = parseFloat(item.Professional_amount) || 0;
+    const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
     return Math.round((prof + misc) * qty * 100) / 100;
   };
 
@@ -800,7 +905,7 @@ export default function Quotations({ onUpdateNavigation }) {
   const calculateSubTotal = () => {
     return sections.reduce((total, section) => {
       return total + section.items.reduce((sectionTotal, item) => {
-        return sectionTotal + calcItemTotal(item);
+        return sectionTotal + calcItemTotal(item, section.category_id);
       }, 0);
     }, 0);
   };
@@ -819,10 +924,10 @@ export default function Quotations({ onUpdateNavigation }) {
 
   /**
    * Calculate GST on (SubTotal - Discount).
-   * Returns 0 if GST is disabled.
+   * Returns 0 if GST is disabled OR if the selected company is not Constructive India (ID 1).
    */
   const calculateGST = () => {
-    if (!gstEnabled) return 0;
+    if (!gstEnabled || selectedCompany?.id !== 1) return 0;
     const subTotal  = calculateSubTotal();
     const discount  = calculateDiscount();
     const taxable   = subTotal - discount;
@@ -845,9 +950,13 @@ export default function Quotations({ onUpdateNavigation }) {
   // ============================================================================
 
   const handleSelectCategoryType = (type) => {
-    setSelectedCategoryType(type);
+    // 'regulatory_permissions' is the merged dropdown option (cats 1-4).
+    // Internally we still need to know which sub-group to open first.
+    // We open with ALL 4 cat ids so the user can pick tabs 1,2,3,4 in the modal.
+    const resolvedType = type === 'regulatory_permissions' ? 'regulatory_permissions' : type;
+    setSelectedCategoryType(resolvedType);
     
-    const categoryIds = COMPLIANCE_GROUPS[type];
+    const categoryIds = COMPLIANCE_GROUPS[resolvedType];
     const firstCategoryId = categoryIds[0];
 
     // Initialize an empty items bucket for each category in this group
@@ -883,7 +992,8 @@ export default function Quotations({ onUpdateNavigation }) {
     setDescSelectedFromDropdown(false);
 
     fetchComplianceByCategory(firstCategoryId);
-    if (type === 'execution') {
+    // For execution and regulatory-no-sub categories (3,4), fetch descriptions immediately
+    if (resolvedType === 'execution' || (resolvedType === 'regulatory_permissions' && ![1,2].includes(firstCategoryId))) {
       fetchComplianceDescriptions(firstCategoryId, null);
     }
     
@@ -893,30 +1003,46 @@ export default function Quotations({ onUpdateNavigation }) {
 
   const isSectionTypeDisabled = (type) => {
     if (sections.length === 0) return false;
-    const hasExecution = sections.some(s => COMPLIANCE_GROUPS.execution.includes(s.category_id));
-    const hasCertificates = sections.some(s => COMPLIANCE_GROUPS.certificates.includes(s.category_id));
-    
-    if (type === 'execution') return hasCertificates;
+    const hasExecution   = sections.some(s => EXECUTION_CATS.includes(s.category_id));
+    const hasRegulatory  = sections.some(s => REGULATORY_CATS.includes(s.category_id));
+    if (type === 'execution') return hasRegulatory;
+    // 'regulatory_permissions' covers all regulatory cats 1-4
     return hasExecution;
   };
 
   const getSectionTypeDisabledReason = (type) => {
-    if (type === 'execution') return 'Cannot add Execution when Certificate sections exist';
-    return 'Cannot add Certificate sections when an Execution section exists';
+    if (type === 'execution') return 'Cannot mix Execution with Regulatory quotations';
+    return 'Cannot mix Regulatory with Execution quotations';
   };
 
   const handleAddItem = () => {
     const itemForm = getActiveItemForm();
     if (!itemForm.compliance_name.trim()) return;
+    const isExec = EXECUTION_CATS.includes(activeCategoryId);
 
     const newItem = {
       compliance_name:      itemForm.compliance_name.trim(),
       compliance_id:        itemForm.compliance_id || null,
       sub_compliance_id:    itemForm.sub_compliance_id || null,
       quantity:             parseInt(itemForm.quantity, 10) || 1,
-      miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
-      Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
-      total_amount:         calcItemTotal(itemForm),
+      total_amount:         calcItemTotal(itemForm, activeCategoryId),
+      _categoryId:          activeCategoryId,
+      // Regulatory fields
+      ...(isExec ? {} : {
+        unit:                 String(itemForm.unit || '').trim(),
+        miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
+        Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
+      }),
+      // Execution fields
+      ...(isExec ? {
+        unit:            String(itemForm.unit || '').trim(),
+        item_sac_code:   String(itemForm.item_sac_code || '').trim(),
+        Professional_amount: parseFloat(itemForm.Professional_amount) || 0,  // Rate field
+        material_rate:   parseFloat(itemForm.material_rate)   || 0,
+        material_amount: parseFloat(itemForm.material_amount) || 0,
+        labour_rate:     parseFloat(itemForm.labour_rate)     || 0,
+        labour_amount:   parseFloat(itemForm.labour_amount)   || 0,
+      } : {}),
     };
 
     const editingIndex = getActiveEditingIndex();
@@ -946,13 +1072,21 @@ export default function Quotations({ onUpdateNavigation }) {
       sub_compliance_id:    item.sub_compliance_id || null,
       quantity:             item.quantity || 1,
       miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount:  item.Professional_amount || 0,
+      Professional_amount:  item.Professional_amount  || 0,
+      unit:            item.unit            || '',
+      item_sac_code:   item.item_sac_code   || '',
+      material_rate:   item.material_rate   || 0,
+      material_amount: item.material_amount || 0,
+      labour_rate:     item.labour_rate     || 0,
+      labour_amount:   item.labour_amount   || 0,
     });
     setActiveEditingIndex(index);
     setDescSelectedFromDropdown(true);
     // Re-fetch descriptions for this item's sub-category
-    if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
+    if (item.sub_compliance_id) {
       fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
+    } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
+      fetchComplianceDescriptions(activeCategoryId, null);
     }
   };
 
@@ -966,24 +1100,35 @@ export default function Quotations({ onUpdateNavigation }) {
   };
 
   const handleAddSection = () => {
-    // Check there is at least one item across all categories
     const totalItems = Object.values(categoryItemsMap).reduce((sum, cat) => sum + (cat.items?.length || 0), 0);
     if (totalItems === 0) return;
 
     if (editingSection !== null) {
-      // Edit mode — we are editing a single existing section (opened from table).
-      // Items the user added/edited in the modal are stored in categoryItemsMap
-      // (via setActiveItems / handleAddItem). We must merge those into sectionForm
-      // so the updated items are actually saved back to the section.
-      const editedCategoryId = sectionForm.category_id;
-      const updatedItemsFromMap = categoryItemsMap[editedCategoryId]?.items;
-      const mergedSection = {
-        ...sectionForm,
-        items: updatedItemsFromMap !== undefined ? updatedItemsFromMap : sectionForm.items,
-      };
-      const updatedSections = [...sections];
-      updatedSections[editingSection] = mergedSection;
-      setSections(updatedSections);
+      // Edit mode — merge ALL categories that have items back into sections array.
+      // The user may have added items to sibling tabs (e.g. Occupational while editing Construction).
+      setSections(prev => {
+        let next = [...prev];
+        Object.entries(categoryItemsMap).forEach(([catIdStr, catData]) => {
+          const catId = parseInt(catIdStr, 10);
+          const items = catData.items || [];
+          const existingIdx = next.findIndex(s => s.category_id === catId);
+          if (items.length > 0) {
+            if (existingIdx !== -1) {
+              next[existingIdx] = { ...next[existingIdx], items };
+            } else {
+              next = [...next, {
+                category_id:   catId,
+                category_name: COMPLIANCE_CATEGORIES[catId]?.shortName || catData.category_name || `Category ${catId}`,
+                items,
+              }];
+            }
+          } else if (existingIdx !== -1 && existingIdx === editingSection) {
+            // The originally-edited section was cleared — remove it
+            next = next.filter((_, i) => i !== existingIdx);
+          }
+        });
+        return next;
+      });
     } else {
       // New compliance — iterate ALL categories in the map and merge into sections
       setSections(prev => {
@@ -991,17 +1136,15 @@ export default function Quotations({ onUpdateNavigation }) {
         Object.entries(categoryItemsMap).forEach(([catIdStr, catData]) => {
           const catId = parseInt(catIdStr, 10);
           const newItems = catData.items || [];
-          if (newItems.length === 0) return; // skip empty categories
+          if (newItems.length === 0) return;
 
           const existingIndex = next.findIndex(s => s.category_id === catId);
           if (existingIndex !== -1) {
-            // Merge into existing section
             next[existingIndex] = {
               ...next[existingIndex],
               items: [...next[existingIndex].items, ...newItems],
             };
           } else {
-            // New section
             next = [...next, {
               category_id:   catId,
               category_name: COMPLIANCE_CATEGORIES[catId]?.shortName || catData.category_name || `Category ${catId}`,
@@ -1027,6 +1170,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
     setSelectedCategoryType(null);
+    setDescSelectedFromDropdown(false);
   };
 
   const handleEditSection = (index) => {
@@ -1034,27 +1178,58 @@ export default function Quotations({ onUpdateNavigation }) {
     setEditingSection(index);
     setSectionForm({ ...section });
 
-    // In edit-section mode, pre-populate categoryItemsMap with the section's
-    // existing items so they are preserved when the user saves.
     const categoryId = section.category_id;
-    setCategoryItemsMap({
-      [categoryId]: { items: [...section.items], category_name: section.category_name }
-    });
+    const isExecCat = EXECUTION_CATS.includes(categoryId);
+
+    // For regulatory edit: seed ALL 4 cat slots so tabs 1-4 all appear.
+    // Only the current section's category gets the real items; others get empty.
+    if (!isExecCat) {
+      const regCatMap = {};
+      REGULATORY_CATS.forEach(cId => {
+        regCatMap[cId] = cId === categoryId
+          ? { items: [...section.items], category_name: section.category_name }
+          : { items: [], category_name: COMPLIANCE_CATEGORIES[cId]?.shortName || '' };
+      });
+      setCategoryItemsMap(regCatMap);
+      const formMap = {};
+      REGULATORY_CATS.forEach(cId => { formMap[cId] = { ...BLANK_ITEM_FORM }; });
+      setItemFormMap(formMap);
+      const editIdxMap = {};
+      REGULATORY_CATS.forEach(cId => { editIdxMap[cId] = null; });
+      setEditingItemIndexMap(editIdxMap);
+      setSelectedCategoryType('regulatory_permissions');
+    } else {
+      // Execution: only the 3 execution tabs
+      const execCatMap = {};
+      EXECUTION_CATS.forEach(cId => {
+        execCatMap[cId] = cId === categoryId
+          ? { items: [...section.items], category_name: section.category_name }
+          : { items: [], category_name: COMPLIANCE_CATEGORIES[cId]?.shortName || '' };
+      });
+      setCategoryItemsMap(execCatMap);
+      const formMap = {};
+      EXECUTION_CATS.forEach(cId => { formMap[cId] = { ...BLANK_ITEM_FORM }; });
+      setItemFormMap(formMap);
+      const editIdxMap = {};
+      EXECUTION_CATS.forEach(cId => { editIdxMap[cId] = null; });
+      setEditingItemIndexMap(editIdxMap);
+      setSelectedCategoryType('execution');
+    }
+
     setActiveCategoryId(categoryId);
-    setItemFormMap({ [categoryId]: { ...BLANK_ITEM_FORM } });
-    setEditingItemIndexMap({ [categoryId]: null });
-    
-    const typeFound = Object.entries(COMPLIANCE_GROUPS).find(([_, ids]) => 
-      ids.includes(categoryId)
-    )?.[0];
-    setSelectedCategoryType(typeFound);
     fetchComplianceByCategory(categoryId);
+
+    // Pre-fetch descriptions for cats that don't need sub-category selection
+    if (isExecCat || [3, 4].includes(categoryId)) {
+      fetchComplianceDescriptions(categoryId, null);
+    }
 
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
-    
+    setDescSelectedFromDropdown(false);
+
     setShowAddSection(true);
   };
 
@@ -1062,40 +1237,81 @@ export default function Quotations({ onUpdateNavigation }) {
     const section = sections[sectionIndex];
     setEditingSection(sectionIndex);
     setSectionForm({ ...section });
-    // Pre-populate categoryItemsMap with existing items so they are preserved on save
-    const categoryId = section.category_id;
-    setCategoryItemsMap({
-      [categoryId]: { items: [...section.items], category_name: section.category_name }
-    });
-    setActiveCategoryId(categoryId);
-    setEditingItemIndexMap({ [categoryId]: null }); // we use sectionForm path
 
-    const typeFound = Object.entries(COMPLIANCE_GROUPS).find(([_, ids]) =>
-      ids.includes(categoryId)
-    )?.[0];
-    setSelectedCategoryType(typeFound);
+    const categoryId = section.category_id;
+    const isExecCat = EXECUTION_CATS.includes(categoryId);
+
+    // Seed all tabs for the group (same logic as handleEditSection)
+    if (!isExecCat) {
+      const regCatMap = {};
+      REGULATORY_CATS.forEach(cId => {
+        regCatMap[cId] = cId === categoryId
+          ? { items: [...section.items], category_name: section.category_name }
+          : { items: [], category_name: COMPLIANCE_CATEGORIES[cId]?.shortName || '' };
+      });
+      setCategoryItemsMap(regCatMap);
+      setSelectedCategoryType('regulatory_permissions');
+    } else {
+      const execCatMap = {};
+      EXECUTION_CATS.forEach(cId => {
+        execCatMap[cId] = cId === categoryId
+          ? { items: [...section.items], category_name: section.category_name }
+          : { items: [], category_name: COMPLIANCE_CATEGORIES[cId]?.shortName || '' };
+      });
+      setCategoryItemsMap(execCatMap);
+      setSelectedCategoryType('execution');
+    }
+
+    setActiveCategoryId(categoryId);
     fetchComplianceByCategory(categoryId);
 
-    // Pre-populate item form with the item being edited
+    // Pre-populate item form with ALL fields (including unit) from the item being edited
     const item = section.items[itemIndex];
-    setItemFormMap({ [categoryId]: {
-      compliance_name:      item.compliance_name,
+    const unitVal = (item.unit && item.unit !== 'N/A') ? item.unit : '';
+    const prefillForm = {
+      compliance_name:      item.compliance_name || '',
       compliance_id:        item.compliance_id || null,
       sub_compliance_id:    item.sub_compliance_id || null,
-      quantity:             item.quantity,
-      miscellaneous_amount: item.miscellaneous_amount || '',
-      Professional_amount:  item.Professional_amount || 0,
-    }});
-    setEditingItemIndexMap({ [categoryId]: itemIndex });
+      quantity:             item.quantity || 1,
+      // Regulatory fields
+      miscellaneous_amount: (item.miscellaneous_amount === '--' ? '' : (item.miscellaneous_amount || '')),
+      Professional_amount:  parseFloat(item.Professional_amount) || 0,
+      unit:                 unitVal,
+      // Execution fields
+      item_sac_code:   item.item_sac_code || '',
+      material_rate:   parseFloat(item.material_rate)   || 0,
+      material_amount: parseFloat(item.material_amount) || 0,
+      labour_rate:     parseFloat(item.labour_rate)     || 0,
+      labour_amount:   parseFloat(item.labour_amount)   || 0,
+    };
 
+    // Seed form for current cat; blank for others
+    if (!isExecCat) {
+      const formMap = {};
+      REGULATORY_CATS.forEach(cId => { formMap[cId] = cId === categoryId ? prefillForm : { ...BLANK_ITEM_FORM }; });
+      setItemFormMap(formMap);
+      const editIdxMap = {};
+      REGULATORY_CATS.forEach(cId => { editIdxMap[cId] = cId === categoryId ? itemIndex : null; });
+      setEditingItemIndexMap(editIdxMap);
+    } else {
+      const formMap = {};
+      EXECUTION_CATS.forEach(cId => { formMap[cId] = cId === categoryId ? prefillForm : { ...BLANK_ITEM_FORM }; });
+      setItemFormMap(formMap);
+      const editIdxMap = {};
+      EXECUTION_CATS.forEach(cId => { editIdxMap[cId] = cId === categoryId ? itemIndex : null; });
+      setEditingItemIndexMap(editIdxMap);
+    }
+
+    // Pre-fetch descriptions
     if (item.sub_compliance_id) {
       fetchComplianceDescriptions(categoryId, item.sub_compliance_id);
-    } else if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
+    } else if (isExecCat || [3, 4].includes(categoryId)) {
       fetchComplianceDescriptions(categoryId, null);
     }
 
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
+    setDescSelectedFromDropdown(!!item.compliance_name);
     setShowAddSection(true);
   };
 
@@ -1144,8 +1360,8 @@ export default function Quotations({ onUpdateNavigation }) {
     // Fetch compliance list for this category
     fetchComplianceByCategory(categoryId);
 
-    // For execution categories, fetch descriptions immediately (no sub-category)
-    if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
+    // For execution + regulatory-no-sub categories, fetch descriptions immediately
+    if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
       setActiveItemForm(prev => ({ ...BLANK_ITEM_FORM }));
       fetchComplianceDescriptions(categoryId, null);
     } else {
@@ -1175,7 +1391,27 @@ export default function Quotations({ onUpdateNavigation }) {
       setError('Please add at least one compliance section');
       return;
     }
-    if (!sacCode.trim()) {
+    if (!selectedCompany) {
+      setError('Please select a company');
+      return;
+    }
+
+    // Detect quotation type BEFORE validating SAC code.
+    // For Regulatory quotations the header SAC code is REQUIRED.
+    // For Execution quotations the SAC code is entered per-item (item_sac_code).
+    //   - If at least one item has its own SAC code the header field stays optional.
+    //   - If NO item has a SAC code (user skipped all of them) the header SAC
+    //     becomes required as a fallback so the backend always receives a value.
+    const _isExecutionSubmit = sections.some(s => EXECUTION_CATS.includes(s.category_id));
+    if (_isExecutionSubmit) {
+      const anyItemHasSac = sections
+        .filter(s => EXECUTION_CATS.includes(s.category_id))
+        .some(s => s.items.some(item => String(item.item_sac_code || '').trim() !== ''));
+      if (!anyItemHasSac && !sacCode.trim()) {
+        setError('Please enter a SAC Code — either in the header field above or on each item when adding compliance.');
+        return;
+      }
+    } else if (!sacCode.trim()) {
       setError('Please enter a SAC code');
       return;
     }
@@ -1184,36 +1420,73 @@ export default function Quotations({ onUpdateNavigation }) {
     setError('');
 
     try {
+      // ========== DETECT QUOTATION TYPE ==========
+      const isExecutionType = _isExecutionSubmit;
+
       // ========== BUILD ITEMS ARRAY ==========
       const allItems = sections.flatMap(section =>
         section.items.map((item) => {
           const description = String(item.compliance_name || '').trim();
           const quantity = parseInt(item.quantity, 10);
-          const rawMisc = String(item.miscellaneous_amount ?? '').trim();
-          const Professional_amount = parseFloat(item.Professional_amount) || 0;
           const compliance_category = section.category_id;
-          const isCertificate = [1, 2].includes(compliance_category);
-          const sub_compliance_category = isCertificate
+          const isExec = EXECUTION_CATS.includes(compliance_category);
+          // Sub-compliance only relevant for categories 1,2,5,6,7
+          const hasSub = [1, 2, 5, 6, 7].includes(compliance_category);
+          const sub_compliance_category = hasSub
             ? (item.sub_compliance_id ? parseInt(item.sub_compliance_id) : 0)
             : 0;
 
           if (!description) throw new Error('Item description cannot be empty');
           if (isNaN(quantity) || quantity <= 0) throw new Error(`Invalid quantity for item: ${description}`);
-          if (isNaN(Professional_amount) || Professional_amount <= 0) throw new Error(`Professional amount must be greater than 0 for: ${description}`);
 
-          const miscNumericValue = isMiscNumeric(rawMisc) ? parseFloat(rawMisc) : 0;
-          const item_total = parseFloat(((Professional_amount + miscNumericValue) * quantity).toFixed(2));
-
-          return {
+          const base = {
             ...(isEditMode && item._itemId ? { id: item._itemId } : {}),
             description,
             quantity,
-            miscellaneous_amount:    rawMisc || '--',
-            Professional_amount:     parseFloat(Professional_amount.toFixed(2)),
-            total_amount:            parseFloat(item_total.toFixed(2)),
-            compliance_category:     parseInt(compliance_category),
+            compliance_category: parseInt(compliance_category),
             sub_compliance_category,
           };
+
+          if (isExec) {
+            const profRate = parseFloat(item.Professional_amount) || 0;  // Rate field
+            const matRate  = parseFloat(item.material_rate) || 0;
+            const labRate  = parseFloat(item.labour_rate)   || 0;
+            const matAmt   = parseFloat(item.material_amount) || 0;
+            const labAmt   = parseFloat(item.labour_amount)   || 0;
+            // Total: use mat+lab if provided, else profRate × qty
+            const execTotal = (matAmt || labAmt)
+              ? parseFloat((matAmt + labAmt).toFixed(2))
+              : parseFloat((profRate * quantity).toFixed(2));
+            if (profRate <= 0 && matAmt <= 0 && labAmt <= 0 && matRate <= 0 && labRate <= 0) {
+              throw new Error(`Rate must be > 0 for: ${description}`);
+            }
+            return {
+              ...base,
+              unit:            String(item.unit || '').trim() || 'N/A',
+              sac_code:        String(item.item_sac_code || '').trim(),
+              Professional_amount: profRate.toFixed(2),
+              material_rate:   parseFloat(matRate.toFixed(2)),
+              material_amount: parseFloat(matAmt.toFixed(2)),
+              labour_rate:     parseFloat(labRate.toFixed(2)),
+              labour_amount:   parseFloat(labAmt.toFixed(2)),
+              total_amount:    execTotal,
+            };
+          } else {
+            // Regulatory
+            const Professional_amount = parseFloat(item.Professional_amount) || 0;
+            if (Professional_amount <= 0) throw new Error(`Professional amount must be > 0 for: ${description}`);
+            const rawMisc = String(item.miscellaneous_amount ?? '').trim();
+            const miscNumericValue = isMiscNumeric(rawMisc) ? parseFloat(rawMisc) : 0;
+            const item_total = parseFloat(((Professional_amount + miscNumericValue) * quantity).toFixed(2));
+            return {
+              ...base,
+              unit:                    String(item.unit || '').trim() || 'N/A',
+              // Backend field renamed: miscellaneous_amount → consultancy_charges
+              consultancy_charges:     rawMisc || '0.00',
+              Professional_amount:     Professional_amount.toFixed(2),
+              total_amount:            parseFloat(item_total.toFixed(2)),
+            };
+          }
         })
       );
 
@@ -1241,17 +1514,27 @@ export default function Quotations({ onUpdateNavigation }) {
 
       // ========== EDIT MODE: UPDATE ==========
       if (isEditMode) {
+        // Pass quotation_type so updateQuotationFull routes to the correct endpoint.
+        // For execution edits we derive it from the sections; for regulatory we
+        // preserve the original quotation_type from editQuotation.
+        const editQuotationType = isExecutionType
+          ? 'Execution'
+          : (editQuotation.quotation_type || 'Regulatory');
+
         const updatePayload = {
           id:               parseInt(editQuotation.id),
+          company:          selectedCompany?.id || editQuotation.company || 1,
           client:           clientId,
           vendor:           editQuotation.vendor ? parseInt(editQuotation.vendor) : null,
           project:          projectId,
           gst_rate:         String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
           discount_rate:    discountRateStr,
           sac_code:         sacCode.trim(),
-          total_amount:     parseFloat(subTotal.toFixed(2)),
-          total_gst_amount: parseFloat(gstAmt.toFixed(2)),
-          grand_total:      parseFloat(grandTotal.toFixed(2)),
+          quotation_type:   editQuotationType,
+          // FIX: backend expects string for these DecimalFields
+          total_amount:     subTotal.toFixed(2),
+          total_gst_amount: gstAmt.toFixed(2),
+          grand_total:      grandTotal.toFixed(2),
           items:            allItems,
         };
 
@@ -1273,26 +1556,26 @@ export default function Quotations({ onUpdateNavigation }) {
       }
 
       // ========== CREATE MODE ==========
-      const quotationNum = Number(quotationNumber);
-      if (isNaN(quotationNum) || quotationNum <= 0) throw new Error('Invalid quotation number');
-
       const quotationData = {
-        quotation_number:  parseInt(quotationNum),
+        company:           selectedCompany.id,
         client:            parseInt(clientId),
-        vendor:            null,   // null for client quotations; vendor id for purchase orders
+        vendor:            null,
         project:           parseInt(projectId),
         gst_rate:          String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
         discount_rate:     discountRateStr,
         sac_code:          sacCode.trim(),
-        total_amount:      parseFloat(subTotal.toFixed(2)),
-        total_gst_amount:  parseFloat(gstAmt.toFixed(2)),
-        grand_total:       parseFloat(grandTotal.toFixed(2)),
+        total_amount:      subTotal.toFixed(2),
+        total_gst_amount:  gstAmt.toFixed(2),
+        grand_total:       grandTotal.toFixed(2),
         items:             allItems,
       };
 
-      console.log('📤 CREATE PAYLOAD:', JSON.stringify(quotationData, null, 2));
+      logger.log('📤 CREATE PAYLOAD:', JSON.stringify(quotationData, null, 2));
 
-      const response = await createQuotation(quotationData);
+      // Route to the correct API based on compliance category type
+      const response = isExecutionType
+        ? await createExecutionQuotation(quotationData)
+        : await createRegulatoryQuotation(quotationData);
 
       if (response.status === 'success' || response.data?.status === 'success') {
         setCreatedQuotation(response.data || response);
@@ -1303,7 +1586,31 @@ export default function Quotations({ onUpdateNavigation }) {
       }
     } catch (err) {
       console.error('❌ SUBMIT ERROR:', err.message);
-      setError(err.message || (isEditMode ? 'Failed to update quotation' : 'Failed to create quotation'));
+      // Parse backend validation errors into readable messages
+      let friendlyMsg = err.message || (isEditMode ? 'Failed to update quotation' : 'Failed to create quotation');
+      try {
+        const parsed = typeof err.response?.data === 'object' ? err.response.data : JSON.parse(err.message);
+        const errs = parsed?.errors || parsed;
+        if (typeof errs === 'object') {
+          const FIELD_LABELS = {
+            company: 'Company',
+            client: 'Client',
+            project: 'Project',
+            sac_code: 'SAC Code',
+            gst_rate: 'GST Rate',
+            items: 'Line Items',
+            quotation_number: 'Quotation Number',
+            non_field_errors: '',
+          };
+          const msgs = Object.entries(errs).map(([field, msgs]) => {
+            const label = FIELD_LABELS[field] || field;
+            const msg = Array.isArray(msgs) ? msgs.join(', ') : String(msgs);
+            return label ? `${label}: ${msg}` : msg;
+          });
+          if (msgs.length) friendlyMsg = msgs.join(' • ');
+        }
+      } catch {}
+      setError(friendlyMsg);
     } finally {
       setSubmitting(false);
     }
@@ -1335,6 +1642,12 @@ export default function Quotations({ onUpdateNavigation }) {
   // ============================================================================
   // MODAL COMPUTED VARIABLES (avoids IIFE-in-JSX parse errors)
   // ============================================================================
+
+  // Derived: is the current quotation Execution type? (based on sections already added)
+  // Also checks the modal's active category type so the header updates as soon as
+  // the user opens the Execution modal — even before they hit "Add Compliance".
+  const isExecutionType = sections.some(s => EXECUTION_CATS.includes(s.category_id))
+    || selectedCategoryType === 'execution';
 
   const isEditSectionMode = editingSection !== null;
 
@@ -1383,14 +1696,28 @@ export default function Quotations({ onUpdateNavigation }) {
     ? () => {
         const itemForm = modalItemForm;
         if (!itemForm.compliance_name.trim()) return;
+        const _isExec = EXECUTION_CATS.includes(activeCategoryId);
         const newItem = {
           compliance_name:      itemForm.compliance_name.trim(),
           compliance_id:        itemForm.compliance_id || null,
           sub_compliance_id:    itemForm.sub_compliance_id || null,
           quantity:             parseInt(itemForm.quantity, 10) || 1,
-          miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
-          Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
-          total_amount:         calcItemTotal(itemForm),
+          total_amount:         calcItemTotal(itemForm, activeCategoryId),
+          _categoryId:          activeCategoryId,
+          ...(_isExec ? {} : {
+            unit:                 String(itemForm.unit || '').trim(),
+            miscellaneous_amount: String(itemForm.miscellaneous_amount ?? '').trim(),
+            Professional_amount:  parseFloat(itemForm.Professional_amount) || 0,
+          }),
+          ...(_isExec ? {
+            unit:                String(itemForm.unit || '').trim(),
+            item_sac_code:       String(itemForm.item_sac_code || '').trim(),
+            Professional_amount: parseFloat(itemForm.Professional_amount) || 0,
+            material_rate:       parseFloat(itemForm.material_rate)   || 0,
+            material_amount:     parseFloat(itemForm.material_amount) || 0,
+            labour_rate:         parseFloat(itemForm.labour_rate)     || 0,
+            labour_amount:       parseFloat(itemForm.labour_amount)   || 0,
+          } : {}),
         };
         if (modalEditingItemIndex !== null) {
           setActiveItems(prev => prev.map((it, i) => i === modalEditingItemIndex ? newItem : it));
@@ -1415,12 +1742,20 @@ export default function Quotations({ onUpdateNavigation }) {
           sub_compliance_id:    item.sub_compliance_id || null,
           quantity:             item.quantity || 1,
           miscellaneous_amount: item.miscellaneous_amount || '',
-          Professional_amount:  item.Professional_amount || 0,
+          Professional_amount:  item.Professional_amount  || 0,
+          unit:            item.unit            || '',
+          item_sac_code:   item.item_sac_code   || '',
+          material_rate:   item.material_rate   || 0,
+          material_amount: item.material_amount || 0,
+          labour_rate:     item.labour_rate     || 0,
+          labour_amount:   item.labour_amount   || 0,
         });
         modalSetEditingIdx(index);
         setDescSelectedFromDropdown(true);
-        if (item.sub_compliance_id && selectedCategoryType === 'certificates') {
+        if (item.sub_compliance_id) {
           fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
+        } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
+          fetchComplianceDescriptions(activeCategoryId, null);
         }
       }
     : handleEditItem;
@@ -1475,6 +1810,60 @@ export default function Quotations({ onUpdateNavigation }) {
                   <Building2 className="w-6 h-6 text-white" />
                 </div>
                 
+                {/* COMPANY DROPDOWN */}
+                <div className="company-dropdown relative">
+                  <button
+                    onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                    className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors group"
+                  >
+                    <div className="text-left">
+                      <div className="flex items-center gap-1.5">
+                        <h2 className="text-base font-semibold text-gray-900">
+                          {selectedCompany ? selectedCompany.name : 'Select Company'}
+                        </h2>
+                        <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {selectedCompany ? 'Issuing company' : 'Click to select company'}
+                      </p>
+                    </div>
+                  </button>
+
+                  {showCompanyDropdown && (
+                    <div className="absolute left-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Select Company</p>
+                      </div>
+                      <div className="py-1">
+                        {COMPANIES.map((company) => (
+                          <button
+                            key={company.id}
+                            onClick={() => {
+                              setSelectedCompany(company);
+                              setShowCompanyDropdown(false);
+                            }}
+                            className={`w-full px-4 py-2.5 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 flex items-center justify-between ${
+                              selectedCompany?.id === company.id ? 'bg-teal-50' : ''
+                            }`}
+                          >
+                            <span className="text-sm font-medium text-gray-900">{company.name}</span>
+                            {selectedCompany?.id === company.id && (
+                              <div className="w-5 h-5 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Divider */}
+                <div className="w-px h-10 bg-gray-200" />
+
                 {/* CLIENT DROPDOWN */}
                 <div className="client-dropdown relative">
                   <button
@@ -1655,21 +2044,34 @@ export default function Quotations({ onUpdateNavigation }) {
               
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-600 whitespace-nowrap">
-                    SAC Code <span className="text-red-500">*</span>
-                  </label>
+                  <div className="flex flex-col items-end">
+                    <label className="text-xs font-medium text-gray-600 whitespace-nowrap">
+                      SAC Code{isExecutionType ? (
+                        <span className="ml-1 text-gray-400 font-normal">(fallback)</span>
+                      ) : (
+                        <span className="text-red-500"> *</span>
+                      )}
+                    </label>
+                    {isExecutionType && (
+                      <span className="text-[10px] text-gray-400 leading-tight whitespace-nowrap">Required if not set per-item</span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={sacCode}
                     onChange={(e) => setSacCode(e.target.value)}
                     placeholder="e.g. 998313"
-                    required
-                    className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors bg-white"
+                    title={isExecutionType
+                      ? 'Optional when SAC code is entered on each item. Required if no items have a SAC code.'
+                      : 'SAC code is required for Regulatory quotations'}
+                    className={`w-28 px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors bg-white ${
+                      isExecutionType ? 'border-gray-200 placeholder-gray-300' : 'border-gray-300'
+                    }`}
                   />
                 </div>
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || sections.length === 0 || !selectedClient || !selectedProject}
+                  disabled={submitting || sections.length === 0 || !selectedClient || !selectedProject || !selectedCompany}
                   className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
@@ -1739,52 +2141,38 @@ export default function Quotations({ onUpdateNavigation }) {
                   
                   {showSectionDropdown && (
                     <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                      {/* ── Regulatory Permissions: cats 1–4 (merged) ── */}
                       <button
-                        onClick={() => !isSectionTypeDisabled('certificates') && handleSelectCategoryType('certificates')}
-                        disabled={isSectionTypeDisabled('certificates')}
-                        title={isSectionTypeDisabled('certificates') ? getSectionTypeDisabledReason('certificates') : ''}
+                        onClick={() => !isSectionTypeDisabled('regulatory_permissions') && handleSelectCategoryType('regulatory_permissions')}
+                        disabled={isSectionTypeDisabled('regulatory_permissions')}
+                        title={isSectionTypeDisabled('regulatory_permissions') ? getSectionTypeDisabledReason('regulatory_permissions') : ''}
                         className={`w-full px-4 py-3 text-left transition-colors text-sm font-medium border-b border-gray-100
-                          ${isSectionTypeDisabled('certificates')
-                            ? 'text-gray-300 cursor-not-allowed bg-white'
-                            : 'text-gray-700 hover:bg-gray-50'
-                          }
-                        `}
+                          ${isSectionTypeDisabled('regulatory_permissions') ? 'text-gray-300 cursor-not-allowed bg-white' : 'text-gray-700 hover:bg-gray-50'}`}
                       >
-                        <div className="font-semibold">Regulatory permissions</div>
-                        <div className="text-xs text-gray-500 mt-0.5">Construction & Occupational</div>
+                        <div className="font-semibold">Regulatory Permissions</div>
+                        <div className="text-xs text-gray-500 mt-0.5">Construction, Occupational, Water Main & STP (Cat 1–4)</div>
                       </button>
 
+                      {/* ── Execution: cats 5, 6, 7 ── */}
                       <button
                         onClick={() => !isSectionTypeDisabled('execution') && handleSelectCategoryType('execution')}
                         disabled={isSectionTypeDisabled('execution')}
                         title={isSectionTypeDisabled('execution') ? getSectionTypeDisabledReason('execution') : ''}
                         className={`w-full px-4 py-3 text-left transition-colors text-sm font-medium
-                          ${isSectionTypeDisabled('execution')
-                            ? 'text-gray-300 cursor-not-allowed bg-white'
-                            : 'text-gray-700 hover:bg-gray-50'
-                          }
-                        `}
+                          ${isSectionTypeDisabled('execution') ? 'text-gray-300 cursor-not-allowed bg-white' : 'text-gray-700 hover:bg-gray-50'}`}
                       >
-                        <div className="font-semibold">Execution</div>
-                        <div className="text-xs text-gray-500 mt-0.5">Water Main & STP</div>
+                        <div className="font-semibold">Execution Compliance</div>
+                        <div className="text-xs text-gray-500 mt-0.5">Water Connection, SWD & Sewer/Drainage (Cat 5–7)</div>
                       </button>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
-                <div className="grid grid-cols-12 gap-4">
-                  <div className="col-span-2 text-xs font-semibold text-gray-600 uppercase">Compliance Type</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600 uppercase">Sub Category</div>
-                  <div className="col-span-1 text-xs font-semibold text-gray-600 uppercase text-center">Qty</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600 uppercase text-center">Misc. Amount</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600 uppercase text-center">Professional Charges</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600 uppercase text-right">Total</div>
-                </div>
-              </div>
+              {/* Table header — rendered inside each section as a proper <table> for pixel-perfect alignment */}
+              {/* The old grid-cols-12 header is removed; each section now owns its own thead */}
 
-              <div className="px-6 py-4">
+              <div className="px-4 py-4">
                 {sections.length === 0 ? (
                   <div className="py-12 text-center">
                     <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -1792,173 +2180,388 @@ export default function Quotations({ onUpdateNavigation }) {
                     <p className="text-gray-400 text-xs mt-1">Click "Add Compliance" to get started</p>
                   </div>
                 ) : (
-                  <div className="space-y-6">
-                    {sections.map((section, sectionIndex) => (
-                      <div key={sectionIndex} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b border-gray-200">
-                          <div className="flex items-center gap-3">
-                            <div className="w-1.5 h-1.5 bg-teal-500 rounded-full"></div>
-                            <span className="text-sm font-semibold text-gray-900">{section.category_name}</span>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <span className="text-sm text-gray-600">
-                              Subtotal: <span className="font-semibold text-gray-900">Rs. {section.items.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}</span>
-                            </span>
-                            <button 
-                              onClick={() => handleEditSection(sectionIndex)}
-                              className="text-teal-500 hover:text-teal-600 text-sm font-medium flex items-center gap-1 transition-colors"
-                            >
-                              <Plus className="w-4 h-4" />
-                              Add Item
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteSection(sectionIndex)}
-                              className="text-red-500 hover:text-red-600 p-1.5 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
+                  <div className="space-y-5">
+                    {sections.map((section, sectionIndex) => {
+                      const isExecSection = EXECUTION_CATS.includes(section.category_id);
+                      return (
+                        <div key={sectionIndex} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
 
-                        <div className="bg-white">
-                          {section.items.map((item, itemIndex) => (
-                            <div key={itemIndex} className="grid grid-cols-12 gap-4 items-center px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
-                              <div className="col-span-2">
-                                <p className="text-sm text-gray-900 leading-relaxed">{item.compliance_name}</p>
-                              </div>
-                              <div className="col-span-2">
-                                <span className="text-xs text-gray-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name || 'N/A'}</span>
-                              </div>
-                              <div className="col-span-1 text-center">
-                                <span className="text-sm text-gray-700">{item.quantity}</span>
-                              </div>
-                              <div className="col-span-2 text-center">
-                                <span className="text-sm text-gray-700">
-                                  {(String(item.miscellaneous_amount ?? '').trim() !== '')
-                                    ? isMiscNumeric(item.miscellaneous_amount)
-                                      ? `Rs. ${parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}`
-                                      : <span className="italic text-amber-600 text-sm" title="Not included in total">{item.miscellaneous_amount}</span>
-                                    : '—'}
-                                </span>
-                              </div>
-                              <div className="col-span-2 text-center">
-                                <span className="text-sm text-gray-700">Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                              </div>
-                              <div className="col-span-2 text-right flex items-center justify-end gap-1.5">
-                                <span className="text-sm font-semibold text-gray-900">Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
-                                <button
-                                  onClick={() => handleEditItemFromTable(sectionIndex, itemIndex)}
-                                  className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-600 p-1 hover:bg-blue-50 rounded transition-all"
-                                  title="Edit item"
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                  onClick={() => handleRemoveItemFromSection(sectionIndex, itemIndex)}
-                                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-600 p-1 hover:bg-red-50 rounded transition-all"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                          {/* Section header row */}
+                          <div className="bg-gray-50 px-5 py-3 flex items-center justify-between border-b border-gray-200">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-2 h-2 bg-teal-500 rounded-full flex-shrink-0"></div>
+                              <span className="text-sm font-bold text-gray-800">{section.category_name}</span>
                             </div>
-                          ))}
+                            <div className="flex items-center gap-4">
+                              <div className="text-sm text-gray-500">
+                                Subtotal: <span className="font-bold text-gray-900 ml-1">Rs. {section.items.reduce((sum, item) => sum + calcItemTotal(item, section.category_id), 0).toLocaleString('en-IN')}</span>
+                              </div>
+                              <button
+                                onClick={() => handleEditSection(sectionIndex)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-600 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add Item
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSection(sectionIndex)}
+                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Proper <table> so every column is pixel-aligned */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+                              <colgroup>
+                                {isExecSection ? (
+                                  <>
+                                    <col style={{ width: '32%' }} /> {/* Description */}
+                                    <col style={{ width: '6%'  }} /> {/* Qty */}
+                                    <col style={{ width: '7%'  }} /> {/* Unit */}
+                                    <col style={{ width: '9%'  }} /> {/* SAC */}
+                                    <col style={{ width: '10%' }} /> {/* Rate */}
+                                    <col style={{ width: '12%' }} /> {/* Mat. Amt */}
+                                    <col style={{ width: '12%' }} /> {/* Lab. Amt */}
+                                    <col style={{ width: '12%' }} /> {/* Total (inc. action btns) */}
+                                  </>
+                                ) : (
+                                  <>
+                                    <col style={{ width: '30%' }} /> {/* Description */}
+                                    <col style={{ width: '16%' }} /> {/* Sub Cat. */}
+                                    <col style={{ width: '7%'  }} /> {/* Unit */}
+                                    <col style={{ width: '6%'  }} /> {/* Qty */}
+                                    <col style={{ width: '14%' }} /> {/* Misc. */}
+                                    <col style={{ width: '15%' }} /> {/* Prof. Charges */}
+                                    <col style={{ width: '12%' }} /> {/* Total */}
+                                  </>
+                                )}
+                              </colgroup>
+
+                              {/* Column header */}
+                              <thead>
+                                <tr className="bg-gray-50/70 border-b border-gray-200">
+                                  {isExecSection ? (
+                                    <>
+                                      <th className="px-4 py-2.5 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">Description</th>
+                                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">Qty</th>
+                                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">Unit</th>
+                                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">SAC</th>
+                                      <th className="px-2 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Rate</th>
+                                      <th className="px-3 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Mat. Amt</th>
+                                      <th className="px-3 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Lab. Amt</th>
+                                      <th className="px-4 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total</th>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <th className="px-4 py-2.5 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">Description</th>
+                                      <th className="px-2 py-2.5 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">Sub Cat.</th>
+                                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">Unit</th>
+                                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">Qty</th>
+                                      <th className="px-3 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Misc.</th>
+                                      <th className="px-3 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Prof. Charges</th>
+                                      <th className="px-4 py-2.5 text-right text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total</th>
+                                    </>
+                                  )}
+                                </tr>
+                              </thead>
+
+                              <tbody className="bg-white divide-y divide-gray-100">
+                                {section.items.map((item, itemIndex) => {
+                                  const displayUnit = (item.unit && item.unit !== 'N/A') ? item.unit : '—';
+                                  const execRate = parseFloat(item.Professional_amount) || 0;
+                                  const matAmt   = parseFloat(item.material_amount) || 0;
+                                  const labAmt   = parseFloat(item.labour_amount)   || 0;
+                                  const itemTotal = calcItemTotal(item, section.category_id);
+
+                                  // For Rate column: show material_rate + labour_rate if set, else Professional_amount
+                                  const matRate = parseFloat(item.material_rate) || 0;
+                                  const labRate = parseFloat(item.labour_rate)   || 0;
+                                  const displayRate = (matRate > 0 || labRate > 0)
+                                    ? matRate + labRate
+                                    : execRate;
+
+                                  return (
+                                    <tr
+                                      key={itemIndex}
+                                      className="group hover:bg-teal-50/30 transition-colors"
+                                    >
+                                      {isExecSection ? (
+                                        <>
+                                          {/* Description */}
+                                          <td className="px-4 py-3.5 align-top">
+                                            <p className="text-sm text-gray-900 leading-relaxed">{item.compliance_name}</p>
+                                            {item.sub_compliance_id && (
+                                              <span className="inline-block mt-1 text-[11px] font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}
+                                              </span>
+                                            )}
+                                          </td>
+                                          {/* Qty */}
+                                          <td className="px-2 py-3.5 text-center align-top">
+                                            <span className="text-sm font-medium text-gray-700">{item.quantity}</span>
+                                          </td>
+                                          {/* Unit */}
+                                          <td className="px-2 py-3.5 text-center align-top">
+                                            <span className="inline-block text-xs font-semibold text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-md">
+                                              {displayUnit}
+                                            </span>
+                                          </td>
+                                          {/* SAC */}
+                                          <td className="px-2 py-3.5 text-center align-top">
+                                            <span className="text-xs text-gray-500 font-mono">{item.item_sac_code || '—'}</span>
+                                          </td>
+                                          {/* Rate */}
+                                          <td className="px-2 py-3.5 text-right align-top">
+                                            <span className="text-sm text-gray-700">
+                                              {displayRate > 0 ? (
+                                                <span className="font-medium">Rs.&nbsp;{displayRate.toLocaleString('en-IN')}</span>
+                                              ) : '—'}
+                                            </span>
+                                          </td>
+                                          {/* Mat. Amt */}
+                                          <td className="px-3 py-3.5 text-right align-top">
+                                            <span className="text-sm text-gray-700">
+                                              {matAmt > 0 ? (
+                                                <span className="font-medium">Rs.&nbsp;{matAmt.toLocaleString('en-IN')}</span>
+                                              ) : <span className="text-gray-300">—</span>}
+                                            </span>
+                                          </td>
+                                          {/* Lab. Amt */}
+                                          <td className="px-3 py-3.5 text-right align-top">
+                                            <span className="text-sm text-gray-700">
+                                              {labAmt > 0 ? (
+                                                <span className="font-medium">Rs.&nbsp;{labAmt.toLocaleString('en-IN')}</span>
+                                              ) : <span className="text-gray-300">—</span>}
+                                            </span>
+                                          </td>
+                                          {/* Total + actions */}
+                                          <td className="px-4 py-3.5 text-right align-top">
+                                            <div className="flex flex-col items-end gap-1.5">
+                                              <span className="text-sm font-bold text-gray-900 whitespace-nowrap">
+                                                Rs.&nbsp;{itemTotal.toLocaleString('en-IN')}
+                                              </span>
+                                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                  onClick={() => handleEditItemFromTable(sectionIndex, itemIndex)}
+                                                  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                                                  title="Edit item"
+                                                >
+                                                  <Edit className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleRemoveItemFromSection(sectionIndex, itemIndex)}
+                                                  className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                  title="Remove item"
+                                                >
+                                                  <X className="w-3.5 h-3.5" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </>
+                                      ) : (
+                                        <>
+                                          {/* Description */}
+                                          <td className="px-4 py-3.5 align-top">
+                                            <p className="text-sm text-gray-900 leading-relaxed">{item.compliance_name}</p>
+                                          </td>
+                                          {/* Sub Cat. */}
+                                          <td className="px-2 py-3.5 align-top">
+                                            <span className="text-xs font-semibold text-gray-600 leading-snug">
+                                              {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name || '—'}
+                                            </span>
+                                          </td>
+                                          {/* Unit */}
+                                          <td className="px-2 py-3.5 text-center align-top">
+                                            <span className="inline-block text-xs font-semibold text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-md">
+                                              {displayUnit}
+                                            </span>
+                                          </td>
+                                          {/* Qty */}
+                                          <td className="px-2 py-3.5 text-center align-top">
+                                            <span className="text-sm font-medium text-gray-700">{item.quantity}</span>
+                                          </td>
+                                          {/* Misc. */}
+                                          <td className="px-3 py-3.5 text-right align-top">
+                                            <span className="text-sm text-gray-700">
+                                              {(String(item.miscellaneous_amount ?? '').trim() !== '' && item.miscellaneous_amount !== '--')
+                                                ? isMiscNumeric(item.miscellaneous_amount)
+                                                  ? <span className="font-medium">Rs.&nbsp;{parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
+                                                  : <span className="italic text-amber-600 text-xs" title="Not included in total">{item.miscellaneous_amount}</span>
+                                                : <span className="text-gray-300">—</span>}
+                                            </span>
+                                          </td>
+                                          {/* Prof. Charges */}
+                                          <td className="px-3 py-3.5 text-right align-top">
+                                            <span className="text-sm font-medium text-gray-700">
+                                              Rs.&nbsp;{parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}
+                                            </span>
+                                          </td>
+                                          {/* Total + actions */}
+                                          <td className="px-4 py-3.5 text-right align-top">
+                                            <div className="flex flex-col items-end gap-1.5">
+                                              <span className="text-sm font-bold text-gray-900 whitespace-nowrap">
+                                                Rs.&nbsp;{itemTotal.toLocaleString('en-IN')}
+                                              </span>
+                                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                  onClick={() => handleEditItemFromTable(sectionIndex, itemIndex)}
+                                                  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                                                  title="Edit item"
+                                                >
+                                                  <Edit className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleRemoveItemFromSection(sectionIndex, itemIndex)}
+                                                  className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                  title="Remove item"
+                                                >
+                                                  <X className="w-3.5 h-3.5" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </>
+                                      )}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Right Column */}
+          {/* Right Column — Quotation Summary */}
           <div className="lg:col-span-4">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 sticky top-4">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-6">Quotation Summary</h3>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                    <span className="text-sm text-gray-600">Sub Total</span>
-                    <span className="text-sm font-semibold text-gray-900">Rs. {calculateSubTotal().toLocaleString('en-IN')}</span>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 sticky top-4 overflow-hidden">
+              {/* Summary header */}
+              <div className="px-5 py-4 bg-gradient-to-r from-teal-600 to-teal-500 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">Quotation Summary</h3>
+                  <p className="text-teal-100 text-xs mt-0.5">{selectedCompany?.name || 'No company selected'}</p>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-1">
+                {/* Sub Total Row */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <span className="text-sm text-gray-500 font-medium">Sub Total</span>
+                  <span className="text-sm font-semibold text-gray-900">Rs. {calculateSubTotal().toLocaleString('en-IN')}</span>
+                </div>
+
+                {/* GST Section */}
+                <div className="py-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 font-medium">GST</span>
+                      {selectedCompany?.id !== 1 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400 uppercase tracking-wide">
+                          Non-GST
+                        </span>
+                      )}
+                    </div>
+                    {selectedCompany?.id === 1 ? (
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gstEnabled}
+                          onChange={(e) => setGstEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-500"></div>
+                      </label>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">Not applicable</span>
+                    )}
                   </div>
 
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                    <span className="text-sm text-gray-600">% GST</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={gstEnabled}
-                        onChange={(e) => setGstEnabled(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
-                    </label>
-                  </div>
-
-                  {gstEnabled && (
-                    <div className="space-y-2 pb-4 border-b border-gray-200">
+                  {selectedCompany?.id === 1 && gstEnabled && (
+                    <div className="mt-2.5 bg-teal-50 rounded-xl px-3 py-2.5 space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm text-gray-600">Rate (%)</label>
+                        <label className="text-xs text-teal-700 font-medium">Rate (%)</label>
                         <input
                           type="number"
                           value={gstRate}
                           onChange={(e) => setGstRate(parseFloat(e.target.value) || 0)}
-                          className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-right"
+                          className="w-16 px-2 py-1 text-xs border border-teal-200 rounded-lg text-right bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Amount</span>
-                        <span className="text-sm font-semibold text-gray-900">Rs. {calculateGST().toLocaleString('en-IN')}</span>
+                        <span className="text-xs text-teal-600">Amount</span>
+                        <span className="text-xs font-bold text-teal-700">Rs. {calculateGST().toLocaleString('en-IN')}</span>
                       </div>
                     </div>
                   )}
+                </div>
 
-                  <div className="space-y-2 pb-4 border-b border-gray-200">
+                {/* Discount Section */}
+                <div className="py-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <span className="text-sm text-gray-500 font-medium flex items-center gap-1.5">
+                      <span>🎁</span> Discount
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">🎁 Discount</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-gray-600">Rate (%)</label>
+                      <label className="text-xs text-gray-600 font-medium">Rate (%)</label>
                       <input
                         type="number"
                         value={discountValue === 0 ? '' : discountValue}
                         onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
                         placeholder="0"
-                        className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-right"
+                        className="w-16 px-2 py-1 text-xs border border-gray-200 rounded-lg text-right bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Amount</span>
-                      <span className="text-sm font-semibold text-gray-900">Rs. {calculateDiscount().toLocaleString('en-IN')}</span>
+                      <span className="text-xs text-gray-500">Amount</span>
+                      <span className="text-xs font-bold text-gray-700">Rs. {calculateDiscount().toLocaleString('en-IN')}</span>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-base font-semibold text-gray-900">Grand Total</span>
-                    <span className="text-lg font-bold text-teal-600">Rs. {calculateGrandTotal().toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="flex items-center gap-2 text-teal-600 mb-4">
-                    <FileText className="w-4 h-4" />
-                    <span className="text-sm font-semibold">Quick Info</span>
+                {/* Grand Total */}
+                <div className="pt-3">
+                  <div className="bg-gradient-to-r from-teal-50 to-teal-100/60 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-800">Grand Total</span>
+                    <span className="text-lg font-extrabold text-teal-600 tracking-tight">Rs. {calculateGrandTotal().toLocaleString('en-IN')}</span>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Compliances</span>
-                      <span className="font-medium text-gray-900">{sections.length}</span>
+                </div>
+              </div>
+
+              {/* Quick Info */}
+              <div className="px-5 pb-5">
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center gap-2 text-teal-600 mb-3">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span className="text-xs font-bold uppercase tracking-wide">Quick Info</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{sections.length}</div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Compliances</div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Total Items</span>
-                      <span className="font-medium text-gray-900">{sections.reduce((sum, s) => sum + s.items.length, 0)}</span>
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{sections.reduce((sum, s) => sum + s.items.length, 0)}</div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Items</div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Total Quantity</span>
-                      <span className="font-medium text-gray-900">
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">
                         {sections.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0)}
-                      </span>
+                      </div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Qty</div>
                     </div>
                   </div>
                 </div>
@@ -2021,17 +2624,28 @@ export default function Quotations({ onUpdateNavigation }) {
                     {/* Category Selection */}
                     <div className="bg-white rounded-xl border border-gray-200 p-4">
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Compliance Category</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {selectedCategoryType === 'certificates' ? (
-                          <>
-                            {[{id:1,label:'Construction Certificate'},{id:2,label:'Occupational Certificate'}].map(cat => {
-                              const itemCount = editingSection !== null
-                                ? (categoryItemsMap[cat.id]?.items?.length || 0)
-                                : (categoryItemsMap[cat.id]?.items?.length || 0);
+                      {/* Show category tabs for multi-cat types; single-cat types just show a label */}
+                      {selectedCategoryType && (() => {
+                        const catIds = COMPLIANCE_GROUPS[selectedCategoryType] || [];
+                        if (catIds.length <= 1) {
+                          // Single category — just show active name, no tabs needed
+                          return (
+                            <div className="px-3 py-2 rounded-lg bg-teal-50 border border-teal-200 text-sm font-semibold text-teal-700">
+                              {COMPLIANCE_CATEGORIES[catIds[0]]?.name || ''}
+                            </div>
+                          );
+                        }
+                        // For regulatory_permissions (4 cats) use 2 cols, others use 2 cols too
+                        const gridCols = catIds.length === 3 ? 'grid-cols-3' : 'grid-cols-2';
+                        return (
+                          <div className={`grid ${gridCols} gap-2`}>
+                            {catIds.map(catId => {
+                              const cat = COMPLIANCE_CATEGORIES[catId];
+                              const itemCount = categoryItemsMap[catId]?.items?.length || 0;
                               return (
-                                <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                                  className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors relative ${activeCategoryId === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                                  {cat.label}
+                                <button key={catId} onClick={() => handleCategoryChange(catId)}
+                                  className={`px-3 py-2.5 rounded-lg border-2 font-medium text-xs transition-colors relative ${activeCategoryId === catId ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
+                                  {cat?.shortName || cat?.name}
                                   {itemCount > 0 && (
                                     <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
                                       {itemCount}
@@ -2040,26 +2654,9 @@ export default function Quotations({ onUpdateNavigation }) {
                                 </button>
                               );
                             })}
-                          </>
-                        ) : selectedCategoryType === 'execution' ? (
-                          <>
-                            {[{id:3,label:'Water Main'},{id:4,label:'STP'}].map(cat => {
-                              const itemCount = categoryItemsMap[cat.id]?.items?.length || 0;
-                              return (
-                                <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                                  className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors relative ${activeCategoryId === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                                  {cat.label}
-                                  {itemCount > 0 && (
-                                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                                      {itemCount}
-                                    </span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </>
-                        ) : null}
-                      </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Add Item Form */}
@@ -2097,7 +2694,8 @@ export default function Quotations({ onUpdateNavigation }) {
                       </div>
 
                       <div className="p-4 space-y-3">
-                        {selectedCategoryType === 'certificates' && (
+                        {/* Sub-compliance shown only for categories that have sub-options: 1,2,5,6,7 */}
+                        {activeCategoryId && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                               Sub-Compliance Category <span className="text-red-400">*</span>
@@ -2117,7 +2715,7 @@ export default function Quotations({ onUpdateNavigation }) {
                           </div>
                         )}
 
-                        <div className="relative" style={{ paddingBottom: showDescriptionDropdown ? '320px' : '0', transition: 'padding-bottom 0.15s ease' }}>
+                        <div className="relative">
                           <div className="flex items-center justify-between mb-1.5">
                             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                               Description <span className="text-red-400">*</span>
@@ -2156,10 +2754,6 @@ export default function Quotations({ onUpdateNavigation }) {
                                     <button type="button"
                                       onClick={() => {
                                         setShowDescriptionDropdown(true);
-                                        setTimeout(() => {
-                                          const body = document.getElementById('compliance-modal-body');
-                                          if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-                                        }, 50);
                                       }}
                                       className="text-xs text-teal-600 hover:text-teal-800 font-semibold underline underline-offset-2 flex-shrink-0">
                                       Change
@@ -2178,14 +2772,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                 /* ── Dropdown trigger button ── */
                                 <button type="button"
                                   onClick={() => {
-                                    const next = !showDescriptionDropdown;
-                                    setShowDescriptionDropdown(next);
-                                    if (next) {
-                                      setTimeout(() => {
-                                        const body = document.getElementById('compliance-modal-body');
-                                        if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-                                      }, 50);
-                                    }
+                                    setShowDescriptionDropdown(prev => !prev);
                                   }}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
                                   <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
@@ -2197,11 +2784,11 @@ export default function Quotations({ onUpdateNavigation }) {
                                 </button>
                               ) : null}
 
-                              {/* ── Dropdown panel ── */}
+                              {/* ── Dropdown panel — inline so it pushes content down and doesn't jump scroll ── */}
                               {showDescriptionDropdown && (
                                 <div
-                                  className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden"
-                                  style={{ zIndex: 99999 }}
+                                  className="w-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mt-1.5"
+                                  style={{ zIndex: 10 }}
                                   onMouseDown={(e) => e.preventDefault()}
                                 >
                                   {/* Search bar */}
@@ -2287,58 +2874,233 @@ export default function Quotations({ onUpdateNavigation }) {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                            <input type="number" min="1" value={modalItemForm.quantity}
-                              onChange={e => modalSetItemForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        {/* ── EXECUTION fields: Unit, SAC, Qty, Rate, then optional breakdown ── */}
+                        {EXECUTION_CATS.includes(activeCategoryId) ? (
+                          <>
+                            {/* Row 1: Unit + SAC Code */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit <span className="text-red-400">*</span></label>
+                                <input type="text" value={modalItemForm.unit}
+                                  onChange={e => modalSetItemForm(prev => ({ ...prev, unit: e.target.value }))}
+                                  placeholder="e.g. m, nos, RM, RMT"
+                                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">SAC Code</label>
+                                <input type="text" value={modalItemForm.item_sac_code}
+                                  onChange={e => modalSetItemForm(prev => ({ ...prev, item_sac_code: e.target.value }))}
+                                  placeholder="e.g. 998313"
+                                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                              </div>
+                            </div>
+
+                            {/* Row 2: Qty + Rate (mandatory, like Professional in Regulatory) */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={modalItemForm.quantity}
+                                  onChange={e => {
+                                    const raw = e.target.value.replace(/[^0-9]/g, '');
+                                    const qty = parseInt(raw, 10) || 0;
+                                    // Auto-recompute amounts when qty changes
+                                    const matAmt = parseFloat((( parseFloat(modalItemForm.material_rate) || 0) * (qty || 1)).toFixed(2));
+                                    const labAmt = parseFloat(((parseFloat(modalItemForm.labour_rate) || 0) * (qty || 1)).toFixed(2));
+                                    modalSetItemForm(prev => ({
+                                      ...prev,
+                                      quantity: raw,
+                                      material_amount: (parseFloat(prev.material_rate) || 0) > 0 ? matAmt : prev.material_amount,
+                                      labour_amount:   (parseFloat(prev.labour_rate)   || 0) > 0 ? labAmt : prev.labour_amount,
+                                    }));
+                                  }}
+                                  onBlur={e => {
+                                    const val = parseInt(e.target.value, 10);
+                                    const qty = (!val || val < 1) ? 1 : val;
+                                    const matAmt = parseFloat(((parseFloat(modalItemForm.material_rate) || 0) * qty).toFixed(2));
+                                    const labAmt = parseFloat(((parseFloat(modalItemForm.labour_rate)   || 0) * qty).toFixed(2));
+                                    modalSetItemForm(prev => ({
+                                      ...prev,
+                                      quantity: qty,
+                                      material_amount: (parseFloat(prev.material_rate) || 0) > 0 ? matAmt : prev.material_amount,
+                                      labour_amount:   (parseFloat(prev.labour_rate)   || 0) > 0 ? labAmt : prev.labour_amount,
+                                    }));
+                                  }}
+                                  placeholder="Enter qty"
+                                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                                  Rate (Rs.) <span className="text-red-400">*</span>
+                                  <span className="ml-1 normal-case font-normal text-gray-400 text-xs">per unit</span>
+                                </label>
+                                <input type="number" min="0" step="0.01"
+                                  value={modalItemForm.Professional_amount === 0 ? '' : modalItemForm.Professional_amount}
+                                  onChange={e => {
+                                    // Rate field stores in Professional_amount — independent of material/labour breakdown
+                                    const rate = parseFloat(e.target.value) || 0;
+                                    modalSetItemForm(prev => ({
+                                      ...prev,
+                                      Professional_amount: rate,
+                                    }));
+                                  }}
+                                  placeholder="0.00"
+                                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                              </div>
+                            </div>
+
+                            {/* Advanced breakdown: Material + Labour split (optional) */}
+                            <div className="pt-1">
+                              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                                Rate Breakdown
+                                <span className="normal-case font-normal text-gray-400 ml-1">(optional — split into Material &amp; Labour)</span>
+                              </p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Rate (Rs./unit)</label>
+                                  <input type="number" min="0" step="0.01"
+                                    value={modalItemForm.material_rate === 0 ? '' : modalItemForm.material_rate}
+                                    onChange={e => {
+                                      const rate = parseFloat(e.target.value) || 0;
+                                      const qty  = parseInt(modalItemForm.quantity, 10) || 1;
+                                      modalSetItemForm(prev => ({
+                                        ...prev,
+                                        material_rate:   rate,
+                                        material_amount: parseFloat((rate * qty).toFixed(2)),
+                                      }));
+                                    }}
+                                    placeholder="0.00"
+                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Amount (Rs.)</label>
+                                  <input type="number" min="0" step="0.01"
+                                    value={modalItemForm.material_amount === 0 ? '' : modalItemForm.material_amount}
+                                    onChange={e => modalSetItemForm(prev => ({ ...prev, material_amount: parseFloat(e.target.value) || 0 }))}
+                                    placeholder="auto = rate × qty"
+                                    className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 mt-3">
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Rate (Rs./unit)</label>
+                                  <input type="number" min="0" step="0.01"
+                                    value={modalItemForm.labour_rate === 0 ? '' : modalItemForm.labour_rate}
+                                    onChange={e => {
+                                      const rate = parseFloat(e.target.value) || 0;
+                                      const qty  = parseInt(modalItemForm.quantity, 10) || 1;
+                                      modalSetItemForm(prev => ({
+                                        ...prev,
+                                        labour_rate:   rate,
+                                        labour_amount: parseFloat((rate * qty).toFixed(2)),
+                                      }));
+                                    }}
+                                    placeholder="0.00"
+                                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Amount (Rs.)</label>
+                                  <input type="number" min="0" step="0.01"
+                                    value={modalItemForm.labour_amount === 0 ? '' : modalItemForm.labour_amount}
+                                    onChange={e => modalSetItemForm(prev => ({ ...prev, labour_amount: parseFloat(e.target.value) || 0 }))}
+                                    placeholder="auto = rate × qty"
+                                    className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          /* ── REGULATORY fields: Unit + Professional + Misc ── */
+                          <>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit</label>
+                              <input
+                                type="text"
+                                value={modalItemForm.unit}
+                                onChange={e => modalSetItemForm(prev => ({ ...prev, unit: e.target.value }))}
+                                placeholder="e.g. m, nos, RM, Lump Sum"
+                                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                              />
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={modalItemForm.quantity}
+                                onChange={e => {
+                                  const raw = e.target.value.replace(/[^0-9]/g, '');
+                                  modalSetItemForm(prev => ({ ...prev, quantity: raw }));
+                                }}
+                                onBlur={e => {
+                                  const val = parseInt(e.target.value, 10);
+                                  modalSetItemForm(prev => ({ ...prev, quantity: (!val || val < 1) ? 1 : val }));
+                                }}
+                                placeholder="Enter qty"
+                                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={modalItemForm.Professional_amount === 0 ? '' : modalItemForm.Professional_amount}
+                                onChange={e => modalSetItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                                placeholder="0.00"
+                                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                                Misc. (Rs.)
+                                {modalItemForm.miscellaneous_amount !== '' && (
+                                  <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
+                                    {isMiscNumeric(modalItemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
+                                  </span>
+                                )}
+                              </label>
+                              <input
+                                type="text"
+                                value={modalItemForm.miscellaneous_amount}
+                                onChange={e => modalSetItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
+                                placeholder="Amount or description"
+                                className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`}
+                              />
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={modalItemForm.Professional_amount === 0 ? '' : modalItemForm.Professional_amount}
-                              onChange={e => modalSetItemForm(prev => ({ ...prev, Professional_amount: parseFloat(e.target.value) || 0 }))}
-                              placeholder="0.00"
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                              Misc. (Rs.)
-                              {modalItemForm.miscellaneous_amount !== '' && (
-                                <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
-                                  {isMiscNumeric(modalItemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
-                                </span>
-                              )}
-                            </label>
-                            <input
-                              type="text"
-                              value={modalItemForm.miscellaneous_amount}
-                              onChange={e => modalSetItemForm(prev => ({ ...prev, miscellaneous_amount: e.target.value }))}
-                              placeholder="Amount or description"
-                              className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`}
-                            />
-                          </div>
-                        </div>
+                          </>
+                        )}
 
                         <div className="flex items-center gap-3">
                           <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
                             <span className="text-sm text-teal-700 font-medium">Item Total:</span>
                             <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(modalItemForm).toLocaleString('en-IN')}</span>
-                            {modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? (
+                            {EXECUTION_CATS.includes(activeCategoryId) ? (
+                              <span className="text-xs text-teal-500 ml-auto">
+                                {(parseFloat(modalItemForm.material_amount) > 0 || parseFloat(modalItemForm.labour_amount) > 0)
+                                  ? `Mat. + Lab. = (${(parseFloat(modalItemForm.material_amount)||0).toLocaleString('en-IN')} + ${(parseFloat(modalItemForm.labour_amount)||0).toLocaleString('en-IN')})`
+                                  : (parseFloat(modalItemForm.material_rate) > 0 || parseFloat(modalItemForm.labour_rate) > 0)
+                                    ? `Rate × Qty = (${((parseFloat(modalItemForm.material_rate)||0)+(parseFloat(modalItemForm.labour_rate)||0)).toLocaleString('en-IN')} × ${parseInt(modalItemForm.quantity)||1})`
+                                    : `Rate × Qty = (${(parseFloat(modalItemForm.Professional_amount)||0).toLocaleString('en-IN')} × ${parseInt(modalItemForm.quantity)||1})`}
+                              </span>
+                            ) : modalItemForm.miscellaneous_amount !== '' && !isMiscNumeric(modalItemForm.miscellaneous_amount) ? (
                               <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 Misc shown as note
                               </span>
                             ) : (
-                              <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
+                              <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) × Qty</span>
                             )}
                           </div>
                           <button
                             onClick={modalAddItem}
-                            disabled={!modalItemForm.compliance_name.trim() || (selectedCategoryType === 'certificates' && !modalItemForm.sub_compliance_id) || !(parseFloat(modalItemForm.Professional_amount) > 0)}
+                            disabled={
+                              !modalItemForm.compliance_name.trim() ||
+                              (activeCategoryId && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && !modalItemForm.sub_compliance_id) ||
+                              (!EXECUTION_CATS.includes(activeCategoryId) && !(parseFloat(modalItemForm.Professional_amount) > 0))
+                            }
                             className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${modalEditingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
                           >
                             {modalEditingItemIndex !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
@@ -2366,11 +3128,20 @@ export default function Quotations({ onUpdateNavigation }) {
                                     <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>
                                   )}
                                   <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
-                                  <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                                  {String(item.miscellaneous_amount ?? '').trim() !== '' && (
-                                    isMiscNumeric(item.miscellaneous_amount)
-                                      ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
-                                      : <span className="text-xs text-amber-600 italic font-medium" title="Not included in total">Misc: {item.miscellaneous_amount}</span>
+                                  {EXECUTION_CATS.includes(activeCategoryId) ? (
+                                    <>
+                                      {parseFloat(item.material_amount) > 0 && <span className="text-xs text-gray-400">Mat: Rs. {parseFloat(item.material_amount).toLocaleString('en-IN')}</span>}
+                                      {parseFloat(item.labour_amount) > 0  && <span className="text-xs text-gray-400">Lab: Rs. {parseFloat(item.labour_amount).toLocaleString('en-IN')}</span>}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
+                                      {String(item.miscellaneous_amount ?? '').trim() !== '' && (
+                                        isMiscNumeric(item.miscellaneous_amount)
+                                          ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
+                                          : <span className="text-xs text-amber-600 italic font-medium" title="Not included in total">Misc: {item.miscellaneous_amount}</span>
+                                      )}
+                                    </>
                                   )}
                                   <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
                                 </div>
@@ -2399,27 +3170,21 @@ export default function Quotations({ onUpdateNavigation }) {
                     )}
 
                     {/* Summary of other categories when multiple have items */}
-                    {!editingSection && selectedCategoryType === 'certificates' && (categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length > 0) && (
-                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                        <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-xs font-bold">{categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length}</span>
+                    {/* Cross-category summary: show other cats in the group that also have items */}
+                    {!editingSection && selectedCategoryType && (() => {
+                      const groupCats = COMPLIANCE_GROUPS[selectedCategoryType] || [];
+                      const others = groupCats.filter(cId => cId !== activeCategoryId && (categoryItemsMap[cId]?.items?.length || 0) > 0);
+                      return others.map(cId => (
+                        <div key={cId} className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                          <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-white text-xs font-bold">{categoryItemsMap[cId]?.items?.length}</span>
+                          </div>
+                          <p className="text-sm text-indigo-700 font-medium">
+                            {COMPLIANCE_CATEGORIES[cId]?.shortName} also has {categoryItemsMap[cId]?.items?.length} item{categoryItemsMap[cId]?.items?.length > 1 ? 's' : ''} — will be saved to its own section.
+                          </p>
                         </div>
-                        <p className="text-sm text-indigo-700 font-medium">
-                          {COMPLIANCE_CATEGORIES[activeCategoryId === 1 ? 2 : 1]?.shortName} also has {categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length} item{categoryItemsMap[activeCategoryId === 1 ? 2 : 1]?.items?.length > 1 ? 's' : ''} — will be saved to its own section.
-                        </p>
-                      </div>
-                    )}
-
-                    {!editingSection && selectedCategoryType === 'execution' && (categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length > 0) && (
-                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                        <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-xs font-bold">{categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length}</span>
-                        </div>
-                        <p className="text-sm text-indigo-700 font-medium">
-                          {COMPLIANCE_CATEGORIES[activeCategoryId === 3 ? 4 : 3]?.shortName} also has {categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length} item{categoryItemsMap[activeCategoryId === 3 ? 4 : 3]?.items?.length > 1 ? 's' : ''} — will be saved to its own section.
-                        </p>
-                      </div>
-                    )}
+                      ));
+                    })()}
 
                 </div>
 
@@ -2527,17 +3292,9 @@ export default function Quotations({ onUpdateNavigation }) {
               </div>
 
               <div className="flex items-center gap-3">
-                <button className="px-4 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors flex items-center gap-2 text-sm font-medium">
-                  <FileText className="w-4 h-4" />
-                  Establish Agreement
-                </button>
-                <button className="px-4 py-2 border border-purple-500 text-purple-500 rounded-lg hover:bg-purple-50 transition-colors flex items-center gap-2 text-sm font-medium">
-                  <Send className="w-4 h-4" />
-                  Invoice
-                </button>
                 <button 
                   onClick={handleSubmit}
-                  disabled={submitting || sections.length === 0 || !selectedClient || !selectedProject}
+                  disabled={submitting || sections.length === 0 || !selectedClient || !selectedProject || !selectedCompany}
                   className="px-6 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (

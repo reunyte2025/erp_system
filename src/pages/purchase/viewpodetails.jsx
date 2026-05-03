@@ -9,33 +9,40 @@ import {
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
   Search, ChevronDown, Edit, Receipt,
 } from 'lucide-react';
-import { getQuotationById } from '../../services/quotation';
-import { generatePurchaseOrderPdf } from '../../services/purchase';
+import {
+  getPurchaseOrderById,
+  updatePurchaseOrder,
+  getUserById,
+  getAllInvoices,
+  generatePurchaseOrderPdf,
+} from '../../services/purchase';
 import { getComplianceByCategory } from '../../services/proforma';
 import { getProjects } from '../../services/projects';
-import { createInvoice } from '../../services/invoices';
-import api from '../../services/api';
+import { createPurchaseOrderInvoice } from '../../services/invoices';
+import { getVendorById, getVendors } from '../../services/vendors';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COMPLIANCE_CATEGORIES = {
-  1: 'Construction Certificate',
-  2: 'Occupational Certificate',
-  3: 'Water Main Commissioning',
-  4: 'STP Commissioning',
+  5: 'Water Connection',
+  6: 'SWD Line Work',
+  7: 'Sewer/Drainage Line Work',
 };
 
 const SUB_COMPLIANCE_CATEGORIES = {
-  1: { id: 1, name: 'Plumbing Compliance' },
-  2: { id: 2, name: 'PCO Compliance' },
-  3: { id: 3, name: 'General Compliance' },
-  4: { id: 4, name: 'Road Setback Handing over' },
   0: { id: 0, name: 'Default' },
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
-// Purchase Orders are ALWAYS execution compliance only (categories 3 & 4)
-const PO_COMPLIANCE_GROUPS = { execution: [3, 4] };
+// Purchase Orders are ALWAYS execution compliance only.
+const PO_COMPLIANCE_GROUPS = { execution: [5, 6, 7] };
 
 const STATUS_CONFIG = {
   '1':          { label: 'Draft',        Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
@@ -108,10 +115,30 @@ const groupItemsByCategory = (items = []) => {
 };
 
 const calcItemTotal = (item) => {
-  const prof = parseFloat(item.Professional_amount) || 0;
-  const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
-  const qty  = parseInt(item.quantity) || 1;
-  return parseFloat(((prof + misc) * qty).toFixed(2));
+  const qty     = parseInt(item.quantity) || 1;
+  const prof    = parseFloat(item.Professional_amount) || 0;
+  const matRate = parseFloat(item.material_rate) || 0;
+  const labRate = parseFloat(item.labour_rate) || 0;
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount) || 0;
+
+  if (matAmt > 0 || labAmt > 0) {
+    return parseFloat((matAmt + labAmt).toFixed(2));
+  }
+
+  if (matRate > 0 || labRate > 0) {
+    return parseFloat((((matRate + labRate) * qty)).toFixed(2));
+  }
+
+  return parseFloat((prof * qty).toFixed(2));
+};
+
+const hasRateBreakdown = (item) => {
+  const matRate = parseFloat(item.material_rate) || 0;
+  const labRate = parseFloat(item.labour_rate) || 0;
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount) || 0;
+  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
 };
 
 // ─── Number to words ──────────────────────────────────────────────────────────
@@ -245,10 +272,34 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     if (!id) { setFetchError('No Purchase Order ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      const res = await getQuotationById(id);
-      if (res.status !== 'success' || !res.data) throw new Error('Failed to load purchase order');
+      // Use the dedicated Purchase Order service function
+      const res = await getPurchaseOrderById(id);
       const poData = res.data;
       setPo(poData);
+
+      if (!poData.vendor_name && poData.vendor) {
+        try {
+          const vendorRes = await getVendorById(poData.vendor);
+          const vendorData = vendorRes?.data || vendorRes;
+          const vendorName = vendorData?.name || vendorData?.vendor_name || '';
+          if (vendorName) {
+            poData.vendor_name = vendorName;
+            setPo({ ...poData });
+          }
+        } catch {
+          try {
+            const listRes = await getVendors({ page: 1, page_size: 500 });
+            const allVendors = listRes?.data?.results || listRes?.results || [];
+            const found = allVendors.find((vendor) => String(vendor.id) === String(poData.vendor));
+            if (found?.name) {
+              poData.vendor_name = found.name;
+              setPo({ ...poData });
+            }
+          } catch {
+            // Keep the detail page usable even if vendor lookup fails.
+          }
+        }
+      }
 
       if (poData.project) {
         try {
@@ -261,10 +312,9 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
       if (poData.created_by) {
         try {
-          const ur = await api.get('/users/get_user/', { params: { id: poData.created_by } });
-          if (ur.data?.status === 'success' && ur.data?.data) {
-            const u = ur.data.data;
-            setCreatedByName(`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || '');
+          const user = await getUserById(poData.created_by);
+          if (user) {
+            setCreatedByName(`${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || '');
           }
         } catch {}
       }
@@ -281,7 +331,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
   // ── fetchDescriptionsForModal — same as quotation, execution categories only ─
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    // PO only uses execution categories (3=Water Main, 4=STP) — no sub-category
+    // PO only uses execution categories (5/6/7).
     const res = await getComplianceByCategory(categoryId, subCategoryId || null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
@@ -297,9 +347,15 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
+      unit:                    it.unit || 'N/A',
+      sac_code:                it.sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
+      material_rate:           parseFloat(it.material_rate || 0),
+      material_amount:         parseFloat(it.material_amount || 0),
+      labour_rate:             parseFloat(it.labour_rate || 0),
+      labour_amount:           parseFloat(it.labour_amount || 0),
       miscellaneous_amount:    (it.miscellaneous_amount === '--' || it.miscellaneous_amount === null) ? '' : (it.miscellaneous_amount || ''),
-      compliance_category:     it.compliance_category ?? 3, // PO defaults to execution (3)
+      compliance_category:     it.compliance_category ?? 5,
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
     })));
@@ -342,7 +398,15 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     for (const it of editItems) {
       if (!String(it.description).trim()) { setSaveError('All items must have a description.'); return; }
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
-      if ((parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all items.'); return; }
+      const prof = parseFloat(it.Professional_amount) || 0;
+      const matRate = parseFloat(it.material_rate) || 0;
+      const labRate = parseFloat(it.labour_rate) || 0;
+      const matAmt = parseFloat(it.material_amount) || 0;
+      const labAmt = parseFloat(it.labour_amount) || 0;
+      if (prof <= 0 && matRate <= 0 && labRate <= 0 && matAmt <= 0 && labAmt <= 0) {
+        setSaveError('Each item must have a rate or amount greater than 0.');
+        return;
+      }
     }
     if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
     setSaving(true);
@@ -370,25 +434,36 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         total_gst_amount: Math.round(gst),
         grand_total:      Math.round(grand),
         items: editItems.map(it => {
-          const compCat    = parseInt(it.compliance_category) || 3; // execution default
+          const compCat    = parseInt(it.compliance_category) || 5;
           const subCompCat = parseInt(it.sub_compliance_category) || 0;
           const rawId  = it.id != null ? parseInt(it.id) : null;
           const itemId = rawId && rawId > 0 ? rawId : null;
+          const qty = parseInt(it.quantity) || 1;
+          const prof = parseFloat(it.Professional_amount) || 0;
+          const matRate = parseFloat(it.material_rate) || 0;
+          const labRate = parseFloat(it.labour_rate) || 0;
+          const matAmt = (parseFloat(it.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+          const labAmt = (parseFloat(it.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
           return {
             id:                      itemId,
             description:             String(it.description).trim(),
-            quantity:                parseInt(it.quantity) || 1,
-            Professional_amount:     parseFloat((parseFloat(it.Professional_amount) || 0).toFixed(2)),
-            miscellaneous_amount:    String(it.miscellaneous_amount ?? '').trim() || '--',
-            total_amount:            Math.round(calcItemTotal(it)),
+            quantity:                qty,
+            unit:                    String(it.unit || '').trim() || 'N/A',
+            sac_code:                String(it.sac_code || '').trim(),
+            Professional_amount:     prof.toFixed(2),
+            material_rate:           matRate.toFixed(2),
+            material_amount:         matAmt.toFixed(2),
+            labour_rate:             labRate.toFixed(2),
+            labour_amount:           labAmt.toFixed(2),
+            total_amount:            calcItemTotal({ ...it, quantity: qty, material_amount: matAmt, labour_amount: labAmt }).toFixed(2),
             compliance_category:     compCat,
             sub_compliance_category: subCompCat,
           };
         }),
       };
 
-      const response = await api.put('/quotations/update_quotation/', payload);
-      const data = response.data;
+      const response = await updatePurchaseOrder(payload);
+      const data = response;
 
       if (data && (data.id || data.quotation_number)) {
         const updated = data.data || data;
@@ -400,7 +475,6 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           total_amount: sub, total_gst_amount: gst, grand_total: grand,
           items: updated.items || editItems.map(it => ({
             ...it,
-            miscellaneous_amount: String(it.miscellaneous_amount ?? '').trim() || '--',
             total_amount: calcItemTotal(it),
           })),
         }));
@@ -465,10 +539,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   // Matches by quotation field on invoice OR by shared trailing digits.
   const fetchInvoiceForThisPO = async () => {
     const poTrailing = extractTrailingDigits(po.quotation_number || String(po.id));
-    const res = await api.get('/invoices/get_all_invoices/', {
-      params: { page: 1, page_size: 100 },
-    });
-    const results = res.data?.data?.results || res.data?.results || [];
+    const results = await getAllInvoices({ page: 1, page_size: 100 });
     // First try: match by quotation field on the invoice (most reliable)
     const quotationId = Number(po.id);
     let match = results.find((inv) => Number(inv.quotation) === quotationId);
@@ -533,8 +604,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         setInvoiceGenerating(false);
         return;
       }
-      // For Purchase Orders: pass quotation ID, proforma must be null
-      const res = await createInvoice({
+      // For Purchase Orders: use the dedicated purchase order invoice endpoint
+      const res = await createPurchaseOrderInvoice({
         quotation:      po.id,
         advance_amount: String(advance.toFixed(2)),
       });
@@ -616,7 +687,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  const vendorName = po.vendor_name || (po.vendor ? `Vendor` : '—');
+  const vendorName = po.vendor_name || (po.vendor ? `Vendor #${po.vendor}` : '—');
   const projName   = project
     ? (project.name || project.title || `Project #${po.project}`)
     : po.project_name || (po.project ? `Project #${po.project}` : '—');
@@ -863,10 +934,12 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           <div className="vpod-hdr">
             <div className="vpod-hdr-l">
               <div className="vpod-logo">
-                <div className="vpod-logo-badge">ERP</div>
+                <div className="vpod-logo-badge">
+                  {(po.company_name || 'CI')[0].toUpperCase()}
+                </div>
                 <div>
-                  <div className="vpod-co-name">ERP System</div>
-                  <div className="vpod-co-sub">Professional Services</div>
+                  <div className="vpod-co-name">{po.company_name || 'Company'}</div>
+                  <div className="vpod-co-sub">Purchase Order</div>
                 </div>
               </div>
               <StatusPill status={status} />
@@ -884,6 +957,12 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div className="vpod-meta-sep" />
             <MetaBlock icon={Calendar} label="Last Updated" value={fmtDate(po.updated_at)} />
             <div className="vpod-meta-sep" />
+            {po.company_name && (
+              <>
+                <MetaBlock icon={Building2} label="Company" value={po.company_name} />
+                <div className="vpod-meta-sep" />
+              </>
+            )}
             {editMode ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1036,25 +1115,27 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                 <table className="vpod-table">
                   <thead>
                     <tr>
-                      <th style={{ width: 32 }}>#</th>
-                      <th>Service Description</th>
-                      <th style={{ width: 110 }}>Sub-Category</th>
-                      <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-                      <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                      <th style={{ width: 130, textAlign: 'right' }}>Miscellaneous</th>
-                      <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                      <th rowSpan={2} style={{ width: 32 }}>#</th>
+                      <th rowSpan={2}>Service Description</th>
+                      <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
+                      <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                      <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                      <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
+                      <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                    </tr>
+                    <tr>
+                      <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate</th>
+                      <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate</th>
+                      <th style={{ width: 110, textAlign: 'right' }}>Material Amt</th>
+                      <th style={{ width: 110, textAlign: 'right' }}>Labour Amt</th>
                     </tr>
                   </thead>
                   {groups.map((grp, gi) => {
-                    const grpTotal = grp.items.reduce((s, it) => {
-                      const prof = parseFloat(it.Professional_amount || 0);
-                      const misc = isMiscNumeric(it.miscellaneous_amount) ? parseFloat(it.miscellaneous_amount) : 0;
-                      return s + (prof + misc) * (parseInt(it.quantity) || 1);
-                    }, 0);
+                    const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
                     return (
                       <tbody key={gi}>
                         <tr className="vpod-cat-row">
-                          <td colSpan={7}>
+                          <td colSpan={10}>
                             <div className="vpod-cat-inner">
                               <span className="vpod-cat-dot" />
                               {grp.catName}
@@ -1063,18 +1144,28 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                           </td>
                         </tr>
                         {grp.items.map((item, ii) => {
-                          const prof    = parseFloat(item.Professional_amount || 0);
-                          const miscRaw = item.miscellaneous_amount;
-                          const miscNum = isMiscNumeric(miscRaw) ? parseFloat(miscRaw) : 0;
                           const qty     = parseInt(item.quantity) || 1;
-                          const total   = (prof + miscNum) * qty;
+                          const total   = parseFloat(item.total_amount) || calcItemTotal(item);
                           const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                          const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--'
-                            ? String(miscRaw).trim() : null;
+                          const prof    = parseFloat(item.Professional_amount || 0);
+                          const matRate = parseFloat(item.material_rate || 0);
+                          const labRate = parseFloat(item.labour_rate || 0);
+                          const matAmt  = parseFloat(item.material_amount || 0);
+                          const labAmt  = parseFloat(item.labour_amount || 0);
+                          const itemSacCode = item.sac_code;
+                          const showBreakdown = hasRateBreakdown(item);
                           return (
                             <tr key={ii} className="vpod-row">
                               <td className="vpod-row-idx">{ii + 1}</td>
-                              <td><div className="vpod-desc">{item.description || item.compliance_name || '—'}</div></td>
+                              <td>
+                                <div className="vpod-desc">{item.description || item.compliance_name || '—'}</div>
+                                {itemSacCode && (
+                                  <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
+                                  </div>
+                                )}
+                              </td>
                               <td>
                                 {subCat
                                   ? <span className="vpod-subcat">{subCat.name}</span>
@@ -1083,16 +1174,29 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                               <td style={{ textAlign: 'center' }}>
                                 <span className="vpod-qty-badge">{qty}</span>
                               </td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                ₹&nbsp;{fmtINR(prof)}
+                              <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                {item.unit || '—'}
                               </td>
-                              <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                {miscStr
-                                  ? isMiscNumeric(miscStr)
-                                    ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                    : <span className="vpod-misc-note" title="Note — not in total">{miscStr}</span>
-                                  : <span style={{ color: '#e2e8f0' }}>—</span>}
-                              </td>
+                              {showBreakdown ? (
+                                <>
+                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                </>
+                              ) : (
+                                <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                  {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                </td>
+                              )}
                               <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>
                                 ₹&nbsp;{fmtINR(total)}
                               </td>
@@ -1100,7 +1204,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                           );
                         })}
                         <tr className="vpod-cat-sub">
-                          <td colSpan={6} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
+                          <td colSpan={9} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
                             {grp.catName} subtotal
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 16 }}>
@@ -1126,7 +1230,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   // Group edit items by category
                   const editGroups = {};
                   editItems.forEach((it, globalIdx) => {
-                    const catId = it.compliance_category ?? 3;
+                    const catId = it.compliance_category ?? 5;
                     const key   = String(catId);
                     if (!editGroups[key]) editGroups[key] = { catId, catName: COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`, rows: [] };
                     editGroups[key].rows.push({ it, globalIdx });
@@ -1139,8 +1243,10 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                           <th style={{ width: 32 }}>#</th>
                           <th style={{ width: 'auto' }}>Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
                           <th style={{ width: 58, textAlign: 'center' }}>Qty</th>
-                          <th style={{ width: 130, textAlign: 'right' }}>Professional (₹)</th>
-                          <th style={{ width: 130, textAlign: 'right' }}>Misc (₹ or note)</th>
+                          <th style={{ width: 72, textAlign: 'center' }}>Unit</th>
+                          <th style={{ width: 120, textAlign: 'right' }}>Professional (₹)</th>
+                          <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
+                          <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
                           <th style={{ width: 110, textAlign: 'right' }}>Item Total</th>
                           <th style={{ width: 40 }}></th>
                         </tr>
@@ -1150,7 +1256,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                         return (
                           <tbody key={gi}>
                             <tr className="vpod-cat-row">
-                              <td colSpan={7}>
+                              <td colSpan={9}>
                                 <div className="vpod-cat-inner">
                                   <span className="vpod-cat-dot" />
                                   {grp.catName}
@@ -1184,6 +1290,16 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                                   </td>
                                   <td>
                                     <input
+                                      type="text"
+                                      className="vpod-edit-input"
+                                      value={it.unit || ''}
+                                      onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                      placeholder="Unit"
+                                      style={{ textAlign: 'center', width: '100%' }}
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
                                       type="number" min="0" step="0.01"
                                       className="vpod-edit-input"
                                       value={it.Professional_amount === 0 ? '' : it.Professional_amount}
@@ -1194,16 +1310,23 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                                   </td>
                                   <td>
                                     <input
-                                      type="text"
+                                      type="number" min="0" step="0.01"
                                       className="vpod-edit-input"
-                                      value={it.miscellaneous_amount}
-                                      onChange={e => updateItem(globalIdx, 'miscellaneous_amount', e.target.value)}
-                                      placeholder="Amount or note"
-                                      style={{ textAlign: 'right', width: '100%', borderColor: it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) ? '#fbbf24' : undefined }}
+                                      value={it.material_amount === 0 ? '' : it.material_amount}
+                                      onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
+                                      placeholder="0.00"
+                                      style={{ textAlign: 'right', width: '100%' }}
                                     />
-                                    {it.miscellaneous_amount && !isMiscNumeric(it.miscellaneous_amount) && (
-                                      <div style={{ fontSize: 10, color: '#d97706', marginTop: 2 }}>Note only — not calculated</div>
-                                    )}
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number" min="0" step="0.01"
+                                      className="vpod-edit-input"
+                                      value={it.labour_amount === 0 ? '' : it.labour_amount}
+                                      onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                      placeholder="0.00"
+                                      style={{ textAlign: 'right', width: '100%' }}
+                                    />
                                   </td>
                                   <td style={{ textAlign: 'right', fontWeight: 800, color: '#0f766e', fontSize: 13 }}>
                                     ₹&nbsp;{fmtINR(itemTotal)}
@@ -1219,7 +1342,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                               );
                             })}
                             <tr className="vpod-cat-sub">
-                              <td colSpan={5} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
+                              <td colSpan={7} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
                               <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpEditTotal)}</td>
                               <td />
                             </tr>
@@ -1258,6 +1381,18 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     {po.sac_code || '—'}
                   </span>
                 </div>
+                {po.company_name && (
+                  <div className="vpod-sum-item">
+                    <span className="vpod-sum-lbl">Company</span>
+                    <span className="vpod-sum-val">{po.company_name}</span>
+                  </div>
+                )}
+                {po.quotation_type && (
+                  <div className="vpod-sum-item">
+                    <span className="vpod-sum-lbl">PO Type</span>
+                    <span className="vpod-sum-val">{po.quotation_type}</span>
+                  </div>
+                )}
                 <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">Status</span>
                   <span><StatusPill status={status} /></span>
@@ -1377,6 +1512,15 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           </div>
 
         </div>{/* end .vpod-doc */}
+
+        {/* ── Notes Section ── */}
+        {po && (
+          <Notes
+            entityType={NOTE_ENTITY.QUOTATION}
+            entityId={po.id}
+          />
+        )}
+
       </div>{/* end .vpod-root */}
 
       {/* ══════════ ADD COMPLIANCE MODAL — execution only ══════════ */}
@@ -1433,7 +1577,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
                     <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`); }}
+                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`, { state: { invoiceType: 'Vendor Compliance' } }); }}
                       style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
                     >
                       <Receipt size={15} /> View Invoice
@@ -1584,7 +1728,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {invoiceModal.invoiceId && (
                 <button
-                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`); }}
+                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`, { state: { invoiceType: 'Vendor Compliance' } }); }}
                   style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
                 >
                   <Receipt size={11} /> {invoiceModal.invoiceNum ? `View ${invoiceModal.invoiceNum}` : 'View Invoice'}

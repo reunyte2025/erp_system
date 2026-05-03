@@ -21,6 +21,8 @@ import {
   Send,
 } from 'lucide-react';
 import { getProjectById, updateProject } from '../../services/projects';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -554,13 +556,21 @@ export default function ViewProjectDetails({ onUpdateNavigation }) {
                 <InfoRow label="Active Record"    value={project.is_active ? 'Yes — record is active' : 'No — record is inactive'} />
               </div>
             </div>
+
+            {/* Notes */}
+            <div className="vpd-animate vpd-animate-d3">
+              <Notes
+                entityType={NOTE_ENTITY.PROJECT}
+                entityId={project.id}
+              />
+            </div>
           </div>
 
           {/* RIGHT: Timeline + Status card */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* Timeline card (dark) */}
-            <div className="vpd-animate vpd-animate-d3" style={{
+            <div className="vpd-animate vpd-animate-d4" style={{
               borderRadius: 16, overflow: 'hidden',
               boxShadow: '0 8px 32px rgba(15,23,42,.18)',
             }}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, ChevronDown, User, Settings, Lock, LogOut,
@@ -47,82 +47,240 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   };
 
   // ─── Nav path resolver ────────────────────────────────────────────────────
-  // For QUOTATION events: CANNOT trust entity_type alone — backend sets
-  // entity_type="Quotation" for BOTH client quotations (type=1) AND purchase
-  // orders (type=2). We must fetch the record to check its type field.
+  // Returns { path, state } or null.
+  //
+  // CRITICAL: The backend sends entity_type in UPPERCASE strings:
+  //   "INVOICE", "Proforma", "QUOTATION", "PURCHASE_ORDER", "Client", "NOC"
+  // We normalise with toUpperCase() before matching so casing never matters.
+  //
+  // invoice_type state hint: viewinvoicedetails.jsx reads location.state.invoiceType
+  // and uses it as a priority hint to hit the correct API endpoint first,
+  // avoiding "Vendor #null" placeholders.
+  //
+  // NOTE: QUOTATION / PURCHASE_ORDER events are intentionally NOT handled here —
+  // they are always resolved async in handleNotificationClick because the backend
+  // uses entity_type="QUOTATION" for BOTH client quotations AND purchase orders,
+  // so we must fetch the record to check quotation_type before routing.
   const resolveNavPath = (notification) => {
-    const { entity_type, entity_id, event_type } = notification;
-    const et = (event_type || '').toUpperCase();
+    const { entity_type, entity_id, event_type, metadata } = notification;
+    const et  = (event_type   || '').toUpperCase();
+    const etp = (entity_type  || '').toUpperCase();
+    const meta = typeof metadata === 'object' && metadata !== null ? metadata : {};
 
-    // Skip Quotation entity_type in the static map — handled async in handleNotificationClick
-    if (entity_id) {
-      const map = {
-        Client:   `/clients/${entity_id}`,
-        Invoice:  `/invoices/${entity_id}`,
-        Project:  `/projects/${entity_id}`,
-        Proforma: `/proforma/${entity_id}`,
-        Purchase: `/purchase/${entity_id}`,
-        Vendor:   `/vendors/${entity_id}`,
-      };
-      if (entity_type && map[entity_type]) return map[entity_type];
+    // ── Derive invoice_type hint from event_type string ────────────────────
+    // viewinvoicedetails reads location.state.invoiceType and tries that
+    // endpoint first, avoiding unnecessary waterfall fetches.
+    const invoiceTypeHint = (() => {
+      const metadataType = String(
+        meta.invoice_type ||
+        meta.invoiceType ||
+        meta.type ||
+        meta.quotation_type ||
+        ''
+      ).toLowerCase();
+      if (metadataType.includes('vendor') || metadataType.includes('purchase')) return 'Vendor Compliance';
+      if (metadataType.includes('execution')) return 'Execution Compliance';
+      if (metadataType.includes('regulatory')) return 'Regulatory Compliance';
+      if (meta.vendor || meta.vendor_id || meta.vendor_name || meta.quotation) return 'Vendor Compliance';
+      if (et.includes('REGULATORY')) return 'Regulatory Compliance';
+      if (et.includes('EXECUTION'))  return 'Execution Compliance';
+      // PURCHASE_ORDER or VENDOR events → vendor invoice endpoint
+      if (et.includes('VENDOR') || et.includes('PURCHASE_ORDER')) return 'Vendor Compliance';
+      // entity_type=PURCHASE_ORDER or entity_type=Purchase → always a vendor invoice
+      if (etp === 'PURCHASE_ORDER' || entity_type === 'Purchase') return 'Vendor Compliance';
+      return '';
+    })();
+
+    // ── QUOTATION / PURCHASE_ORDER ─────────────────────────────────────────
+    // Both entity_types share the same backend entity_type="QUOTATION" or
+    // "PURCHASE_ORDER" — resolved async in handleNotificationClick.
+    // Return null here so the caller knows to go async.
+    if (etp === 'QUOTATION' || etp === 'PURCHASE_ORDER' ||
+        et.includes('QUOTATION') || et.includes('PURCHASE_ORDER')) {
+      return null; // handled async
     }
 
-    if (et.includes('PROFORMA'))  return entity_id ? `/proforma/${entity_id}`   : '/proforma';
-    if (et.includes('INVOICE'))   return entity_id ? `/invoices/${entity_id}`   : '/invoices';
-    if (et.includes('PAYMENT'))   return entity_id ? `/invoices/${entity_id}`   : '/invoices';
-    if (et.includes('CLIENT'))    return entity_id ? `/clients/${entity_id}`    : '/clients';
-    if (et.includes('PROJECT'))   return entity_id ? `/projects/${entity_id}`   : '/projects';
-    if (et.includes('VENDOR'))    return entity_id ? `/vendors/${entity_id}`    : '/vendors';
-    if (et.includes('PURCHASE'))  return entity_id ? `/purchase/${entity_id}`   : '/purchase';
-    // NOTE: QUOTATION is intentionally omitted — resolved async below
+    // ── INVOICE ────────────────────────────────────────────────────────────
+    // entity_type from API: "INVOICE" (uppercase)
+    if (etp === 'INVOICE' || et.includes('INVOICE') || et.includes('PAYMENT')) {
+      return entity_id
+        ? { path: `/invoices/${entity_id}`, state: { invoiceType: invoiceTypeHint } }
+        : { path: '/invoices', state: {} };
+    }
+
+    // ── PROFORMA ───────────────────────────────────────────────────────────
+    // entity_type from API: "Proforma" (mixed case)
+    if (etp === 'PROFORMA' || et.includes('PROFORMA')) {
+      return entity_id
+        ? { path: `/proforma/${entity_id}`, state: {} }
+        : { path: '/proforma', state: {} };
+    }
+
+    // ── CLIENT ─────────────────────────────────────────────────────────────
+    // entity_type from API: "Client"
+    // event_type: "client_created" (lowercase) → et uppercased = "CLIENT_CREATED"
+    if (etp === 'CLIENT' || et.includes('CLIENT')) {
+      return entity_id
+        ? { path: `/clients/${entity_id}`, state: {} }
+        : { path: '/clients', state: {} };
+    }
+
+    // ── PROJECT ────────────────────────────────────────────────────────────
+    if (etp === 'PROJECT' || et.includes('PROJECT')) {
+      return entity_id
+        ? { path: `/projects/${entity_id}`, state: {} }
+        : { path: '/projects', state: {} };
+    }
+
+    // ── VENDOR ─────────────────────────────────────────────────────────────
+    if (etp === 'VENDOR' || et.includes('VENDOR')) {
+      return entity_id
+        ? { path: `/vendors/${entity_id}`, state: {} }
+        : { path: '/vendors', state: {} };
+    }
+
+    // ── NOC ────────────────────────────────────────────────────────────────
+    // NOC events (NOC_CREATED, NOC_SUBMITTED, NOC_APPROVED, NOC_REJECTED,
+    // NOC_UPDATED, NOC_REAPPLIED) — route to NOC list; no detail page assumed.
+    if (etp === 'NOC' || et.includes('NOC')) {
+      return { path: '/noc', state: {} };
+    }
 
     return null;
   };
 
   // ─── Smart click handler ───────────────────────────────────────────────────
-  // For QUOTATION events: fetch the record to check type (1=quotation, 2=purchase order)
-  // and route to the correct page. For all other events: resolve synchronously.
+  // QUOTATION / PURCHASE_ORDER: fetch to determine real type → route correctly.
+  // All other events: synchronous resolution via resolveNavPath.
+  //
+  // Why async for quotations?
+  //   Backend sends entity_type="QUOTATION" for BOTH client quotations (type=1)
+  //   AND purchase orders (type=2). We call GET_REGULATORY to read quotation_type
+  //   and route to /quotations/:id or /purchase/:id accordingly.
+  //   We also try GET_PURCHASE_ORDER as fallback so either endpoint works.
   const handleNotificationClick = async (notification) => {
     if (!notification.is_read) markAsRead(notification.id);
 
-    const { entity_id, event_type } = notification;
-    const et = (event_type || '').toUpperCase();
+    const { entity_id, event_type, entity_type, metadata } = notification;
+    const et  = (event_type  || '').toUpperCase();
+    const etp = (entity_type || '').toUpperCase();
+    const meta = typeof metadata === 'object' && metadata !== null ? metadata : {};
 
-    // QUOTATION event — must look up the type to know where to go
-    if (et.includes('QUOTATION') && entity_id) {
+    // ── QUOTATION or PURCHASE_ORDER — must resolve async ──────────────────
+    const isQuotationEvent   = et.includes('QUOTATION');
+    const isPurchaseOrderEvt = etp === 'PURCHASE_ORDER' || et.includes('PURCHASE_ORDER');
+
+    if ((isQuotationEvent || isPurchaseOrderEvt) && entity_id) {
       setLoadingNotifId(notification.id);
+
+      const closeDropdowns = () => {
+        setIsNotificationOpen(false);
+        setShowAllPanel(false);
+      };
+
       try {
-        const res = await api.get('/quotations/get_quotation/', { params: { id: entity_id } });
-        const record = res.data?.data ?? res.data ?? {};
-        // quotation_type is a string: "Vendor Compliance" = purchase order, "Client Compliance" = quotation
-        // Also use client===null + vendor set as a reliable fallback
-        const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
-          || (record.client === null && record.vendor !== null && record.vendor !== undefined);
-        // Cache the result so the label updates immediately for this and future renders
+        // Strategy 1: try the regulatory/client quotation endpoint first
+        // It returns quotation_type which tells us client vs vendor (PO).
+        let isPO = isPurchaseOrderEvt; // if event_type itself says PURCHASE_ORDER, trust it
+        let resolved = false;
+
+        if (!isPO) {
+          try {
+            const res = await api.get('/quotations/get_regulatory_quotation/', { params: { id: entity_id } });
+            const record = res.data?.data ?? res.data ?? {};
+            if (record && (record.id || record.quotation_number)) {
+              // quotation_type contains "Vendor" → it's a purchase order
+              isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
+                || (record.client === null && record.vendor != null);
+              resolved = true;
+            }
+          } catch (_) { /* try next strategy */ }
+        }
+
+        // Strategy 2: if regulatory endpoint failed or returned nothing, try purchase order endpoint
+        if (!resolved && !isPO) {
+          try {
+            const res2 = await api.get('/quotations/get_purchase_order/', { params: { id: entity_id } });
+            const record2 = res2.data?.data ?? res2.data ?? {};
+            if (record2 && (record2.id || record2.quotation_number)) {
+              isPO = true;
+              resolved = true;
+            }
+          } catch (_) { /* fall through to default */ }
+        }
+
+        // Cache so label updates immediately on future renders without refetch
         setQuotationTypeCache(prev => ({ ...prev, [entity_id]: isPO }));
-        const path = isPO
-          ? `/purchase/${entity_id}`
-          : `/quotations/${entity_id}`;
-        setIsNotificationOpen(false);
-        setShowAllPanel(false);
-        navigate(path);
+
+        const path = isPO ? `/purchase/${entity_id}` : `/quotations/${entity_id}`;
+        closeDropdowns();
+        navigate(path, { state: { quotationType: isPO ? 'vendor' : 'client' } });
       } catch (_) {
-        // Fallback to quotations on error
+        // Hard fallback — go to quotations list
         setIsNotificationOpen(false);
         setShowAllPanel(false);
-        navigate(`/quotations/${entity_id}`);
+        navigate('/quotations', { state: {} });
       } finally {
         setLoadingNotifId(null);
       }
       return;
     }
 
-    // All other events — synchronous path resolution
-    const path = resolveNavPath(notification);
-    if (path) {
+    // ── All other events — synchronous ────────────────────────────────────
+    if ((etp === 'INVOICE' || et.includes('INVOICE') || et.includes('PAYMENT')) && entity_id) {
+      const closeDropdowns = () => {
+        setIsNotificationOpen(false);
+        setShowAllPanel(false);
+      };
+
+      const normalizeInvoiceTypeHint = (value = '') => {
+        const t = String(value || '').toLowerCase();
+        if (t.includes('vendor') || t.includes('purchase')) return 'Vendor Compliance';
+        if (t.includes('execution')) return 'Execution Compliance';
+        if (t.includes('regulatory')) return 'Regulatory Compliance';
+        return '';
+      };
+
+      const metadataHint = normalizeInvoiceTypeHint(
+        meta.invoice_type || meta.invoiceType || meta.type || meta.quotation_type
+      ) || ((meta.vendor || meta.vendor_id || meta.vendor_name || meta.quotation) ? 'Vendor Compliance' : '');
+
+      let invoiceType = metadataHint;
+      let invoiceData = null;
+
+      if (!invoiceType) {
+        setLoadingNotifId(notification.id);
+        try {
+          const res = await api.get('/invoices/get_all_invoices/', { params: { page: 1, page_size: 1000 } });
+          const rows = res.data?.data?.results || res.data?.results || [];
+          const found = rows.find((inv) => String(inv.id) === String(entity_id));
+          if (found) {
+            invoiceData = found;
+            invoiceType = normalizeInvoiceTypeHint(found.invoice_type) ||
+              (found.vendor || found.vendor_name || found.quotation ? 'Vendor Compliance' : '');
+          }
+        } catch (_) {
+          // The detail page still has its endpoint fallback cascade.
+        } finally {
+          setLoadingNotifId(null);
+        }
+      }
+
+      closeDropdowns();
+      navigate(`/invoices/${entity_id}`, {
+        state: {
+          invoiceType,
+          invoiceData: invoiceData || (Object.keys(meta).length ? meta : null),
+        },
+      });
+      return;
+    }
+
+    const resolved = resolveNavPath(notification);
+    if (resolved) {
       setIsNotificationOpen(false);
       setShowAllPanel(false);
-      navigate(path);
+      navigate(resolved.path, { state: resolved.state });
     }
   };
 
@@ -169,22 +327,26 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     const rawCategory = getNotificationCategory(notification);
     // For QUOTATION events: check cache first (populated on first click),
     // then fall back to metadata heuristic (vendor set, client null)
-    const et0 = (notification.event_type || '').toUpperCase();
+    const et0  = (notification.event_type  || '').toUpperCase();
+    const etp0 = (notification.entity_type || '').toUpperCase();
     const meta0 = typeof notification.metadata === 'object' && notification.metadata !== null ? notification.metadata : {};
-    const cachedIsPO = quotationTypeCache[notification.entity_id];
-    const heuristicIsPO = meta0.vendor !== undefined && meta0.vendor !== null && meta0.client === null;
-    const category = (et0.includes('QUOTATION') && (cachedIsPO === true || (cachedIsPO === undefined && heuristicIsPO)))
-      ? 'purchase'
-      : rawCategory;
+    const cachedIsPO     = quotationTypeCache[notification.entity_id];
+    const heuristicIsPO  = meta0.vendor !== undefined && meta0.vendor !== null && meta0.client === null;
+    // Show 'purchase' badge for explicit PURCHASE_ORDER events, or QUOTATION events
+    // that are cached/heuristically identified as purchase orders
+    const isPOEvent      = etp0 === 'PURCHASE_ORDER' || et0.includes('PURCHASE_ORDER');
+    const isQuotationPO  = et0.includes('QUOTATION') && (cachedIsPO === true || (cachedIsPO === undefined && heuristicIsPO));
+    const category       = (isPOEvent || isQuotationPO) ? 'purchase' : rawCategory;
     const { icon, bg, text, label, labelCls } = getCategoryStyle(category, notification.event_type);
-    const et       = (notification.event_type || '').toUpperCase();
-    // QUOTATION events: always show as clickable (we resolve route async on click)
-    const isQuotationEvent = et.includes('QUOTATION');
-    const navPath  = isQuotationEvent && notification.entity_id
-      ? `__quotation_async__`   // sentinel: handled by handleNotificationClick
-      : resolveNavPath(notification);
-    const isUnread    = !notification.is_read;
-    const isResolving = loadingNotifId === notification.id;
+    const et  = (notification.event_type  || '').toUpperCase();
+    const etp = (notification.entity_type || '').toUpperCase();
+    // QUOTATION / PURCHASE_ORDER events are always clickable — resolved async in handleNotificationClick
+    const isAsyncEvent = (et.includes('QUOTATION') || et.includes('PURCHASE_ORDER') || etp === 'PURCHASE_ORDER')
+      && Boolean(notification.entity_id);
+    const resolvedNav  = isAsyncEvent ? { path: '__async__', state: {} } : resolveNavPath(notification);
+    const hasNavTarget = Boolean(resolvedNav);
+    const isUnread     = !notification.is_read;
+    const isResolving  = loadingNotifId === notification.id;
 
     return (
       <div
@@ -192,9 +354,9 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
           group relative p-4 transition-all duration-150
           border-b border-gray-100/80
           ${isUnread ? 'bg-teal-50/60' : 'bg-white hover:bg-gray-50/80'}
-          ${navPath ? (isResolving ? 'cursor-wait opacity-70' : 'cursor-pointer') : ''}
+          ${hasNavTarget ? (isResolving ? 'cursor-wait opacity-70' : 'cursor-pointer') : ''}
         `}
-        onClick={() => !isResolving && navPath && handleNotificationClick(notification)}
+        onClick={() => !isResolving && hasNavTarget && handleNotificationClick(notification)}
       >
         {/* Unread accent bar */}
         {isUnread && (
@@ -218,7 +380,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
             <p className={`text-[13px] leading-snug tracking-tight ${isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-700'}`}>
               {(() => {
                 const txt = getNotificationText(notification);
-                // If we know from cache this is a PO, replace "Quotation #" with "Purchase order #"
+                // If we know this is a PO, replace "Quotation #" with "Purchase order #"
                 if (category === 'purchase' && txt.toLowerCase().startsWith('quotation #')) {
                   return txt.replace(/^Quotation #/i, 'Purchase order #');
                 }
@@ -228,7 +390,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
 
             {/* Hover action buttons */}
             <div className="flex gap-2 mt-2.5 opacity-0 group-hover:opacity-100 transition-all duration-200">
-              {navPath && (
+              {hasNavTarget && (
                 <button
                   onClick={(e) => { e.stopPropagation(); if (!isResolving) handleNotificationClick(notification); }}
                   disabled={isResolving}
@@ -283,29 +445,11 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   const userType  = user?.role?.name || 'User';
   const userEmail = user?.email || '';
 
-  // Pre-populate quotation type cache when notifications change
-  // Fetches type for any QUOTATION_* notification not yet cached
-  const quotationTypeCache_ref = quotationTypeCache; // stable ref for effect
-  useEffect(() => {
-    const uncached = notifications.filter(n => {
-      const et = (n.event_type || '').toUpperCase();
-      return et.includes('QUOTATION') && n.entity_id && quotationTypeCache_ref[n.entity_id] === undefined;
-    });
-    if (uncached.length === 0) return;
-    // Fetch all uncached quotation types in parallel (silent, no loading state)
-    uncached.forEach(async (n) => {
-      try {
-        const res = await api.get('/quotations/get_quotation/', { params: { id: n.entity_id } });
-        const record = res.data?.data ?? res.data ?? {};
-        const isPO = (record.quotation_type || '').toLowerCase().includes('vendor')
-          || (record.client === null && record.vendor !== null && record.vendor !== undefined);
-        setQuotationTypeCache(prev => {
-          if (prev[n.entity_id] !== undefined) return prev; // already set, skip
-          return { ...prev, [n.entity_id]: isPO };
-        });
-      } catch (_) { /* silent fail — label stays as Quotation */ }
-    });
-  }, [notifications]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: No pre-fetch useEffect here.
+  // Quotation type (client quotation vs purchase order) is resolved lazily on click
+  // via handleNotificationClick, which uses the correct GET_REGULATORY endpoint.
+  // Pre-fetching all quotation types on every notification poll would fire N API
+  // calls every 30 seconds — one per QUOTATION notification — causing request spam.
 
   const filteredRecent = getFilteredNotifications(notifications).slice(0, 6);
   const filteredAll    = getFilteredNotifications(notifications);

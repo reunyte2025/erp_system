@@ -1,32 +1,40 @@
 /**
  * ============================================================================
- * AddComplianceModal — Reusable compliance add/edit modal
+ * AddComplianceModal — Supports BOTH Regulatory & Execution quotation types
  * ============================================================================
  *
  * Used by:
- *   - quotations.jsx       (create / edit quotation)
- *   - viewproformadetails  (edit proforma inline)
- *   - viewquotationdetails (edit quotation details)
+ *   - quotations.jsx       (create / edit quotation)       — internal modal
+ *   - viewquotationdetails (edit mode "Add Item" button)   — this component
  *
  * Props:
  *   isOpen          {boolean}   — controls visibility
  *   onClose         {function}  — called when user dismisses without saving
- *   onSave          {function(newFlatItems: array)} — called on Save; receives
- *                               flat items array ready to spread into editItems
- *   existingItems   {array}     — current flat items already in the document
- *                               (used to lock type & detect category)
+ *   onSave          {function(newFlatItems: array)} — called on Save;
+ *                               receives flat items array ready to spread into editItems
+ *   existingItems   {array}     — current flat items already in the quotation
+ *                               (used only to lock/detect type when quotationType not provided)
  *   fetchDescriptions {function(categoryId, subCategoryId): Promise<results[]>}
- *                               — async fn that fetches compliance descriptions
- *                               from the API for the given category/sub-category
+ *                               — async fn that fetches compliance descriptions from API
+ *   quotationType   {string}    — 'execution' | 'regulatory' | '' (or any string)
+ *                               When provided, locks the modal to that type immediately.
+ *                               When omitted, falls back to detecting from existingItems.
  *
  * Behaviour:
- *   - Detects the compliance type (certificates vs execution) from existingItems
- *     and locks the modal to that type — so you can never mix types.
- *   - If no existing items → shows the type chooser (Certificates / Execution).
- *   - Each category tab (CC, OC, WaterMain, STP) has its OWN items array
- *     stored in categoryItemsMap so switching tabs never loses items.
- *   - On Save, emits ALL items across ALL categories with the correct
- *     compliance_category tag for each item.
+ *   ┌─ Execution quotation (quotation_type contains "execution") ─────────────┐
+ *   │  Categories: 5 = Water Connection, 6 = SWD Line Work, 7 = Sewer/Drainage│
+ *   │  Fields per item:                                                        │
+ *   │    description, sub_compliance_id, quantity, unit, item_sac_code,       │
+ *   │    Professional_amount (Rate), material_rate, material_amount,          │
+ *   │    labour_rate, labour_amount                                            │
+ *   └──────────────────────────────────────────────────────────────────────────┘
+ *   ┌─ Regulatory quotation ──────────────────────────────────────────────────┐
+ *   │  Categories: 1 = Construction Cert, 2 = Occupational Cert,             │
+ *   │              3 = Water Main, 4 = STP                                    │
+ *   │  Fields per item:                                                        │
+ *   │    description, sub_compliance_id (cats 1–2 only), quantity, unit,     │
+ *   │    Professional_amount, miscellaneous_amount                            │
+ *   └──────────────────────────────────────────────────────────────────────────┘
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -34,66 +42,111 @@ import {
   X, Plus, Edit, Search, ChevronDown, Loader2, FileText, Trash2,
 } from 'lucide-react';
 
-// ─── Constants ──────────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
 
-const COMPLIANCE_CATEGORIES = {
-  1: { id: 1, name: 'Construction Certificate', shortName: 'Construction Certificate' },
-  2: { id: 2, name: 'Occupational Certificate', shortName: 'Occupational Certificate' },
-  3: { id: 3, name: 'Water Main Commissioning', shortName: 'Water Main' },
-  4: { id: 4, name: 'STP Commissioning',        shortName: 'STP' },
+// All compliance categories — Regulatory (1–4) + Execution (5–7)
+const ALL_COMPLIANCE_CATEGORIES = {
+  1: { id: 1, name: 'Construction Certificate',                                      shortName: 'Construction Cert', type: 'regulatory' },
+  2: { id: 2, name: 'Occupational Certificate',                                      shortName: 'Occupational Cert', type: 'regulatory' },
+  3: { id: 3, name: 'Water Main Commissioning',                                      shortName: 'Water Main',        type: 'regulatory' },
+  4: { id: 4, name: 'STP Commissioning',                                             shortName: 'STP',               type: 'regulatory' },
+  5: { id: 5, name: 'Water Connection',                                              shortName: 'Water Connection',  type: 'execution'  },
+  6: { id: 6, name: 'SWD Line Work',                                                 shortName: 'SWD Line Work',     type: 'execution'  },
+  7: { id: 7, name: 'Sewer/Drainage Line Work',                                      shortName: 'Sewer/Drainage',    type: 'execution'  },
 };
 
+// Sub-compliance options per category
+const SUB_COMPLIANCE_BY_CATEGORY = {
+  1: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
+  2: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
+  3: [],
+  4: [],
+  5: [ { id: 5, name: 'Internal Water Main' }, { id: 6, name: 'Permanent Water Connection' } ],
+  6: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
+  7: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
+};
+
+// Flat lookup for display
 const SUB_COMPLIANCE_CATEGORIES = {
+  0: { id: 0, name: 'Default' },
   1: { id: 1, name: 'Plumbing Compliance' },
   2: { id: 2, name: 'PCO Compliance' },
   3: { id: 3, name: 'General Compliance' },
   4: { id: 4, name: 'Road Setback Handing over' },
-  0: { id: 0, name: 'Default' },
+  5: { id: 5, name: 'Internal Water Main' },
+  6: { id: 6, name: 'Permanent Water Connection' },
+  7: { id: 7, name: 'Pipe Jacking Method' },
+  8: { id: 8, name: 'HDD Method' },
+  9: { id: 9, name: 'Open Cut Method' },
 };
 
-const COMPLIANCE_GROUPS = {
-  certificates: [1, 2],
-  execution:    [3, 4],
-};
+const REGULATORY_CATS = [1, 2, 3, 4];
+const EXECUTION_CATS  = [5, 6, 7];
 
 const BLANK_ITEM_FORM = {
   compliance_name:      '',
   compliance_id:        null,
   sub_compliance_id:    null,
   quantity:             1,
+  unit:                 '',
+  item_sac_code:        '',
+  // Regulatory fields
   miscellaneous_amount: '',
   Professional_amount:  0,
+  // Execution fields
+  material_rate:   0,
+  material_amount: 0,
+  labour_rate:     0,
+  labour_amount:   0,
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const isMiscNumeric = (value) => {
   if (value === '' || value === null || value === undefined) return false;
   const str = String(value).trim();
-  if (str === '') return false;
-  return !isNaN(str) && !isNaN(parseFloat(str));
+  return str !== '' && !isNaN(str) && !isNaN(parseFloat(str));
 };
 
-const calcItemTotal = (item) => {
+const calcItemTotalRegulatory = (item) => {
   const prof = parseFloat(item.Professional_amount) || 0;
   const misc = isMiscNumeric(item.miscellaneous_amount) ? parseFloat(item.miscellaneous_amount) : 0;
   const qty  = parseInt(item.quantity, 10) || 1;
   return Math.round((prof + misc) * qty * 100) / 100;
 };
 
-/**
- * Detect which compliance group the existing items belong to.
- * Returns 'certificates', 'execution', or null.
- */
-const detectLockedType = (existingItems = []) => {
-  if (!existingItems.length) return null;
-  const cats = [...new Set(existingItems.map(it => it.compliance_category ?? 0))];
-  if (cats.some(c => COMPLIANCE_GROUPS.certificates.includes(c))) return 'certificates';
-  if (cats.some(c => COMPLIANCE_GROUPS.execution.includes(c)))    return 'execution';
-  return null;
+const calcItemTotalExecution = (item) => {
+  const qty     = parseInt(item.quantity, 10) || 1;
+  const matAmt  = parseFloat(item.material_amount) || 0;
+  const labAmt  = parseFloat(item.labour_amount)   || 0;
+  const matRate = parseFloat(item.material_rate)   || 0;
+  const labRate = parseFloat(item.labour_rate)     || 0;
+  if (matAmt > 0 || labAmt > 0) return Math.round((matAmt + labAmt) * 100) / 100;
+  if (matRate > 0 || labRate > 0) return Math.round(((matRate + labRate) * qty) * 100) / 100;
+  const prof = parseFloat(item.Professional_amount) || 0;
+  return Math.round((prof * qty) * 100) / 100;
 };
 
-// ─── Sub-compliance Dropdown ─────────────────────────────────────────────────
+/**
+ * Resolve which modal type to show from the quotation_type string.
+ * Returns 'execution' or 'regulatory'.
+ */
+const resolveQuotationType = (quotationType, existingItems = []) => {
+  if (quotationType) {
+    const qt = String(quotationType).toLowerCase().trim();
+    if (qt.includes('execution')) return 'execution';
+    return 'regulatory';
+  }
+  // Fall back: detect from existing items' compliance_category
+  if (existingItems.length > 0) {
+    const cats = existingItems.map(it => parseInt(it.compliance_category || 0));
+    if (cats.some(c => EXECUTION_CATS.includes(c))) return 'execution';
+    if (cats.some(c => REGULATORY_CATS.includes(c))) return 'regulatory';
+  }
+  return null; // unknown — show type chooser
+};
+
+// ─── Sub-compliance Dropdown ──────────────────────────────────────────────────
 
 const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Select Sub-Compliance' }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -106,12 +159,9 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const list = [1, 2].includes(categoryId)
-    ? [SUB_COMPLIANCE_CATEGORIES[1], SUB_COMPLIANCE_CATEGORIES[2], SUB_COMPLIANCE_CATEGORIES[3], SUB_COMPLIANCE_CATEGORIES[4]]
-    : [];
-
-  const filtered  = list.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-  const selected  = list.find(i => i.id === value);
+  const list = SUB_COMPLIANCE_BY_CATEGORY[categoryId] || [];
+  const filtered = list.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+  const selected = list.find(i => i.id === value);
 
   return (
     <div ref={ref} className="relative w-full">
@@ -159,24 +209,27 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AddComplianceModal({ isOpen, onClose, onSave, existingItems = [], fetchDescriptions }) {
+export default function AddComplianceModal({
+  isOpen,
+  onClose,
+  onSave,
+  existingItems = [],
+  fetchDescriptions,
+  quotationType, // 'execution' | 'regulatory' | '' — passed from viewquotationdetails
+}) {
 
-  // ── Type & category state ───────────────────────────────────────────────────
-  const [selectedCategoryType, setSelectedCategoryType] = useState(null);
-  const [activeCategoryId,     setActiveCategoryId]     = useState(null);
+  // ── Resolved type & category state ─────────────────────────────────────────
+  const [resolvedType,   setResolvedType]   = useState(null); // 'execution' | 'regulatory' | null
+  const [activeCategoryId, setActiveCategoryId] = useState(null);
 
   /**
    * categoryItemsMap: { [categoryId: number]: { items: [], category_name: string } }
    * Each category tab has its OWN independent items array.
-   * Switching tabs NEVER overwrites another tab's items.
    */
-  const [categoryItemsMap, setCategoryItemsMap] = useState({});
-
-  // Per-category item form: { [categoryId]: itemForm }
+  const [categoryItemsMap,   setCategoryItemsMap]   = useState({});
   const [itemFormMap,        setItemFormMap]        = useState({});
-  // Per-category editing index: { [categoryId]: number | null }
   const [editingIndexMap,    setEditingIndexMap]    = useState({});
 
   // ── Description state ───────────────────────────────────────────────────────
@@ -185,12 +238,11 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
   const [descriptionMode,        setDescriptionMode]        = useState('dropdown');
   const [descriptionSearch,      setDescriptionSearch]      = useState('');
   const [showDescDropdown,       setShowDescDropdown]       = useState(false);
-  // Tracks whether the current compliance_name was pre-filled from the dropdown
-  // so we can show the inline-edit textarea below the selection chip
   const [descSelectedFromDropdown, setDescSelectedFromDropdown] = useState(false);
 
-  // Cache so switching tabs doesn't re-fetch
-  const descCacheRef = useRef({});
+  const descCacheRef  = useRef({});
+  const descFieldRef  = useRef(null);
+  const descPanelRef  = useRef(null);
 
   // ── Scroll lock ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -213,7 +265,8 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
   useEffect(() => {
     if (!isOpen) return;
 
-    const lockedType = detectLockedType(existingItems);
+    // Determine type from prop first, then fall back to existingItems detection
+    const detected = resolveQuotationType(quotationType, existingItems);
 
     // Reset all transient state
     setCategoryItemsMap({});
@@ -226,38 +279,37 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     setDescSelectedFromDropdown(false);
     descCacheRef.current = {};
 
-    if (lockedType) {
-      // Type already determined — go straight to category selection
-      initForType(lockedType);
+    if (detected) {
+      initForType(detected);
     } else {
-      // No existing items — show the type chooser
-      setSelectedCategoryType(null);
+      // No type determined — show type chooser
+      setResolvedType(null);
       setActiveCategoryId(null);
     }
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initForType = (type) => {
-    setSelectedCategoryType(type);
-    const ids = COMPLIANCE_GROUPS[type];
-    const firstId = ids[0];
+    setResolvedType(type);
+    const catIds = type === 'execution' ? EXECUTION_CATS : REGULATORY_CATS;
+    const firstId = catIds[0];
 
-    // Pre-create empty slots for every category in the group
     const initMap = {};
-    ids.forEach(id => {
-      initMap[id] = { items: [], category_name: COMPLIANCE_CATEGORIES[id].shortName };
+    catIds.forEach(id => {
+      initMap[id] = { items: [], category_name: ALL_COMPLIANCE_CATEGORIES[id].shortName };
     });
     setCategoryItemsMap(initMap);
 
     const initItemForms = {};
     const initEditIdx   = {};
-    ids.forEach(id => { initItemForms[id] = { ...BLANK_ITEM_FORM }; initEditIdx[id] = null; });
+    catIds.forEach(id => { initItemForms[id] = { ...BLANK_ITEM_FORM }; initEditIdx[id] = null; });
     setItemFormMap(initItemForms);
     setEditingIndexMap(initEditIdx);
 
     setActiveCategoryId(firstId);
 
-    // For execution, fetch descriptions immediately (no sub-category required)
-    if (type === 'execution') {
+    // Pre-fetch descriptions for categories that don't require sub-category selection
+    const needsImmediateFetch = type === 'execution' || [3, 4].includes(firstId);
+    if (needsImmediateFetch) {
       fetchDescForCategory(firstId, null);
     }
   };
@@ -290,7 +342,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     }
   };
 
-  // ── Category type selection (type chooser screen) ───────────────────────────
+  // ── Category type selection ─────────────────────────────────────────────────
   const handleSelectType = (type) => {
     setDescriptionSearch('');
     setShowDescDropdown(false);
@@ -299,31 +351,27 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     initForType(type);
   };
 
-  // ── Category tab switching ───────────────────────────────────────────────────
+  // ── Category tab switching ──────────────────────────────────────────────────
   const handleCategoryChange = (categoryId) => {
-    // Ensure this category has a slot — never lose existing items
     setCategoryItemsMap(prev => {
       if (prev[categoryId]) return prev;
-      return { ...prev, [categoryId]: { items: [], category_name: COMPLIANCE_CATEGORIES[categoryId]?.shortName || '' } };
+      return { ...prev, [categoryId]: { items: [], category_name: ALL_COMPLIANCE_CATEGORIES[categoryId]?.shortName || '' } };
     });
-    // Ensure this category has a form slot
     setItemFormMap(prev => ({ ...prev, [categoryId]: prev[categoryId] || { ...BLANK_ITEM_FORM } }));
     setEditingIndexMap(prev => ({ ...prev, [categoryId]: prev[categoryId] ?? null }));
-
     setActiveCategoryId(categoryId);
 
-    // Reset description UI for the new tab
+    // Reset description UI
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescDropdown(false);
     setDescSelectedFromDropdown(false);
 
-    // For execution, fetch descriptions immediately
-    if (COMPLIANCE_GROUPS.execution.includes(categoryId)) {
+    // Auto-fetch for execution cats + regulatory cats 3,4 (no sub-category needed)
+    if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
       fetchDescForCategory(categoryId, null);
     } else {
-      // For certificates, if the current form already has a sub-category, fetch
       const existingForm = itemFormMap[categoryId];
       if (existingForm?.sub_compliance_id) {
         fetchDescForCategory(categoryId, existingForm.sub_compliance_id);
@@ -331,9 +379,9 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     }
   };
 
-  // ── Per-category form helpers ────────────────────────────────────────────────
-  const getItemForm   = () => itemFormMap[activeCategoryId]   || { ...BLANK_ITEM_FORM };
-  const getEditingIdx = () => editingIndexMap[activeCategoryId] ?? null;
+  // ── Per-category form helpers ───────────────────────────────────────────────
+  const getItemForm    = () => itemFormMap[activeCategoryId]     || { ...BLANK_ITEM_FORM };
+  const getEditingIdx  = () => editingIndexMap[activeCategoryId] ?? null;
   const getActiveItems = () => categoryItemsMap[activeCategoryId]?.items || [];
 
   const setItemForm = (updater) => {
@@ -344,9 +392,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     });
   };
 
-  const setEditingIdx = (idx) => {
-    setEditingIndexMap(prev => ({ ...prev, [activeCategoryId]: idx }));
-  };
+  const setEditingIdx = (idx) => setEditingIndexMap(prev => ({ ...prev, [activeCategoryId]: idx }));
 
   const setActiveItems = (updater) => {
     setCategoryItemsMap(prev => {
@@ -356,20 +402,36 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     });
   };
 
-  // ── Item CRUD ────────────────────────────────────────────────────────────────
+  // ── Item CRUD ───────────────────────────────────────────────────────────────
+  const isExecCategory = activeCategoryId ? EXECUTION_CATS.includes(activeCategoryId) : false;
+
   const handleAddItem = () => {
     const form = getItemForm();
     if (!form.compliance_name.trim()) return;
-    if (COMPLIANCE_GROUPS.certificates.includes(activeCategoryId) && !form.sub_compliance_id) return;
+    // Regulatory: cats 1,2 require sub_compliance_id
+    if (!isExecCategory && [1, 2].includes(activeCategoryId) && !form.sub_compliance_id) return;
 
     const newItem = {
-      compliance_name:      form.compliance_name.trim(),
-      compliance_id:        form.compliance_id   || null,
-      sub_compliance_id:    form.sub_compliance_id || null,
-      quantity:             parseInt(form.quantity, 10) || 1,
-      miscellaneous_amount: String(form.miscellaneous_amount ?? '').trim(),
-      Professional_amount:  parseFloat(form.Professional_amount) || 0,
-      total_amount:         calcItemTotal(form),
+      compliance_name:   form.compliance_name.trim(),
+      compliance_id:     form.compliance_id  || null,
+      sub_compliance_id: form.sub_compliance_id || null,
+      quantity:          parseInt(form.quantity, 10) || 1,
+      unit:              String(form.unit || '').trim(),
+      ...(isExecCategory ? {
+        // Execution-specific fields
+        item_sac_code:   String(form.item_sac_code || '').trim(),
+        Professional_amount: parseFloat(form.Professional_amount) || 0,
+        material_rate:   parseFloat(form.material_rate)   || 0,
+        material_amount: parseFloat(form.material_amount) || 0,
+        labour_rate:     parseFloat(form.labour_rate)     || 0,
+        labour_amount:   parseFloat(form.labour_amount)   || 0,
+        total_amount:    calcItemTotalExecution(form),
+      } : {
+        // Regulatory-specific fields
+        Professional_amount:  parseFloat(form.Professional_amount) || 0,
+        miscellaneous_amount: String(form.miscellaneous_amount ?? '').trim(),
+        total_amount:         calcItemTotalRegulatory(form),
+      }),
     };
 
     const editingIdx = getEditingIdx();
@@ -379,7 +441,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     } else {
       setActiveItems(prev => [...prev, newItem]);
     }
-    // Preserve sub_compliance_id so user keeps adding under same sub-category
+    // Preserve sub_compliance_id for rapid item entry
     setItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
     setDescriptionSearch('');
     setShowDescDropdown(false);
@@ -394,14 +456,23 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
       compliance_id:        item.compliance_id   || null,
       sub_compliance_id:    item.sub_compliance_id || null,
       quantity:             item.quantity || 1,
-      miscellaneous_amount: item.miscellaneous_amount || '',
+      unit:                 item.unit || '',
+      // Regulatory
       Professional_amount:  item.Professional_amount || 0,
+      miscellaneous_amount: item.miscellaneous_amount || '',
+      // Execution
+      item_sac_code:   item.item_sac_code   || '',
+      material_rate:   item.material_rate   || 0,
+      material_amount: item.material_amount || 0,
+      labour_rate:     item.labour_rate     || 0,
+      labour_amount:   item.labour_amount   || 0,
     });
     setEditingIdx(index);
-    // When editing an existing item, show the inline textarea directly (not the dropdown)
     setDescSelectedFromDropdown(true);
-    if (item.sub_compliance_id && COMPLIANCE_GROUPS.certificates.includes(activeCategoryId)) {
+    if (item.sub_compliance_id) {
       fetchDescForCategory(activeCategoryId, item.sub_compliance_id);
+    } else if (isExecCategory || [3, 4].includes(activeCategoryId)) {
+      fetchDescForCategory(activeCategoryId, null);
     }
   };
 
@@ -414,26 +485,36 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     setActiveItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ── Save ─────────────────────────────────────────────────────────────────────
+  // ── Save ────────────────────────────────────────────────────────────────────
   const handleSave = () => {
     const totalItems = Object.values(categoryItemsMap).reduce((s, c) => s + (c.items?.length || 0), 0);
     if (totalItems === 0) return;
 
-    // Build flat items array — each item tagged with its own compliance_category
     const newFlatItems = [];
     Object.entries(categoryItemsMap).forEach(([catIdStr, catData]) => {
-      const catId = parseInt(catIdStr, 10);
+      const catId   = parseInt(catIdStr, 10);
+      const isExec  = EXECUTION_CATS.includes(catId);
       (catData.items || []).forEach(item => {
         if (!item.compliance_name?.trim()) return;
         newFlatItems.push({
-          id:                      null, // new item — backend will assign
+          id:                      null, // new item — backend assigns
           description:             item.compliance_name.trim(),
           quantity:                parseInt(item.quantity) || 1,
-          Professional_amount:     parseFloat(item.Professional_amount) || 0,
-          miscellaneous_amount:    String(item.miscellaneous_amount ?? '').trim() || '--',
-          compliance_category:     catId,                        // ← correct per-category tag
+          unit:                    String(item.unit || '').trim() || 'N/A',
+          compliance_category:     catId,
           sub_compliance_category: item.sub_compliance_id || 0,
-          total_amount:            calcItemTotal(item),
+          total_amount:            isExec ? calcItemTotalExecution(item) : calcItemTotalRegulatory(item),
+          // Regulatory fields
+          Professional_amount:     parseFloat(item.Professional_amount) || 0,
+          miscellaneous_amount:    isExec ? '--' : (String(item.miscellaneous_amount ?? '').trim() || '--'),
+          // Execution fields
+          ...(isExec ? {
+            sac_code:        String(item.item_sac_code || '').trim(),
+            material_rate:   parseFloat(item.material_rate)   || 0,
+            material_amount: parseFloat(item.material_amount) || 0,
+            labour_rate:     parseFloat(item.labour_rate)     || 0,
+            labour_amount:   parseFloat(item.labour_amount)   || 0,
+          } : {}),
         });
       });
     });
@@ -443,24 +524,21 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     handleClose();
   };
 
-  // ── Close ────────────────────────────────────────────────────────────────────
-  const handleClose = () => {
-    // State reset happens in the isOpen useEffect on next open
-    onClose();
-  };
+  // ── Close ───────────────────────────────────────────────────────────────────
+  const handleClose = () => { onClose(); };
 
-  // ── Computed for render ──────────────────────────────────────────────────────
+  // ── Computed ────────────────────────────────────────────────────────────────
   const itemForm       = getItemForm();
   const editingIdx     = getEditingIdx();
   const activeItems    = getActiveItems();
   const totalItemCount = Object.values(categoryItemsMap).reduce((s, c) => s + (c.items?.length || 0), 0);
   const saveDisabled   = totalItemCount === 0;
 
-  // Description uniqueness: block re-adding same description under same sub-category
+  // Description uniqueness guard (same sub-category, same tab)
   const usedDescriptions = (() => {
     const used = new Set();
     activeItems.forEach((item, i) => {
-      if (i === editingIdx) return; // current item being edited is OK
+      if (i === editingIdx) return;
       if (item.sub_compliance_id === itemForm.sub_compliance_id && item.compliance_name) {
         used.add(item.compliance_name);
       }
@@ -468,14 +546,19 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
     return used;
   })();
 
+  // Determine whether sub-compliance is required for current category
+  const subCompRequired = isExecCategory
+    ? (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0)
+    : [1, 2].includes(activeCategoryId);
+
   const addItemDisabled = (
     !itemForm.compliance_name.trim() ||
-    (selectedCategoryType === 'certificates' && !itemForm.sub_compliance_id)
+    (subCompRequired && !itemForm.sub_compliance_id)
   );
 
-  if (!isOpen) return null;
+  const catIds = resolvedType === 'execution' ? EXECUTION_CATS : (resolvedType === 'regulatory' ? REGULATORY_CATS : []);
 
-  const lockedType = detectLockedType(existingItems);
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] animate-fadeIn" style={{ position: 'fixed', overflow: 'hidden' }}>
@@ -486,22 +569,34 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
       <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
         <div
           className="relative w-full max-w-2xl animate-scaleIn bg-white flex flex-col"
-          style={{ borderRadius: '20px', boxShadow: '0 32px 64px rgba(0,0,0,0.24)', height: '88vh', maxHeight: '760px', minHeight: '480px', overflow: 'hidden' }}
+          style={{ borderRadius: '20px', boxShadow: '0 32px 64px rgba(0,0,0,0.24)', height: '90vh', maxHeight: '820px', minHeight: '480px', overflow: 'hidden' }}
           onClick={e => e.stopPropagation()}
         >
           {/* ── Header ── */}
-          <div className="bg-teal-700 px-6 py-4 flex-shrink-0" style={{ borderRadius: '20px 20px 0 0' }}>
+          <div
+            className="px-6 py-4 flex-shrink-0"
+            style={{
+              borderRadius: '20px 20px 0 0',
+              background: resolvedType === 'execution'
+                ? 'linear-gradient(135deg, #0f766e, #0891b2)'
+                : 'linear-gradient(135deg, #0f766e, #059669)',
+            }}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
                   <Plus className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-white font-bold text-base leading-tight">Add New Compliance</p>
-                  <p className="text-teal-200 text-xs mt-0.5">
+                  <p className="text-white font-bold text-base leading-tight">
+                    {resolvedType === 'execution' ? 'Add Execution Item' : resolvedType === 'regulatory' ? 'Add Regulatory Item' : 'Add New Compliance'}
+                  </p>
+                  <p className="text-white/70 text-xs mt-0.5">
                     {activeCategoryId
-                      ? COMPLIANCE_CATEGORIES[activeCategoryId]?.name
-                      : 'Select a category below'}
+                      ? ALL_COMPLIANCE_CATEGORIES[activeCategoryId]?.name
+                      : resolvedType
+                        ? (resolvedType === 'execution' ? 'Execution Quotation — Water Connection / SWD / Sewer' : 'Regulatory Quotation — Certificates / Water Main / STP')
+                        : 'Select a compliance type below'}
                   </p>
                 </div>
               </div>
@@ -516,14 +611,14 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
           <div id="acm-modal-body" className="p-5 space-y-4 bg-gray-50 flex-1"
             style={{ minHeight: 0, overflowY: 'scroll', scrollbarGutter: 'stable' }}>
 
-            {/* ── Type chooser — shown only when no type locked and not yet selected ── */}
-            {!selectedCategoryType && !lockedType && (
+            {/* ── Type chooser — shown only when type not yet determined ── */}
+            {!resolvedType && (
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Select Compliance Type</p>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { type: 'certificates', label: 'Certificates', sub: 'Construction / Occupational' },
-                    { type: 'execution',    label: 'Execution',    sub: 'Water Main / STP' },
+                    { type: 'regulatory', label: 'Regulatory Permissions', sub: 'Construction / Occupational / Water Main / STP  (Cat 1–4)' },
+                    { type: 'execution',  label: 'Execution Compliance',   sub: 'Water Connection / SWD / Sewer/Drainage  (Cat 5–7)' },
                   ].map(({ type, label, sub }) => (
                     <button key={type} onClick={() => handleSelectType(type)}
                       className="px-4 py-3 rounded-xl border-2 font-medium text-sm transition-colors text-left border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 cursor-pointer">
@@ -535,21 +630,19 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
               </div>
             )}
 
-            {/* ── Category tab pills — shown after type is selected ── */}
-            {selectedCategoryType && (
+            {/* ── Category tab pills ── */}
+            {resolvedType && catIds.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Compliance Category</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(selectedCategoryType === 'certificates'
-                    ? [{ id: 1, label: 'Construction Certificate' }, { id: 2, label: 'Occupational Certificate' }]
-                    : [{ id: 3, label: 'Water Main' },               { id: 4, label: 'STP' }]
-                  ).map(cat => {
-                    const itemCount = categoryItemsMap[cat.id]?.items?.length || 0;
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                  {resolvedType === 'execution' ? 'Execution Category' : 'Regulatory Category'}
+                </p>
+                <div className={`grid gap-2 ${catIds.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  {catIds.map(catId => {
+                    const itemCount = categoryItemsMap[catId]?.items?.length || 0;
                     return (
-                      <button key={cat.id} onClick={() => handleCategoryChange(cat.id)}
-                        className={`px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-colors relative ${activeCategoryId === cat.id ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
-                        {cat.label}
-                        {/* Badge showing item count for this tab */}
+                      <button key={catId} onClick={() => handleCategoryChange(catId)}
+                        className={`px-3 py-2.5 rounded-lg border-2 font-medium text-xs transition-colors relative ${activeCategoryId === catId ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
+                        {ALL_COMPLIANCE_CATEGORIES[catId]?.shortName}
                         {itemCount > 0 && (
                           <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
                             {itemCount}
@@ -562,7 +655,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
               </div>
             )}
 
-            {/* ── Add Item form — shown after a category is selected ── */}
+            {/* ── Add Item form ── */}
             {activeCategoryId && (
               <div className="bg-white rounded-xl border border-gray-200 overflow-visible">
                 {/* Form header */}
@@ -591,11 +684,12 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                 </div>
 
                 <div className="p-4 space-y-3">
-                  {/* Sub-compliance dropdown — certificates only */}
-                  {selectedCategoryType === 'certificates' && (
+
+                  {/* Sub-compliance dropdown — only for categories that have sub-options */}
+                  {(SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                        Sub-Compliance Category <span className="text-red-400">*</span>
+                        Sub-Compliance Category {subCompRequired && <span className="text-red-400">*</span>}
                       </label>
                       <SubComplianceDropdown
                         value={itemForm.sub_compliance_id}
@@ -604,6 +698,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                           setItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
                           setDescriptionSearch('');
                           setShowDescDropdown(false);
+                          setDescSelectedFromDropdown(false);
                           fetchDescForCategory(activeCategoryId, id);
                         }}
                         placeholder="Select sub-compliance category"
@@ -611,8 +706,8 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                     </div>
                   )}
 
-                  {/* Description */}
-                  <div className="relative" style={{ paddingBottom: showDescDropdown ? '320px' : '0', transition: 'padding-bottom 0.15s ease' }}>
+                  {/* Description field */}
+                  <div ref={descFieldRef} className="relative">
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                         Description <span className="text-red-400">*</span>
@@ -631,55 +726,30 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                         <Loader2 className="w-4 h-4 animate-spin text-teal-500" /> Loading descriptions...
                       </div>
                     ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
-                      <div className="description-dropdown relative w-full">
-                        {/* ── Selection chip + re-pick button (shown after a description is chosen) ── */}
-                        {itemForm.compliance_name && descSelectedFromDropdown && !showDescDropdown ? (
+                      <div className="relative">
+                        {/* Chip showing selected description with inline-edit textarea */}
+                        {descSelectedFromDropdown && !showDescDropdown ? (
                           <div className="space-y-2">
-                            {/* Chip row */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg">
-                              <div className="w-4 h-4 rounded-full bg-teal-500 flex items-center justify-center flex-shrink-0">
-                                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-800 font-medium truncate">
+                                {itemForm.compliance_name.length > 70 ? itemForm.compliance_name.substring(0, 70) + '…' : itemForm.compliance_name}
                               </div>
-                              <span className="text-xs font-semibold text-teal-700 flex-1 truncate">Selected from list — edit below if needed</span>
-                              <button type="button"
-                                onClick={() => {
-                                  // Keep descSelectedFromDropdown=true — so if user dismisses
-                                  // without picking, the textarea will restore automatically
-                                  setShowDescDropdown(true);
-                                  setTimeout(() => {
-                                    const body = document.getElementById('acm-modal-body');
-                                    if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-                                  }, 50);
-                                }}
-                                className="text-xs text-teal-600 hover:text-teal-800 font-semibold underline underline-offset-2 flex-shrink-0">
+                              <button type="button" onClick={() => { setShowDescDropdown(true); setDescSelectedFromDropdown(false); }}
+                                className="px-2 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-teal-200 transition-colors flex-shrink-0">
                                 Change
                               </button>
                             </div>
-                            {/* Inline editable textarea */}
                             <textarea
                               value={itemForm.compliance_name}
                               onChange={e => setItemForm(p => ({ ...p, compliance_name: e.target.value }))}
-                              rows={3}
-                              autoFocus
+                              rows={3} autoFocus
                               className="w-full px-3 py-2.5 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none bg-white shadow-sm"
                               placeholder="Edit the description as needed…"
                             />
                           </div>
-                        ) : !descSelectedFromDropdown || showDescDropdown ? (
-                          /* ── Dropdown trigger button (shown when nothing selected, or re-picking) ── */
+                        ) : (
                           <button type="button"
-                            onClick={() => {
-                              const next = !showDescDropdown;
-                              setShowDescDropdown(next);
-                              if (next) {
-                                setTimeout(() => {
-                                  const body = document.getElementById('acm-modal-body');
-                                  if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
-                                }, 50);
-                              }
-                            }}
+                            onClick={() => { setShowDescDropdown(p => !p); }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
                             <span className={itemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
                               {itemForm.compliance_name
@@ -688,82 +758,63 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                             </span>
                             <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescDropdown ? 'rotate-180' : ''}`} />
                           </button>
-                        ) : null}
+                        )}
 
-                        {/* ── Dropdown panel — shown whenever showDescDropdown is true ── */}
                         {showDescDropdown && (
-                              <div className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden"
-                                style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
-                                {/* Search bar */}
-                                <div className="px-3 pt-3 pb-2">
-                                  <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                                    <input type="text" placeholder="Search descriptions..." value={descriptionSearch}
-                                      onChange={e => setDescriptionSearch(e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 focus:bg-white text-sm transition-colors" autoFocus />
-                                  </div>
-                                </div>
-                                {/* Results count */}
-                                <div className="px-3 pb-1.5 flex items-center justify-between">
-                                  <span className="text-[11px] text-gray-400 font-medium">
-                                    {complianceDescriptions.filter(d =>
-                                      !usedDescriptions.has(d.compliance_description) &&
-                                      d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())
-                                    ).length} options available
-                                  </span>
-                                  <span className="text-[11px] text-teal-500 font-medium">Click to select</span>
-                                </div>
-                                {/* Divider */}
-                                <div className="border-t border-gray-100" />
-                                {/* List */}
-                                <div className="max-h-60 overflow-y-auto">
-                                  {complianceDescriptions
-                                    .filter(d =>
-                                      !usedDescriptions.has(d.compliance_description) &&
-                                      d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())
-                                    )
-                                    .map((desc, idx) => {
-                                      const isSelected = itemForm.compliance_name === desc.compliance_description;
-                                      return (
-                                        <button key={desc.id || idx} type="button"
-                                          onClick={() => {
-                                            setItemForm(p => ({ ...p, compliance_name: desc.compliance_description }));
-                                            setDescSelectedFromDropdown(true);
-                                            setShowDescDropdown(false);
-                                            setDescriptionSearch('');
-                                          }}
-                                          className={`w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 transition-colors duration-100 flex items-start gap-3
-                                            ${isSelected
-                                              ? 'bg-teal-50'
-                                              : 'bg-white hover:bg-teal-600'
-                                            } group`}>
-                                          {/* Number badge */}
-                                          <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 transition-colors
-                                            ${isSelected
-                                              ? 'bg-teal-500 text-white'
-                                              : 'bg-gray-100 text-gray-400 group-hover:bg-teal-500 group-hover:text-white'
-                                            }`}>
-                                            {idx + 1}
-                                          </span>
-                                          <span className={`flex-1 text-sm leading-snug transition-colors
-                                            ${isSelected
-                                              ? 'text-teal-800 font-medium'
-                                              : 'text-gray-700 group-hover:text-white'
-                                            }`}>
-                                            {desc.compliance_description}
-                                          </span>
-                                          {isSelected && (
-                                            <svg className="flex-shrink-0 w-4 h-4 text-teal-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                </div>
+                          <div ref={descPanelRef} className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden" style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
+                            <div className="px-3 pt-3 pb-2">
+                              <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                <input type="text" placeholder="Search descriptions..." value={descriptionSearch}
+                                  onChange={e => setDescriptionSearch(e.target.value)}
+                                  onClick={e => e.stopPropagation()}
+                                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 focus:bg-white text-sm transition-colors" autoFocus />
                               </div>
-                            )}
+                            </div>
+                            <div className="px-3 pb-1.5 flex items-center justify-between">
+                              <span className="text-[11px] text-gray-400 font-medium">
+                                {complianceDescriptions.filter(d =>
+                                  !usedDescriptions.has(d.compliance_description) &&
+                                  d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())
+                                ).length} options available
+                              </span>
+                              <span className="text-[11px] text-teal-500 font-medium">Click to select</span>
+                            </div>
+                            <div className="border-t border-gray-100" />
+                            <div className="max-h-60 overflow-y-auto">
+                              {complianceDescriptions
+                                .filter(d =>
+                                  !usedDescriptions.has(d.compliance_description) &&
+                                  d.compliance_description?.toLowerCase().includes(descriptionSearch.toLowerCase())
+                                )
+                                .map((desc, idx) => {
+                                  const isSelected = itemForm.compliance_name === desc.compliance_description;
+                                  return (
+                                    <button key={desc.id || idx} type="button"
+                                      onClick={() => {
+                                        setItemForm(p => ({ ...p, compliance_name: desc.compliance_description }));
+                                        setDescSelectedFromDropdown(true);
+                                        setShowDescDropdown(false);
+                                        setDescriptionSearch('');
+                                      }}
+                                      className={`w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 transition-colors duration-100 flex items-start gap-3 ${isSelected ? 'bg-teal-50' : 'bg-white hover:bg-teal-600'} group`}>
+                                      <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 transition-colors ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-500 group-hover:text-white'}`}>
+                                        {idx + 1}
+                                      </span>
+                                      <span className={`flex-1 text-sm leading-snug transition-colors ${isSelected ? 'text-teal-800 font-medium' : 'text-gray-700 group-hover:text-white'}`}>
+                                        {desc.compliance_description}
+                                      </span>
+                                      {isSelected && (
+                                        <svg className="flex-shrink-0 w-4 h-4 text-teal-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <textarea value={itemForm.compliance_name}
@@ -773,59 +824,225 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
                     )}
                   </div>
 
-                  {/* Qty + Amounts row */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                      <input type="number" min="1" value={itemForm.quantity}
-                        onChange={e => setItemForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
-                      <input type="number" min="0" step="0.01"
-                        value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                        onChange={e => setItemForm(p => ({ ...p, Professional_amount: parseFloat(e.target.value) || 0 }))}
-                        placeholder="0.00"
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                        Misc. (Rs.)
-                        {itemForm.miscellaneous_amount !== '' && (
-                          <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
-                            {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
-                          </span>
-                        )}
-                      </label>
-                      <input type="text" value={itemForm.miscellaneous_amount}
-                        onChange={e => setItemForm(p => ({ ...p, miscellaneous_amount: e.target.value }))}
-                        placeholder="Amount or description"
-                        className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`} />
-                    </div>
-                  </div>
+                  {/* ════════════════════════════════════════════════════════
+                      EXECUTION FIELDS  (cats 5, 6, 7)
+                      ════════════════════════════════════════════════════════ */}
+                  {isExecCategory ? (
+                    <>
+                      {/* Row 1: Unit + SAC + Qty */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit</label>
+                          <input type="text"
+                            value={itemForm.unit}
+                            onChange={e => setItemForm(p => ({ ...p, unit: e.target.value }))}
+                            placeholder="e.g. m, nos, RM"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">SAC Code</label>
+                          <input type="text"
+                            value={itemForm.item_sac_code}
+                            onChange={e => setItemForm(p => ({ ...p, item_sac_code: e.target.value }))}
+                            placeholder="e.g. 998312"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
+                          <input type="text" inputMode="numeric"
+                            value={itemForm.quantity}
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
+                              const qty = parseInt(raw, 10) || 1;
+                              // Auto-recalculate amounts when qty changes
+                              const matAmt = parseFloat(((parseFloat(itemForm.material_rate) || 0) * qty).toFixed(2));
+                              const labAmt = parseFloat(((parseFloat(itemForm.labour_rate)   || 0) * qty).toFixed(2));
+                              setItemForm(p => ({
+                                ...p,
+                                quantity:        raw,
+                                material_amount: (parseFloat(p.material_rate) || 0) > 0 ? matAmt : p.material_amount,
+                                labour_amount:   (parseFloat(p.labour_rate)   || 0) > 0 ? labAmt : p.labour_amount,
+                              }));
+                            }}
+                            onBlur={e => {
+                              const qty = Math.max(1, parseInt(e.target.value, 10) || 1);
+                              const matAmt = parseFloat(((parseFloat(itemForm.material_rate) || 0) * qty).toFixed(2));
+                              const labAmt = parseFloat(((parseFloat(itemForm.labour_rate)   || 0) * qty).toFixed(2));
+                              setItemForm(p => ({
+                                ...p,
+                                quantity:        qty,
+                                material_amount: (parseFloat(p.material_rate) || 0) > 0 ? matAmt : p.material_amount,
+                                labour_amount:   (parseFloat(p.labour_rate)   || 0) > 0 ? labAmt : p.labour_amount,
+                              }));
+                            }}
+                            placeholder="1"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        </div>
+                      </div>
 
-                  {/* Total preview + Add button */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
-                      <span className="text-sm text-teal-700 font-medium">Item Total:</span>
-                      <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotal(itemForm).toLocaleString('en-IN')}</span>
-                      {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
-                        <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Misc shown as note
-                        </span>
-                      ) : (
-                        <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) x Qty</span>
-                      )}
-                    </div>
-                    <button onClick={handleAddItem} disabled={addItemDisabled}
-                      className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingIdx !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
-                      {editingIdx !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
-                    </button>
-                  </div>
+                      {/* Row 2: Rate (Rs./unit) */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Rate (Rs.) <span className="text-red-400">*</span>
+                          <span className="ml-1 normal-case font-normal text-gray-400">per unit</span>
+                        </label>
+                        <input type="number" min="0" step="0.01"
+                          value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
+                          onChange={e => setItemForm(p => ({ ...p, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                      </div>
+
+                      {/* Row 3: Rate Breakdown (Material + Labour) — optional */}
+                      <div className="pt-1">
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                          Rate Breakdown
+                          <span className="normal-case font-normal text-gray-400 ml-1">(optional — split into Material &amp; Labour)</span>
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Rate (Rs./unit)</label>
+                            <input type="number" min="0" step="0.01"
+                              value={itemForm.material_rate === 0 ? '' : itemForm.material_rate}
+                              onChange={e => {
+                                const rate = parseFloat(e.target.value) || 0;
+                                const qty  = parseInt(itemForm.quantity, 10) || 1;
+                                setItemForm(p => ({
+                                  ...p,
+                                  material_rate:   rate,
+                                  material_amount: parseFloat((rate * qty).toFixed(2)),
+                                }));
+                              }}
+                              placeholder="0.00"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Amount (Rs.)</label>
+                            <input type="number" min="0" step="0.01"
+                              value={itemForm.material_amount === 0 ? '' : itemForm.material_amount}
+                              onChange={e => setItemForm(p => ({ ...p, material_amount: parseFloat(e.target.value) || 0 }))}
+                              placeholder="auto = rate × qty"
+                              className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mt-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Rate (Rs./unit)</label>
+                            <input type="number" min="0" step="0.01"
+                              value={itemForm.labour_rate === 0 ? '' : itemForm.labour_rate}
+                              onChange={e => {
+                                const rate = parseFloat(e.target.value) || 0;
+                                const qty  = parseInt(itemForm.quantity, 10) || 1;
+                                setItemForm(p => ({
+                                  ...p,
+                                  labour_rate:   rate,
+                                  labour_amount: parseFloat((rate * qty).toFixed(2)),
+                                }));
+                              }}
+                              placeholder="0.00"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Amount (Rs.)</label>
+                            <input type="number" min="0" step="0.01"
+                              value={itemForm.labour_amount === 0 ? '' : itemForm.labour_amount}
+                              onChange={e => setItemForm(p => ({ ...p, labour_amount: parseFloat(e.target.value) || 0 }))}
+                              placeholder="auto = rate × qty"
+                              className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Execution total preview */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
+                          <span className="text-sm text-teal-700 font-medium">Item Total:</span>
+                          <span className="text-sm font-bold text-teal-800">
+                            Rs. {calcItemTotalExecution(itemForm).toLocaleString('en-IN')}
+                          </span>
+                          <span className="text-xs text-teal-500 ml-auto">
+                            {(parseFloat(itemForm.material_amount) > 0 || parseFloat(itemForm.labour_amount) > 0)
+                              ? `Mat.(${(parseFloat(itemForm.material_amount)||0).toLocaleString('en-IN')}) + Lab.(${(parseFloat(itemForm.labour_amount)||0).toLocaleString('en-IN')})`
+                              : (parseFloat(itemForm.material_rate) > 0 || parseFloat(itemForm.labour_rate) > 0)
+                                ? `Rate×Qty = (${((parseFloat(itemForm.material_rate)||0)+(parseFloat(itemForm.labour_rate)||0)).toLocaleString('en-IN')} × ${parseInt(itemForm.quantity)||1})`
+                                : `Rate×Qty = (${(parseFloat(itemForm.Professional_amount)||0).toLocaleString('en-IN')} × ${parseInt(itemForm.quantity)||1})`
+                            }
+                          </span>
+                        </div>
+                        <button onClick={handleAddItem} disabled={addItemDisabled}
+                          className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingIdx !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
+                          {editingIdx !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    /* ════════════════════════════════════════════════════════
+                        REGULATORY FIELDS  (cats 1, 2, 3, 4)
+                        ════════════════════════════════════════════════════════ */
+                    <>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit</label>
+                          <input type="text"
+                            value={itemForm.unit}
+                            onChange={e => setItemForm(p => ({ ...p, unit: e.target.value }))}
+                            placeholder="e.g. Lump Sum, nos"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
+                          <input type="number" min="1"
+                            value={itemForm.quantity}
+                            onChange={e => setItemForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))}
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
+                          <input type="number" min="0" step="0.01"
+                            value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
+                            onChange={e => setItemForm(p => ({ ...p, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                            placeholder="0.00"
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Misc. (Rs.)
+                          {itemForm.miscellaneous_amount !== '' && (
+                            <span className={`ml-1.5 normal-case font-normal text-xs ${isMiscNumeric(itemForm.miscellaneous_amount) ? 'text-teal-500' : 'text-amber-500'}`}>
+                              {isMiscNumeric(itemForm.miscellaneous_amount) ? '(calculated)' : '(note only)'}
+                            </span>
+                          )}
+                        </label>
+                        <input type="text"
+                          value={itemForm.miscellaneous_amount}
+                          onChange={e => setItemForm(p => ({ ...p, miscellaneous_amount: e.target.value }))}
+                          placeholder="Amount or descriptive note"
+                          className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-colors ${itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' : 'border-gray-300 focus:ring-teal-500 bg-white'}`} />
+                      </div>
+
+                      {/* Regulatory total preview */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-200 rounded-lg flex-wrap">
+                          <span className="text-sm text-teal-700 font-medium">Item Total:</span>
+                          <span className="text-sm font-bold text-teal-800">Rs. {calcItemTotalRegulatory(itemForm).toLocaleString('en-IN')}</span>
+                          {itemForm.miscellaneous_amount !== '' && !isMiscNumeric(itemForm.miscellaneous_amount) ? (
+                            <span className="text-xs text-amber-600 ml-auto flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              Misc shown as note
+                            </span>
+                          ) : (
+                            <span className="text-xs text-teal-500 ml-auto">(Prof + Misc) × Qty</span>
+                          )}
+                        </div>
+                        <button onClick={handleAddItem} disabled={addItemDisabled}
+                          className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${editingIdx !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
+                          {editingIdx !== null ? <><Edit className="w-4 h-4" />Update</> : <><Plus className="w-4 h-4" />Add Item</>}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -835,44 +1052,67 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
                   <span className="text-sm font-semibold text-gray-700">
-                    Added Items — {activeCategoryId ? COMPLIANCE_CATEGORIES[activeCategoryId]?.shortName : ''}
+                    Added Items — {activeCategoryId ? ALL_COMPLIANCE_CATEGORIES[activeCategoryId]?.shortName : ''}
                   </span>
                   <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">{activeItems.length} item{activeItems.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div className="divide-y divide-gray-100">
-                  {activeItems.map((item, index) => (
-                    <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${editingIdx === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
-                      <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-gray-500">{index + 1}</div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                          {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>}
-                          <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
-                          <span className="text-xs text-gray-400">Prof: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
-                          {String(item.miscellaneous_amount ?? '').trim() !== '' && (
-                            isMiscNumeric(item.miscellaneous_amount)
-                              ? <span className="text-xs text-gray-400">Misc: Rs. {parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
-                              : <span className="text-xs text-amber-600 italic font-medium">Misc: {item.miscellaneous_amount}</span>
-                          )}
-                          <span className="text-xs font-semibold text-teal-700">Total: Rs. {calcItemTotal(item).toLocaleString('en-IN')}</span>
+                  {activeItems.map((item, index) => {
+                    const isExec = EXECUTION_CATS.includes(activeCategoryId);
+                    const total  = isExec ? calcItemTotalExecution(item) : calcItemTotalRegulatory(item);
+                    return (
+                      <div key={index} className={`flex items-start gap-3 px-4 py-3 transition-colors ${editingIdx === index ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-gray-50'}`}>
+                        <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold text-gray-500">{index + 1}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                            {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>}
+                            <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
+                            {isExec ? (
+                              <>
+                                {item.unit && item.unit !== 'N/A' && <span className="text-xs text-gray-400">Unit: {item.unit}</span>}
+                                {(parseFloat(item.material_rate) > 0 || parseFloat(item.labour_rate) > 0) ? (
+                                  <>
+                                    {parseFloat(item.material_rate) > 0 && <span className="text-xs text-gray-400">Mat.Rate: Rs.{parseFloat(item.material_rate).toLocaleString('en-IN')}</span>}
+                                    {parseFloat(item.labour_rate) > 0  && <span className="text-xs text-gray-400">Lab.Rate: Rs.{parseFloat(item.labour_rate).toLocaleString('en-IN')}</span>}
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-gray-400">Rate: Rs.{(parseFloat(item.Professional_amount)||0).toLocaleString('en-IN')}</span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-xs text-gray-400">Prof: Rs.{parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
+                                {String(item.miscellaneous_amount ?? '').trim() !== '' && (
+                                  isMiscNumeric(item.miscellaneous_amount)
+                                    ? <span className="text-xs text-gray-400">Misc: Rs.{parseFloat(item.miscellaneous_amount).toLocaleString('en-IN')}</span>
+                                    : <span className="text-xs text-amber-600 italic font-medium">Misc: {item.miscellaneous_amount}</span>
+                                )}
+                              </>
+                            )}
+                            <span className="text-xs font-semibold text-teal-700">Total: Rs. {total.toLocaleString('en-IN')}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button onClick={() => handleEditItem(index)}
+                            className={`p-1.5 rounded-lg transition-colors ${editingIdx === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`} title="Edit item">
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleRemoveItem(index)}
+                            className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors" title="Remove item">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <button onClick={() => handleEditItem(index)}
-                          className={`p-1.5 rounded-lg transition-colors ${editingIdx === index ? 'bg-amber-100 text-amber-600' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-600'}`} title="Edit item">
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => handleRemoveItem(index)}
-                          className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors" title="Remove item">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
                   <span className="text-sm font-bold text-gray-800">
-                    Section Total: Rs. {activeItems.reduce((sum, item) => sum + calcItemTotal(item), 0).toLocaleString('en-IN')}
+                    Section Total: Rs. {activeItems.reduce((sum, item) => {
+                      const isExec = EXECUTION_CATS.includes(activeCategoryId);
+                      return sum + (isExec ? calcItemTotalExecution(item) : calcItemTotalRegulatory(item));
+                    }, 0).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
@@ -895,7 +1135,7 @@ export default function AddComplianceModal({ isOpen, onClose, onSave, existingIt
               </button>
               <button onClick={handleSave} disabled={saveDisabled}
                 className="px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                Save Compliance
+                Save Items
               </button>
             </div>
           </div>

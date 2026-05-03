@@ -224,7 +224,7 @@ api.interceptors.response.use(
       console.error('❌ Network Error - Unable to connect to server');
       console.error('Possible causes:');
       console.error('  - Backend server is not running');
-      console.error('  - Docker container is not running');
+      console.error('  - Please Check your Connection');
       console.error('  - Network connectivity issues');
       console.error('  - CORS configuration issues');
     }

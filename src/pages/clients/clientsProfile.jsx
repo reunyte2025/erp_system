@@ -21,7 +21,9 @@ import {
   Send,
   Paperclip,
 } from "lucide-react";
-import { getClientById, updateClient, getNotesByClientId, createNote, deleteNote, getClientProjects, getClientInvoices, toggleStarClient, sendClientEmail } from '../../services/clients';
+import { getClientById, updateClient, getClientProjects, getClientInvoices, toggleStarClient, sendClientEmail } from '../../services/clients';
+import Notes from '../../components/Notes';
+import { NOTE_ENTITY } from '../../services/notes';
 
 
 /**
@@ -406,21 +408,11 @@ export default function ClientProfile() {
   const [error, setError] = useState(null);
   
   // UI State
-  const [isViewAllNotesOpen, setIsViewAllNotesOpen] = useState(false);
-  const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
   
-  // Data State
-  const [notes, setNotes] = useState([]);         // [{id, note}]
-  const [notesLoading, setNotesLoading] = useState(false);
-  const [notesError, setNotesError] = useState(null);
-  const [newNote, setNewNote] = useState("");
-  const [isAddingNote, setIsAddingNote] = useState(false);
-  const [addNoteError, setAddNoteError] = useState("");
-  const [deletingNoteId, setDeletingNoteId] = useState(null);
   const [projectSearchTerm, setProjectSearchTerm] = useState(""); // For projects/invoices search
 
   // Projects state
@@ -543,33 +535,6 @@ export default function ClientProfile() {
   }, [id, fetchClientData]);
 
   // ========================================================================
-  // FETCH NOTES
-  // ========================================================================
-
-  const fetchNotes = useCallback(async () => {
-    if (!id) return;
-    try {
-      setNotesLoading(true);
-      setNotesError(null);
-      const response = await getNotesByClientId(id);
-      if (response.status === 'success' && Array.isArray(response.data)) {
-        setNotes(response.data); // [{id, note}]
-      } else {
-        setNotes([]);
-      }
-    } catch (err) {
-      setNotesError('Failed to load notes');
-      setNotes([]);
-    } finally {
-      setNotesLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    if (id) fetchNotes();
-  }, [id, fetchNotes]);
-
-  // ========================================================================
   // FETCH CLIENT PROJECTS
   // ========================================================================
 
@@ -647,36 +612,6 @@ export default function ClientProfile() {
       logger.error('❌ Failed to toggle star:', err);
     } finally {
       setStarLoading(false);
-    }
-  };
-
-  const handleAddNote = async () => {
-    if (!newNote.trim()) return;
-    try {
-      setIsAddingNote(true);
-      setAddNoteError("");
-      const response = await createNote(id, newNote.trim());
-      if (response.status === 'success' && response.data) {
-        setNotes(prev => [...prev, response.data]); // {id, note}
-      }
-      setNewNote("");
-      setIsAddNoteOpen(false);
-    } catch (err) {
-      setAddNoteError(err.message || 'Failed to add note. Please try again.');
-    } finally {
-      setIsAddingNote(false);
-    }
-  };
-
-  const handleDeleteNote = async (noteId) => {
-    try {
-      setDeletingNoteId(noteId);
-      await deleteNote(noteId);
-      setNotes(prev => prev.filter(n => n.id !== noteId));
-    } catch (err) {
-      // silently fail — note stays in list
-    } finally {
-      setDeletingNoteId(null);
     }
   };
 
@@ -790,7 +725,7 @@ export default function ClientProfile() {
 
   return (
     // FIXED: Changed from p-6 to match DynamicList wrapper spacing
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 client-profile-page">
       
       {/* ====================================================================
            HEADER SECTION - FIXED SPACING
@@ -934,80 +869,13 @@ export default function ClientProfile() {
 
           </div>
 
-          {/* Notes Card */}
-          <div className="bg-white rounded-2xl border-2 border-gray-300 p-6">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-gray-800">Notes</h2>
-                {notes.length > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-200 text-teal-700 text-xs font-bold">
-                    {notes.length}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => { setAddNoteError(""); setIsAddNoteOpen(true); }}
-                className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                Add
-              </button>
-            </div>
-
-            {notesLoading ? (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="w-5 h-5 text-teal-600 animate-spin" />
-              </div>
-            ) : notesError ? (
-              <p className="text-sm text-red-500 text-center py-4">{notesError}</p>
-            ) : notes.length > 0 ? (
-              <>
-                <div className="space-y-2.5">
-                  {notes.slice(0, 2).map((note, idx) => (
-                    <div
-                      key={note.id}
-                      className="group relative flex items-start gap-3 p-3.5 rounded-xl border border-gray-200 hover:border-teal-300 hover:bg-teal-100/30 transition-all duration-150"
-                      style={{ borderLeft: '3px solid #0d9488' }}
-                    >
-                      {/* Index badge */}
-                      <div className="w-5 h-5 rounded-full bg-teal-200 text-teal-700 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
-                        {idx + 1}
-                      </div>
-                      <p className="text-sm text-gray-700 leading-relaxed line-clamp-2 flex-1">{note.note}</p>
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        disabled={deletingNoteId === note.id}
-                        className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all duration-150 flex-shrink-0"
-                        title="Delete note"
-                      >
-                        {deletingNoteId === note.id
-                          ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-                          : <X className="w-3.5 h-3.5" />
-                        }
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {notes.length > 2 && (
-                  <button
-                    onClick={() => setIsViewAllNotesOpen(true)}
-                    className="w-full mt-3 py-2 text-teal-600 hover:text-teal-800 hover:bg-teal-200 rounded-lg text-sm font-semibold transition-colors border border-teal-500"
-                  >
-                    View All {notes.length} Notes →
-                  </button>
-                )}
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
-                  <FileText className="w-6 h-6 text-gray-300" />
-                </div>
-                <p className="text-sm font-medium text-gray-500">No notes yet</p>
-                <p className="text-xs text-gray-400 mt-1">Click Add to write the first note</p>
-              </div>
-            )}
-          </div>
+          {/* Notes Section — new reusable Notes component */}
+          {!loading && client && (
+            <Notes
+              entityType={NOTE_ENTITY.CLIENT}
+              entityId={client.id}
+            />
+          )}
         </div>
 
         {/* ==================================================================
@@ -1254,101 +1122,6 @@ export default function ClientProfile() {
       {/* ====================================================================
            MODALS & OVERLAYS
            ==================================================================== */}
-
-      {/* Add Note Modal */}
-      {isAddNoteOpen && (
-        <div
-          className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none"
-          style={{ position: 'fixed' }}
-        >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50 pointer-events-auto"
-            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={() => { if (!isAddingNote) { setIsAddNoteOpen(false); setNewNote(""); setAddNoteError(""); } }}
-          />
-          {/* Centering wrapper */}
-          <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
-          {/* Modal */}
-          <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-scaleIn pointer-events-auto"
-            style={{ margin: '0 16px' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Teal Header bar */}
-            <div className="bg-teal-700 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-white font-semibold text-base leading-tight">Add Note</h3>
-                  <p className="text-teal-100 text-xs mt-0.5">Write anything about this client</p>
-                </div>
-              </div>
-              <button
-                onClick={() => { if (!isAddingNote) { setIsAddNoteOpen(false); setNewNote(""); setAddNoteError(""); } }}
-                disabled={isAddingNote}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/25 flex items-center justify-center text-white transition-colors disabled:opacity-50"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-6">
-              {addNoteError && (
-                <div className="flex items-start gap-2 mb-4 bg-red-50 border border-red-200 text-red-600 px-3.5 py-2.5 rounded-xl">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span className="text-xs font-medium">{addNoteError}</span>
-                </div>
-              )}
-
-              {/* Character count textarea */}
-              <div className="relative">
-                <textarea
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                  placeholder="Type your note here..."
-                  disabled={isAddingNote}
-                  maxLength={500}
-                  rows={5}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent resize-none text-sm text-gray-700 placeholder-gray-400 disabled:bg-gray-50 transition-all"
-                />
-                <span className="absolute bottom-3 right-3 text-xs text-gray-300 select-none">
-                  {newNote.length}/500
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={() => { setIsAddNoteOpen(false); setNewNote(""); setAddNoteError(""); }}
-                  disabled={isAddingNote}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 active:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddNote}
-                  disabled={isAddingNote || !newNote.trim()}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-teal-600 text-white shadow-sm shadow-teal-600/30 hover:bg-teal-700 active:bg-teal-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isAddingNote ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />Saving...</>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      Save Note
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-          </div>
-        </div>
-      )}
 
       
 
@@ -1619,101 +1392,6 @@ export default function ClientProfile() {
       )}
 
 
-      {/* View All Notes Modal */}
-      {isViewAllNotesOpen && (
-        <div
-          className="fixed inset-0 z-[9999] animate-fadeIn pointer-events-none"
-          style={{ position: 'fixed' }}
-        >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50 pointer-events-auto"
-            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={() => setIsViewAllNotesOpen(false)}
-          />
-          {/* Centering wrapper */}
-          <div className="relative z-10 flex items-center justify-center pointer-events-none" style={{ height: '100vh' }}>
-          {/* Modal */}
-          <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-scaleIn pointer-events-auto"
-            style={{ margin: '0 16px' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex-shrink-0 bg-teal-700 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center border border-white/30">
-                  <FileText className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-white font-bold text-base leading-tight">All Notes</h3>
-                  <p className="text-white/80 text-xs mt-0.5 font-medium">
-                    {notes.length} {notes.length === 1 ? 'note' : 'notes'} for this client
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setIsViewAllNotesOpen(false); setAddNoteError(""); setIsAddNoteOpen(true); }}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-white text-teal-700 rounded-lg text-xs font-bold transition-colors hover:bg-teal-50 border border-white/50"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Note
-                </button>
-                <button
-                  onClick={() => setIsViewAllNotesOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/30 border border-white/30 flex items-center justify-center text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Notes List */}
-            <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-              {notes.length > 0 ? (
-                <div className="space-y-3">
-                  {notes.map((note, idx) => (
-                    <div
-                      key={note.id}
-                      className="flex items-start gap-3 p-4 bg-white rounded-xl border-2 border-gray-200 hover:border-teal-400 transition-all duration-150"
-                      style={{ borderLeft: '4px solid #0d9488' }}
-                    >
-                      {/* Note number badge */}
-                      <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
-                        {idx + 1}
-                      </div>
-                      <p className="text-sm text-gray-800 leading-relaxed flex-1 font-medium">{note.note}</p>
-                      {/* Delete button */}
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        disabled={deletingNoteId === note.id}
-                        title="Delete note"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition-all duration-150 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deletingNoteId === note.id
-                          ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                          : <X className="w-4 h-4" />
-                        }
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-gray-200 flex items-center justify-center mb-3">
-                    <FileText className="w-7 h-7 text-gray-400" />
-                  </div>
-                  <p className="text-sm font-semibold text-gray-600">No notes yet</p>
-                  <p className="text-xs text-gray-400 mt-1">Click "Add Note" to write the first one</p>
-                </div>
-              )}
-            </div>
-          </div>
-          </div>
-        </div>
-      )}
-
       {/* Smooth Animations */}
       <style>{`
         .search-panel-open {
@@ -1729,18 +1407,18 @@ export default function ClientProfile() {
           transition: max-height 0.35s ease, opacity 0.3s ease;
         }
         
-        /* Custom Scrollbar Styling */
-        ::-webkit-scrollbar {
+        /* Custom Scrollbar Styling — scoped to page only, not modal overlays */
+        .client-profile-page ::-webkit-scrollbar {
           width: 6px;
         }
-        ::-webkit-scrollbar-track {
+        .client-profile-page ::-webkit-scrollbar-track {
           background: transparent;
         }
-        ::-webkit-scrollbar-thumb {
+        .client-profile-page ::-webkit-scrollbar-thumb {
           background: #cbd5e1;
           border-radius: 3px;
         }
-        ::-webkit-scrollbar-thumb:hover {
+        .client-profile-page ::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
         }
         

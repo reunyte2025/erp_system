@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Loader2, AlertCircle, CheckCircle,
   CreditCard, Building2, Wifi, MoreHorizontal, Receipt,
   User, FileText, X, IndianRupee, TrendingUp,
   Clock, RefreshCw, BadgeCheck, Banknote,
 } from 'lucide-react';
-import { getInvoiceById, trackInvoice } from '../../services/invoices';
+import { getInvoiceById, getInvoiceByIdTyped, trackInvoice, updateInvoiceAdvance } from '../../services/invoices';
 import { getPaymentsByInvoice, createPayment, updatePayment } from '../../services/payments';
 import DynamicList from '../../components/DynamicList/DynamicList';
 import trackPaymentConfig from './config.invoice.track.payment';
@@ -49,7 +49,7 @@ const fmtDateTime = (ds) => {
 
 // ─── Add Payment Modal ────────────────────────────────────────────────────────
 
-const AddPaymentModal = ({ invoice, onClose, onSuccess }) => {
+const AddPaymentModal = ({ invoice, navClientId, navVendorId, onClose, onSuccess }) => {
   const today = new Date().toISOString().slice(0, 16);
   const [form, setForm] = useState({
     payment_date:   today,
@@ -70,16 +70,29 @@ const AddPaymentModal = ({ invoice, onClose, onSuccess }) => {
     if (!form.payment_date) { setError('Payment date is required.'); return; }
     setError(''); setSubmitting(true);
     try {
-      // Determine if this is a vendor invoice or a client invoice.
-      // invoice.client holds the client id (number) for client invoices.
-      // invoice.vendor holds the vendor id (number) for vendor/PO invoices.
-      // Backend expects: client invoices → client_id=<id>, vendor_id=null
-      //                  vendor invoices → client_id=null, vendor_id=<id>
-      const isVendorInvoice = !invoice.client && !!invoice.vendor;
+      // Priority 1: use IDs passed via navigation state from ViewInvoiceDetails
+      // Priority 2: extract from the invoice object returned by the API
+      //   - invoice.client may be a number, a nested object { id, ... }, or absent
+      //   - invoice.vendor may similarly be a number or nested object
+      const resolveId = (field) => {
+        if (!field) return null;
+        if (typeof field === 'object') return field.id ? Number(field.id) : null;
+        const n = Number(field);
+        return isNaN(n) ? null : n;
+      };
+
+      const clientId = navClientId ?? resolveId(invoice?.client);
+      const vendorId = navVendorId ?? resolveId(invoice?.vendor);
+
+      if (!clientId && !vendorId) {
+        setError('Unable to determine client or vendor for this invoice. Please go back and reopen the page.');
+        return;
+      }
+
       const result = await createPayment({
         invoice_id:     invoice.id,
-        client_id:      isVendorInvoice ? null : (invoice.client || null),
-        vendor_id:      isVendorInvoice ? (invoice.vendor || null) : null,
+        client_id:      clientId,
+        vendor_id:      vendorId,
         payment_date:   form.payment_date,
         payment_method: Number(form.payment_method),
         reference:      form.reference.trim(),
@@ -398,20 +411,151 @@ const EditPaymentModal = ({ payment, onClose, onSuccess }) => {
   );
 };
 
+// ─── Update Advance Modal ─────────────────────────────────────────────────────
+
+const UpdateAdvanceModal = ({ invoice, currentAdvance, onClose, onSuccess }) => {
+  const [amount, setAmount]       = useState(String(parseFloat(currentAdvance || 0) || ''));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]           = useState('');
+
+  const handleInput = (e) => {
+    // Only allow digits and a single decimal point
+    const raw = e.target.value.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    const sanitised = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : raw;
+    setAmount(sanitised);
+    setError('');
+  };
+
+  const handleSubmit = async () => {
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed < 0) {
+      setError('Please enter a valid advance amount (0 or more).'); return;
+    }
+    setError(''); setSubmitting(true);
+    try {
+      const result = await updateInvoiceAdvance({
+        invoice_id:     invoice.id,
+        advance_amount: parsed,
+      });
+      onSuccess(result?.data || result);
+    } catch (e) {
+      setError(
+        e.response?.data?.message ||
+        e.response?.data?.error   ||
+        e.response?.data?.detail  ||
+        e.message ||
+        'Failed to update advance payment.'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)' }} onClick={onClose} />
+      <div
+        style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 18, width: '100%', maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,.24)', overflow: 'hidden', fontFamily: "'Outfit',sans-serif", animation: 'tp_modal_in .3s cubic-bezier(.16,1,.3,1)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ background: 'linear-gradient(135deg,#064e3b 0%,#065f46 50%,#059669 100%)', padding: '18px 22px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CheckCircle size={17} color="#fff" />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>Update Advance Payment</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', marginTop: 2 }}>{invoice?.invoice_number || `Invoice #${invoice?.id}`}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'rgba(255,255,255,.15)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '22px 22px 24px' }}>
+          {/* Info */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: '#f0fdf4', border: '1px solid #6ee7b7', borderRadius: 10, padding: '10px 13px', marginBottom: 20 }}>
+            <AlertCircle size={13} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
+            <p style={{ margin: 0, fontSize: 12, color: '#064e3b', lineHeight: 1.6 }}>
+              Enter the advance amount received for this invoice. All totals (Paid Amount, Balance Due) are recalculated automatically by the server.
+            </p>
+          </div>
+
+          {/* Current value */}
+          {parseFloat(currentAdvance) > 0 && (
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 500, marginBottom: 12 }}>
+              Current advance: <strong style={{ color: '#059669' }}>₹ {fmtINR(currentAdvance)}</strong>
+            </div>
+          )}
+
+          {/* Amount input */}
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+              Advance Amount (₹) *
+            </label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', fontSize: 15, fontWeight: 700, color: '#059669' }}>₹</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={handleInput}
+                placeholder="0.00"
+                autoFocus
+                style={{
+                  width: '100%', padding: '11px 13px 11px 30px',
+                  border: `2px solid ${error ? '#fca5a5' : '#6ee7b7'}`,
+                  borderRadius: 10, fontSize: 16, fontWeight: 700, fontFamily: 'inherit',
+                  color: '#0f172a', outline: 'none', boxSizing: 'border-box',
+                  background: '#f0fdf4',
+                }}
+              />
+            </div>
+            {error && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11.5, color: '#dc2626', fontWeight: 500 }}>
+                <AlertCircle size={12} /> {error}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 10, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Cancel
+            </button>
+            <button onClick={handleSubmit} disabled={submitting} style={{ flex: 2, padding: '10px', borderRadius: 10, border: 'none', background: submitting ? '#94a3b8' : '#059669', color: '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: 'inherit' }}>
+              {submitting
+                ? <><Loader2 size={14} style={{ animation: 'tp_spin .7s linear infinite' }} /> Updating…</>
+                : <><BadgeCheck size={15} /> Update Advance</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Summary Card ─────────────────────────────────────────────────────────────
 
-const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon, accent }) => (
+const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon, accent, actionMenu }) => (
   <div style={{
     background: '#fff', borderRadius: 14, border: `1.5px solid ${accent || '#d1d5db'}`,
-    padding: '18px 20px', flex: 1, minWidth: 160,
+    padding: '18px 20px', flex: 1, minWidth: 160, position: 'relative',
   }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
       <div style={{ width: 36, height: 36, borderRadius: 9, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon size={17} color={iconColor} />
       </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 20, padding: '2px 9px', whiteSpace: 'nowrap' }}>
-        {sub}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 20, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+          {sub}
+        </span>
+        {actionMenu}
+      </div>
     </div>
     <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: 4 }}>
       ₹ {fmtINR(value)}
@@ -427,6 +571,16 @@ const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon, accent }) => 
 export default function InvoiceTrackPayment({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // client_id / vendor_id / invoiceType passed from ViewInvoiceDetails via navigate state
+  // These are the most reliable source — the raw API invoice response sometimes
+  // returns client as a nested object or omits vendor/client IDs altogether.
+  // invoiceType tells us which endpoint to hit directly (avoids wrong-cascade bug).
+  const navState = location.state || {};
+  const navClientId   = navState.client_id   ? Number(navState.client_id)  : null;
+  const navVendorId   = navState.vendor_id   ? Number(navState.vendor_id)  : null;
+  const navInvoiceType = navState.invoice_type || '';
 
   const [invoice,    setInvoice]    = useState(null);
   const [trackData,  setTrackData]  = useState(null);   // from /track_invoice/
@@ -436,6 +590,8 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
   const [fetchError, setFetchError] = useState('');
   const [showModal,    setShowModal]    = useState(false);
   const [editPayment,  setEditPayment]  = useState(null);  // payment being edited
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false);
+  const [advanceMenuOpen,  setAdvanceMenuOpen]  = useState(false);
   const [toast,        setToast]        = useState('');
 
   useEffect(() => {
@@ -472,9 +628,10 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
     if (!id) { setFetchError('No invoice ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      // Fetch invoice details and track data in parallel
+      // Use typed fetch so vendor invoices hit get_purchase_order_invoice directly
+      // instead of falling into the cascade and returning the wrong invoice type.
       const [res] = await Promise.all([
-        getInvoiceById(id),
+        getInvoiceByIdTyped(id, navInvoiceType),
         fetchTrackData(id),
       ]);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load invoice');
@@ -513,6 +670,17 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
         fetchTrackData(invoice.id),
       ]);
       setPayments(pList);
+    }
+  };
+
+  const handleAdvanceSuccess = async () => {
+    setShowAdvanceModal(false);
+    showToast('Advance payment updated successfully!');
+    if (invoice?.id) {
+      await Promise.all([
+        fetchPayments(invoice.id),
+        fetchTrackData(invoice.id),
+      ]);
     }
   };
 
@@ -676,7 +844,62 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
           <SummaryCard label="Total Amount"  value={grandTotal}  sub="Invoice Total with GST"  iconBg="#ecfdf5" iconColor="#0f766e" Icon={IndianRupee} accent="#86efac" />
           <SummaryCard label="Paid Amount"   value={totalPaid}   sub={`${paidPct.toFixed(1)}% of Total`}        iconBg="#fef2f2" iconColor="#dc2626" Icon={TrendingUp}  accent="#fca5a5" />
           <SummaryCard label="Balance Due"   value={balanceDue}  sub={(trackData?.valid_until || invoice?.valid_until) ? `Due by ${fmtDate(trackData?.valid_until || invoice?.valid_until)}` : 'Outstanding'} iconBg="#fffbeb" iconColor="#d97706" Icon={Clock} accent="#fcd34d" />
-          <SummaryCard label="Advance Paid"  value={advancePaid} sub="Initial Payment Received" iconBg="#ecfdf5" iconColor="#059669" Icon={CheckCircle} accent="#6ee7b7" />
+          <SummaryCard
+            label="Advance Paid"
+            value={advancePaid}
+            sub="Initial Payment Received"
+            iconBg="#ecfdf5"
+            iconColor="#059669"
+            Icon={CheckCircle}
+            accent="#6ee7b7"
+            actionMenu={
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setAdvanceMenuOpen(v => !v)}
+                  title="Update Advance Payment"
+                  style={{
+                    width: 26, height: 26, borderRadius: 7, border: '1.5px solid #d1d5db',
+                    background: advanceMenuOpen ? '#f0fdf4' : '#fff', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#64748b', transition: 'all .14s', flexShrink: 0,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#6ee7b7'; e.currentTarget.style.color = '#059669'; }}
+                  onMouseLeave={e => { if (!advanceMenuOpen) { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#64748b'; } }}
+                >
+                  <MoreHorizontal size={13} />
+                </button>
+                {advanceMenuOpen && (
+                  <>
+                    {/* Click-away overlay */}
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setAdvanceMenuOpen(false)} />
+                    <div style={{
+                      position: 'absolute', right: 0, top: 32, zIndex: 9999,
+                      background: '#fff', borderRadius: 11, border: '1.5px solid #e2e8f0',
+                      boxShadow: '0 8px 28px rgba(0,0,0,.12)', padding: '5px', minWidth: 190,
+                      fontFamily: "'Outfit',sans-serif",
+                    }}>
+                      <button
+                        onClick={() => { setAdvanceMenuOpen(false); setShowAdvanceModal(true); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+                          padding: '9px 12px', borderRadius: 8, border: 'none', background: 'none',
+                          cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#0f172a',
+                          fontFamily: 'inherit', textAlign: 'left', transition: 'background .1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                      >
+                        <div style={{ width: 28, height: 28, borderRadius: 7, background: '#ecfdf5', border: '1px solid #6ee7b7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <CheckCircle size={13} color="#059669" />
+                        </div>
+                        Update Advance Payment
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            }
+          />
         </div>
 
         {/* ── Payment Progress ── */}
@@ -757,6 +980,8 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
       {showModal && (
         <AddPaymentModal
           invoice={invoice}
+          navClientId={navClientId}
+          navVendorId={navVendorId}
           onClose={() => setShowModal(false)}
           onSuccess={handlePaymentSuccess}
         />
@@ -768,6 +993,16 @@ export default function InvoiceTrackPayment({ onUpdateNavigation }) {
           payment={editPayment}
           onClose={() => setEditPayment(null)}
           onSuccess={handleEditSuccess}
+        />
+      )}
+
+      {/* ── Update Advance Modal ── */}
+      {showAdvanceModal && (
+        <UpdateAdvanceModal
+          invoice={invoice}
+          currentAdvance={advancePaid}
+          onClose={() => setShowAdvanceModal(false)}
+          onSuccess={handleAdvanceSuccess}
         />
       )}
 

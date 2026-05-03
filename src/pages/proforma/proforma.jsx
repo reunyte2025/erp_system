@@ -524,6 +524,7 @@ export default function Proforma({ onUpdateNavigation }) {
       const proformaData = {
         client: selectedClientFromState.id,
         quotation: selectedQuotationFromState.id,
+        quotation_type: selectedQuotationFromState.quotation_type,
         gst_rate: '18',
         discount_rate: '0',
         // Items are inherited from the quotation on the backend

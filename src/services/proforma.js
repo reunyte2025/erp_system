@@ -16,24 +16,21 @@ const serviceLogger = {
 };
 
 const ENDPOINTS = {
-  GET_ALL:          '/proformas/get_all_proformas/',
-  GET_BY_ID:        '/proformas/get_proforma/',
-  CREATE:           '/proformas/create_proforma/',
-  UPDATE:           '/proformas/',
-  UPDATE_FULL:      '/proformas/update_proforma/',
-  DELETE:           '/proformas/',
-  SEND_FOR_APPROVAL:'/proformas/send_for_approval/',
-  APPROVE:          '/proformas/approve_proforma/',
-  REJECT:           '/proformas/reject_proforma/',
-};
-
-const generateProformaNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const random = Math.floor(1000 + Math.random() * 9000);
-  return Number(`${year}${month}${day}${random}`);
+  GET_ALL:                   '/proformas/get_all_proformas/',
+  GET_REGULATORY:            '/proformas/get_regulatory_proforma/',
+  GET_EXECUTION:             '/proformas/get_execuation_proforma/',
+  CREATE_REGULATORY:         '/proformas/create_regulatory_proforma/',
+  CREATE_EXECUTION:          '/proformas/create_execution_proforma/',
+  UPDATE:                    '/proformas/',
+  UPDATE_FULL:               '/proformas/update_proforma/',
+  UPDATE_REGULATORY:         '/proformas/update_regulatory_proforma/',
+  UPDATE_EXECUTION:          '/proformas/update_execution_proforma/',
+  DELETE:                    '/proformas/',
+  SEND_FOR_APPROVAL:         '/proformas/send_for_approval/',
+  APPROVE:                   '/proformas/approve_proforma/',
+  REJECT:                    '/proformas/reject_proforma/',
+  GENERATE_PDF_CONSTRUCTIVE: '/proformas/generate_constructive_proforma_pdf/',
+  GENERATE_PDF_OTHER:        '/proformas/generate_other_proforma_pdf/',
 };
 
 const calculateStatsFromTotal = (totalCount) => ({
@@ -57,11 +54,28 @@ export const getProformas = async (params = {}) => {
 };
 
 export const getProformaById = async (id) => {
+  if (!id) throw new Error('Proforma ID is required');
+
+  const tryEndpoint = async (endpoint) => {
+    try {
+      const response = await api.get(endpoint, { params: { id } });
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 404) return null;
+      throw error;
+    }
+  };
+
   try {
-    if (!id) throw new Error('Proforma ID is required');
     serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}`);
-    const response = await api.get(ENDPOINTS.GET_BY_ID, { params: { id } });
-    return response.data;
+
+    const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+    if (executionResult) return executionResult;
+
+    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+    if (regulatoryResult) return regulatoryResult;
+
+    throw new Error('Server error: 404');
   } catch (error) {
     const errorMessage = normalizeError(error);
     serviceLogger.error(`[Proforma Service] getProformaById(${id}) failed:`, errorMessage);
@@ -69,19 +83,45 @@ export const getProformaById = async (id) => {
   }
 };
 
+const inferProformaCreationType = (proformaData = {}) => {
+  const normalizedType = String(
+    proformaData.quotation_type ||
+    proformaData.proforma_type ||
+    ''
+  ).trim().toLowerCase();
+
+  if (normalizedType.includes('execution')) return 'execution';
+  if (normalizedType.includes('regulatory')) return 'regulatory';
+
+  const items = Array.isArray(proformaData.items) ? proformaData.items : [];
+  const hasExecutionItems = items.some((item) => {
+    const categoryId = Number(item?.compliance_category || item?.category || 0);
+    return [5, 6, 7].includes(categoryId);
+  });
+
+  return hasExecutionItems ? 'execution' : 'regulatory';
+};
+
+const createTypedProforma = async (proformaData = {}, creationType) => {
+  if (!proformaData.quotation) throw new Error('Quotation is required');
+
+  const endpoint = creationType === 'execution'
+    ? ENDPOINTS.CREATE_EXECUTION
+    : ENDPOINTS.CREATE_REGULATORY;
+
+  const payload = {
+    quotation: Number(proformaData.quotation),
+  };
+
+  serviceLogger.log(`[Proforma Service] Creating ${creationType} proforma:`, payload);
+  const response = await api.post(endpoint, payload);
+  return response.data;
+};
+
 export const createProforma = async (proformaData) => {
   try {
-    serviceLogger.log('[Proforma Service] Creating proforma:', proformaData);
-
-    if (!proformaData.quotation) throw new Error('Quotation is required');
-
-    // Backend only requires quotation — all other fields are derived server-side
-    const payload = {
-      quotation: Number(proformaData.quotation),
-    };
-
-    const response = await api.post(ENDPOINTS.CREATE, payload);
-    return response.data;
+    const creationType = inferProformaCreationType(proformaData);
+    return await createTypedProforma(proformaData, creationType);
   } catch (error) {
     if (error.response?.status === 400) {
       const backendError =
@@ -92,6 +132,26 @@ export const createProforma = async (proformaData) => {
       throw new Error(`Validation Error: ${backendError}`);
     }
     const errorMessage = normalizeError(error);
+    throw new Error(errorMessage);
+  }
+};
+
+export const createRegulatoryProforma = async (proformaData) => {
+  try {
+    return await createTypedProforma(proformaData, 'regulatory');
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error('[Proforma Service] createRegulatoryProforma failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+export const createExecutionProforma = async (proformaData) => {
+  try {
+    return await createTypedProforma(proformaData, 'execution');
+  } catch (error) {
+    const errorMessage = normalizeError(error);
+    serviceLogger.error('[Proforma Service] createExecutionProforma failed:', errorMessage);
     throw new Error(errorMessage);
   }
 };
@@ -117,70 +177,203 @@ export const updateProforma = async (id, proformaData) => {
   }
 };
 
+// ── Internal error surfacer (mirrors _surfaceErrors in quotation.js) ──────────
+const _surfaceProformaErrors = (error, label) => {
+  if (error.response?.status === 400) {
+    const responseData = error.response.data;
+    const rawErrors    = responseData?.errors || responseData;
+    const errorParts   = [];
+    if (rawErrors && typeof rawErrors === 'object') {
+      Object.entries(rawErrors).forEach(([field, value]) => {
+        if (field === 'items' && Array.isArray(value)) {
+          value.forEach((itemErrors, idx) => {
+            if (itemErrors && typeof itemErrors === 'object') {
+              Object.entries(itemErrors).forEach(([f, msgs]) => {
+                errorParts.push(`Item ${idx + 1} (${f}): ${Array.isArray(msgs) ? msgs.join(', ') : String(msgs)}`);
+              });
+            }
+          });
+        } else {
+          errorParts.push(`${field}: ${Array.isArray(value) ? value.join(', ') : String(value)}`);
+        }
+      });
+    }
+    const friendlyMsg = errorParts.length > 0
+      ? errorParts.join(' | ')
+      : (responseData?.message || 'Validation failed — please check your input');
+    serviceLogger.error(`${label} 400:`, friendlyMsg);
+    throw new Error(`Server error: 400 — ${friendlyMsg}`);
+  }
+  throw error;
+};
+
+// ── Build the shared base payload fields (common to both regulatory and execution) ──
+const _buildProformaBasePayload = (proformaData, sub, gst, grand) => {
+  const now = new Date().toISOString();
+  return {
+    id:               parseInt(proformaData.id),
+    client:           parseInt(proformaData.client),
+    project:          parseInt(proformaData.project),
+    company:          parseInt(proformaData.company) || 1,
+    issue_date:       proformaData.issue_date  || now,
+    valid_until:      proformaData.valid_until  || now,
+    sac_code:         String(proformaData.sac_code || '').slice(0, 6),
+    gst_rate:         String((parseFloat(proformaData.gst_rate)      || 0).toFixed(2)),
+    discount_rate:    String((parseFloat(proformaData.discount_rate)  || 0).toFixed(2)),
+    total_amount:     String((parseFloat(sub)  || 0).toFixed(2)),
+    total_gst_amount: String((parseFloat(gst)  || 0).toFixed(2)),
+    grand_total:      String((parseFloat(grand) || 0).toFixed(2)),
+    status:           parseInt(proformaData.status) || 1,
+    reason:           String(proformaData.reason || '').trim(),
+  };
+};
+
 /**
- * Full update proforma via PUT /proformas/update_proforma/
- * Sends the complete payload including all items — mirrors updateQuotationFull in quotation.js
+ * Update a Regulatory Compliance proforma.
+ * PUT /proformas/update_regulatory_proforma/
  *
- * @param {object} proformaData - Full proforma payload (must include id)
- * @returns {Promise<object>} API response data
+ * Items payload: id, description, quantity, unit, consultancy_charges,
+ *                Professional_amount, total_amount, compliance_category, sub_compliance_category
+ */
+export const updateRegulatoryProforma = async (proformaData) => {
+  if (!proformaData.id) throw new Error('Proforma ID is required for update');
+  serviceLogger.log(`[Proforma Service] Updating regulatory proforma ${proformaData.id}…`);
+
+  const sub   = parseFloat(proformaData.total_amount)     || 0;
+  const gst   = parseFloat(proformaData.total_gst_amount) || 0;
+  const grand = parseFloat(proformaData.grand_total)      || 0;
+
+  const payload = {
+    ..._buildProformaBasePayload(proformaData, sub, gst, grand),
+    items: (proformaData.items || []).map(item => {
+      const rawId  = item.id != null ? parseInt(item.id) : null;
+      const itemId = rawId && rawId > 0 ? rawId : null;
+      const quantity = parseInt(item.quantity) || 1;
+      const prof = parseFloat(item.Professional_amount) || 0;
+      const consultancy = (() => {
+        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+        const num = parseFloat(String(raw).trim());
+        return isNaN(num) ? '0.00' : num.toFixed(2);
+      })();
+      const total = parseFloat(item.total_amount) || parseFloat(((prof + parseFloat(consultancy || 0)) * quantity).toFixed(2));
+      return {
+        id:                      itemId,
+        description:             String(item.description || '').trim(),
+        quantity,
+        unit:                    String(item.unit || '').trim() || 'N/A',
+        consultancy_charges:     consultancy,
+        Professional_amount:     String(prof.toFixed(2)),
+        total_amount:            String(total.toFixed(2)),
+        compliance_category:     parseInt(item.compliance_category) || 1,
+        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      };
+    }),
+  };
+
+  try {
+    serviceLogger.log('[Proforma Service] updateRegulatoryProforma payload:', JSON.stringify(payload, null, 2));
+    const response = await api.put(ENDPOINTS.UPDATE_REGULATORY, payload);
+    serviceLogger.log(`[Proforma Service] Regulatory proforma ${proformaData.id} updated`);
+    return response.data;
+  } catch (error) {
+    if (error.response?.data) {
+      serviceLogger.error('[Proforma Service] updateRegulatoryProforma backend error:', JSON.stringify(error.response.data, null, 2));
+    }
+    _surfaceProformaErrors(error, `updateRegulatoryProforma(${proformaData.id})`);
+  }
+};
+
+/**
+ * Update an Execution Compliance proforma.
+ * PUT /proformas/update_execution_proforma/
+ *
+ * Items payload: id, description, quantity, unit, sac_code, Professional_amount,
+ *                material_rate, material_amount, labour_rate, labour_amount,
+ *                total_amount, compliance_category, sub_compliance_category
+ */
+export const updateExecutionProforma = async (proformaData) => {
+  if (!proformaData.id) throw new Error('Proforma ID is required for update');
+  serviceLogger.log(`[Proforma Service] Updating execution proforma ${proformaData.id}…`);
+
+  const sub   = parseFloat(proformaData.total_amount)     || 0;
+  const gst   = parseFloat(proformaData.total_gst_amount) || 0;
+  const grand = parseFloat(proformaData.grand_total)      || 0;
+
+  const payload = {
+    ..._buildProformaBasePayload(proformaData, sub, gst, grand),
+    items: (proformaData.items || []).map(item => {
+      const rawId  = item.id != null ? parseInt(item.id) : null;
+      const itemId = rawId && rawId > 0 ? rawId : null;
+      const quantity     = parseInt(item.quantity) || 1;
+      const prof         = parseFloat(item.Professional_amount) || 0;
+      const matRate      = parseFloat(item.material_rate)   || 0;
+      const labRate      = parseFloat(item.labour_rate)     || 0;
+      const matAmt       = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * quantity : 0);
+      const labAmt       = (parseFloat(item.labour_amount)   || 0) || (labRate > 0 ? labRate * quantity : 0);
+      const finalMatRate = matRate > 0 ? matRate : (quantity > 0 ? parseFloat((matAmt / quantity).toFixed(2)) : 0);
+      const finalLabRate = labRate > 0 ? labRate : (quantity > 0 ? parseFloat((labAmt / quantity).toFixed(2)) : 0);
+      const total        = (matAmt + labAmt) > 0
+        ? parseFloat((matAmt + labAmt).toFixed(2))
+        : parseFloat((prof * quantity).toFixed(2));
+      return {
+        id:                      itemId,
+        description:             String(item.description || '').trim(),
+        quantity,
+        unit:                    String(item.unit || '').trim() || 'N/A',
+        sac_code:                String(item.sac_code || item.item_sac_code || '').trim(),
+        Professional_amount:     String(prof.toFixed(2)),
+        material_rate:           String(finalMatRate.toFixed(2)),
+        material_amount:         String(matAmt.toFixed(2)),
+        labour_rate:             String(finalLabRate.toFixed(2)),
+        labour_amount:           String(labAmt.toFixed(2)),
+        total_amount:            String(total.toFixed(2)),
+        compliance_category:     parseInt(item.compliance_category) || 5,
+        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      };
+    }),
+  };
+
+  try {
+    serviceLogger.log('[Proforma Service] updateExecutionProforma payload:', JSON.stringify(payload, null, 2));
+    const response = await api.put(ENDPOINTS.UPDATE_EXECUTION, payload);
+    serviceLogger.log(`[Proforma Service] Execution proforma ${proformaData.id} updated`);
+    return response.data;
+  } catch (error) {
+    if (error.response?.data) {
+      serviceLogger.error('[Proforma Service] updateExecutionProforma backend error:', JSON.stringify(error.response.data, null, 2));
+    }
+    _surfaceProformaErrors(error, `updateExecutionProforma(${proformaData.id})`);
+  }
+};
+
+/**
+ * Smart update — reads proforma_type and routes to the correct typed endpoint.
+ * Used by viewproformadetails.jsx handleSaveUpdateConfirm.
+ *
+ * PUT /proformas/update_regulatory_proforma/  (Regulatory)
+ * PUT /proformas/update_execution_proforma/   (Execution)
  */
 export const updateProformaFull = async (proformaData) => {
-  try {
-    if (!proformaData.id) throw new Error('Proforma ID is required for update');
+  if (!proformaData.id) throw new Error('Proforma ID is required for update');
 
-    serviceLogger.log(`[Proforma Service] Full update proforma ${proformaData.id}`);
+  const pType  = String(proformaData.proforma_type || '').toLowerCase().trim();
+  const isExec = pType.includes('execution') ||
+    (proformaData.items || []).some(item => {
+      const catId = Number(item?.compliance_category || 0);
+      return [5, 6, 7].includes(catId)
+        || item?.material_rate   != null
+        || item?.material_amount != null
+        || item?.labour_rate     != null
+        || item?.labour_amount   != null;
+    });
 
-    // Build ISO date strings — backend requires these fields
-    const now = new Date().toISOString();
-    const issueDate  = proformaData.issue_date  || now;
-    const validUntil = proformaData.valid_until  || now;
+  serviceLogger.log(
+    `[Proforma Service] updateProformaFull(${proformaData.id}) → routing to ${isExec ? 'execution' : 'regulatory'} endpoint`
+  );
 
-    const payload = {
-      id:               parseInt(proformaData.id),
-      client:           parseInt(proformaData.client),
-      project:          parseInt(proformaData.project),
-      issue_date:       issueDate,
-      valid_until:      validUntil,
-      sac_code:         String(proformaData.sac_code || '').slice(0, 6),
-      gst_rate:         String((parseFloat(proformaData.gst_rate) || 0).toFixed(2)),
-      discount_rate:    String((parseFloat(proformaData.discount_rate) || 0).toFixed(2)),
-      total_amount:     String(parseFloat((parseFloat(proformaData.total_amount) || 0).toFixed(2))),
-      total_gst_amount: String(parseFloat((parseFloat(proformaData.total_gst_amount) || 0).toFixed(2))),
-      grand_total:      String(parseFloat((parseFloat(proformaData.grand_total) || 0).toFixed(2))),
-      reason:           String(proformaData.reason || '').trim(),
-      status:           parseInt(proformaData.status) || 1,
-      items: (proformaData.items || []).map(item => {
-        const rawId  = item.id != null ? parseInt(item.id) : null;
-        const itemId = rawId && rawId > 0 ? rawId : null;
-        return {
-          id:                      itemId,
-          description:             String(item.description).trim(),
-          quantity:                parseInt(item.quantity) || 1,
-          Professional_amount:     String(parseFloat((parseFloat(item.Professional_amount) || 0).toFixed(2))),
-          miscellaneous_amount:    String(item.miscellaneous_amount ?? '').trim() || '--',
-          total_amount:            String(parseFloat((parseFloat(item.total_amount) || 0).toFixed(2))),
-          compliance_category:     parseInt(item.compliance_category || 0),
-          sub_compliance_category: parseInt(item.sub_compliance_category || 0),
-        };
-      }),
-    };
-
-    serviceLogger.log('[Proforma Service] updateProformaFull payload:', JSON.stringify(payload, null, 2));
-
-    const response = await api.put(ENDPOINTS.UPDATE_FULL, payload);
-
-    serviceLogger.log(`[Proforma Service] Proforma ${proformaData.id} updated successfully`);
-    return response.data;
-
-  } catch (error) {
-    // Log the full backend error response so we can debug field validation issues
-    if (error.response?.data) {
-      serviceLogger.error('[Proforma Service] updateProformaFull backend error:', JSON.stringify(error.response.data, null, 2));
-    }
-    const errorMessage = normalizeError(error);
-    serviceLogger.error(`[Proforma Service] updateProformaFull(${proformaData.id}) failed:`, errorMessage);
-    throw error; // re-throw original so caller can read error.response.data
-  }
+  return isExec
+    ? updateExecutionProforma(proformaData)
+    : updateRegulatoryProforma(proformaData);
 };
 
 // ============================================================================
@@ -249,54 +442,131 @@ export const deleteProformaById = async (id) => {
 };
 
 /**
- * Generate and download the PDF for a proforma.
- * GET /api/proformas/generate_pdf/?id=<id>&scope_of_work=<scope_of_work>
+ * Helper — triggers a browser download from a blob response.
+ */
+const _triggerPdfDownload = (blob, fileName) => {
+  if (!blob || blob.size === 0) {
+    throw new Error('Empty PDF received from server. Please try again.');
+  }
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
+
+/**
+ * Generate and download PDF for Constructive India (company ID = 1).
+ * POST /api/proformas/generate_constructive_proforma_pdf/
  *
- * The backend starts an async task and returns a URL string (the PDF URL).
- * We then fetch that URL as a blob and trigger a browser download.
- *
- * @param {number|string} id           - Proforma ID (required)
- * @param {string}        scopeOfWork  - Scope of work text to embed in the PDF (required)
- * @param {string}        fileName     - Suggested download filename (e.g. "PF-2026-00001.pdf")
+ * @param {Object} params
+ * @param {number|string} params.id             - Proforma ID
+ * @param {string}        params.company_name
+ * @param {string}        params.address
+ * @param {string}        params.gst_no
+ * @param {string}        params.scope_of_work
+ * @param {string}        params.sac_code
+ * @param {string}        params.invoice_date   - "YYYY-MM-DD"
+ * @param {string}        params.work_order_date - "YYYY-MM-DD"
+ * @param {string}        params.valid_from      - "YYYY-MM-DD"
+ * @param {string}        params.valid_till      - "YYYY-MM-DD"
+ * @param {string}        params.vendor_code
+ * @param {string}        params.po_no
+ * @param {string}        params.schedule_date   - "YYYY-MM-DD"
+ * @param {string}        params.state
+ * @param {string}        params.code
+ * @param {string}        fileName               - Suggested download filename
  * @returns {Promise<void>}
  */
-export const generateProformaPdf = async (id, scopeOfWork, fileName = 'proforma.pdf') => {
+export const generateConstructiveProformaPdf = async (params, fileName = 'proforma.pdf') => {
   try {
-    if (!id)               throw new Error('Proforma ID is required');
-    if (!scopeOfWork?.trim()) throw new Error('Scope of work is required');
+    if (!params.id) throw new Error('Proforma ID is required');
+    if (!params.scope_of_work?.trim()) throw new Error('Scope of work is required');
 
-    serviceLogger.log(`[Proforma Service] Generating PDF for proforma ${id}`);
+    serviceLogger.log(`[Proforma Service] Generating Constructive India PDF for proforma ${params.id}`);
 
-    // Step 1 — call the generate endpoint and receive the PDF as a blob directly
-    const response = await api.get('/proformas/generate_pdf/', {
-      params: {
-        id:            parseInt(id),
-        scope_of_work: scopeOfWork.trim(),
-      },
+    const payload = {
+      id:              parseInt(params.id),
+      company_name:    params.company_name    || '',
+      address:         params.address         || '',
+      gst_no:          params.gst_no          || '',
+      scope_of_work:   params.scope_of_work.trim(),
+      sac_code:        params.sac_code        || '',
+      invoice_date:    params.invoice_date    || '',
+      work_order_date: params.work_order_date || '',
+      valid_from:      params.valid_from      || '',
+      valid_till:      params.valid_till      || '',
+      vendor_code:     params.vendor_code     || '',
+      po_no:           params.po_no           || '',
+      schedule_date:   params.schedule_date   || '',
+      state:           params.state           || '',
+      code:            params.code            || '',
+    };
+
+    const response = await api.post(ENDPOINTS.GENERATE_PDF_CONSTRUCTIVE, payload, {
       responseType: 'blob',
     });
 
-    // Step 2 — response.data is already a Blob; trigger browser download
-    const blob = response.data;
-
-    if (!blob || blob.size === 0) {
-      throw new Error('Empty PDF received from server. Please try again.');
-    }
-
-    const objectUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(objectUrl);
-
-    serviceLogger.log(`[Proforma Service] PDF downloaded: ${fileName}`);
+    _triggerPdfDownload(response.data, fileName);
+    serviceLogger.log(`[Proforma Service] Constructive India PDF downloaded: ${fileName}`);
 
   } catch (error) {
-    serviceLogger.error(`[Proforma Service] generateProformaPdf(${id}) failed:`, error.message);
-    // Re-throw a clean error message for the UI layer
+    serviceLogger.error(`[Proforma Service] generateConstructiveProformaPdf(${params.id}) failed:`, error.message);
+    if (error.message) throw new Error(error.message);
+    throw new Error('Failed to generate PDF. Please try again.');
+  }
+};
+
+/**
+ * Generate and download PDF for other companies (company ID = 2, 3, or 4).
+ * POST /api/proformas/generate_other_proforma_pdf/
+ *
+ * @param {Object} params
+ * @param {number|string} params.id           - Proforma ID
+ * @param {string}        params.company_name
+ * @param {string}        params.address
+ * @param {string}        params.gst_no
+ * @param {string}        params.scope_of_work
+ * @param {string}        params.po_no
+ * @param {string}        params.schedule_date - "YYYY-MM-DD"
+ * @param {string}        params.sac_code
+ * @param {string}        params.state
+ * @param {string}        params.code
+ * @param {string}        fileName             - Suggested download filename
+ * @returns {Promise<void>}
+ */
+export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf') => {
+  try {
+    if (!params.id) throw new Error('Proforma ID is required');
+    if (!params.scope_of_work?.trim()) throw new Error('Scope of work is required');
+
+    serviceLogger.log(`[Proforma Service] Generating Other Company PDF for proforma ${params.id}`);
+
+    const payload = {
+      id:            parseInt(params.id),
+      company_name:  params.company_name  || '',
+      address:       params.address       || '',
+      gst_no:        params.gst_no        || '',
+      scope_of_work: params.scope_of_work.trim(),
+      po_no:         params.po_no         || '',
+      schedule_date: params.schedule_date || '',
+      sac_code:      params.sac_code      || '',
+      state:         params.state         || '',
+      code:          params.code          || '',
+    };
+
+    const response = await api.post(ENDPOINTS.GENERATE_PDF_OTHER, payload, {
+      responseType: 'blob',
+    });
+
+    _triggerPdfDownload(response.data, fileName);
+    serviceLogger.log(`[Proforma Service] Other Company PDF downloaded: ${fileName}`);
+
+  } catch (error) {
+    serviceLogger.error(`[Proforma Service] generateOtherProformaPdf(${params.id}) failed:`, error.message);
     if (error.message) throw new Error(error.message);
     throw new Error('Failed to generate PDF. Please try again.');
   }
@@ -430,9 +700,9 @@ export const sendProformaToClient = async ({
   }
 };
 
-export const getProformaStats = async () => {
+export const getProformaStats = async (params = {}) => {
   try {
-    const response = await getProformas({ page: 1, page_size: 1 });
+    const response = await getProformas({ page: 1, page_size: 1, ...params });
     if (response.status === 'success' && response.data) {
       const totalCount = response.data.total_count || response.data.count || 0;
       return { status: 'success', data: calculateStatsFromTotal(totalCount) };
@@ -532,13 +802,18 @@ export default {
   getProformas,
   getProformaById,
   createProforma,
+  createRegulatoryProforma,
+  createExecutionProforma,
   updateProforma,
   updateProformaFull,
+  updateRegulatoryProforma,
+  updateExecutionProforma,
   deleteProforma,
   deleteProformaById,
   getProformaStats,
   getComplianceByCategory,
-  generateProformaPdf,
+  generateConstructiveProformaPdf,
+  generateOtherProformaPdf,
   sendProformaForApproval,
   approveProforma,
   rejectProforma,

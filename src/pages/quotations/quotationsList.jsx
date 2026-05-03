@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FileText, User, X, CheckCircle, Loader2, Search, Filter as FilterIcon, Briefcase, Hash } from 'lucide-react';
-import { getQuotations, deleteQuotationById } from '../../services/quotation';
+import { FileText, User, X, CheckCircle, Loader2, Search, Filter as FilterIcon, Briefcase, Hash, Building2 } from 'lucide-react';
+import { getQuotations, deleteQuotationById, QUOTATION_COMPANIES, getQuotationCompanyName } from '../../services/quotation';
 import { getClients, getClientProjects } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { useRole } from '../../components/RoleContext';
@@ -41,6 +42,8 @@ const EMPTY_QUOTATION_FILTERS = {
   sacCode: '',
   ctsNumber: '',
 };
+
+const COMPANY_FILTER_STORAGE_KEY = 'quotation_list_selected_company';
 
 const normalizeQuotationValue = (value) => String(value || '').trim().toLowerCase();
 
@@ -656,6 +659,163 @@ const SelectClientProjectModal = ({ isOpen, onClose, onProceed }) => {
 };
 
 // ============================================================================
+// COMPANY DROPDOWN — custom animated selector (replaces native <select>)
+// ============================================================================
+
+const COMPANY_INITIALS_COLORS = [
+  { bg: 'bg-teal-500',   text: 'text-white' },
+  { bg: 'bg-violet-500', text: 'text-white' },
+  { bg: 'bg-blue-500',   text: 'text-white' },
+  { bg: 'bg-amber-500',  text: 'text-white' },
+  { bg: 'bg-rose-500',   text: 'text-white' },
+];
+
+const getCompanyInitials = (name = '') =>
+  name.split(' ').slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
+
+const CompanyDropdown = ({ companies = [], selectedId, onChange }) => {
+  const [open, setOpen]       = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const triggerRef            = useRef(null);
+  const panelRef              = useRef(null);
+  const selected              = companies.find((c) => String(c.id) === String(selectedId)) || companies[0];
+  const selectedIdx           = companies.findIndex((c) => String(c.id) === String(selectedId));
+  const selColor              = COMPANY_INITIALS_COLORS[selectedIdx % COMPANY_INITIALS_COLORS.length] || COMPANY_INITIALS_COLORS[0];
+
+  // Recalculate panel position whenever the dropdown opens or window scrolls/resizes
+  const updatePosition = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPanelPos({
+      top:   rect.bottom + window.scrollY + 8,
+      right: window.innerWidth - rect.right,
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener('scroll',  updatePosition, true);
+    window.addEventListener('resize',  updatePosition);
+    const handler = (e) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target) &&
+        panelRef.current   && !panelRef.current.contains(e.target)
+      ) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('scroll',  updatePosition, true);
+      window.removeEventListener('resize',  updatePosition);
+    };
+  }, [open]);
+
+  const handleSelect = (id) => {
+    onChange(id);
+    setOpen(false);
+  };
+
+  // Portal panel — rendered into document.body so it's always above everything
+  const panel = open && createPortal(
+    <div
+      ref={panelRef}
+      style={{
+        position:  'absolute',
+        top:       panelPos.top,
+        right:     panelPos.right,
+        zIndex:    99999,
+        minWidth:  '228px',
+        animation: 'companyDropIn 0.18s cubic-bezier(0.16,1,0.3,1)',
+      }}
+      className="rounded-2xl border border-gray-100 bg-white py-2 shadow-2xl"
+    >
+      <style>{`
+        @keyframes companyDropIn {
+          from { opacity: 0; transform: scale(0.96) translateY(-6px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+      `}</style>
+
+      {/* Header label */}
+      <div className="px-4 pb-2 pt-1">
+        <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-400">
+          Select Company
+        </span>
+      </div>
+
+      <div className="h-px bg-gray-100 mx-2 mb-1" />
+
+      {companies.map((company, idx) => {
+        const isActive = String(company.id) === String(selectedId);
+        const color    = COMPANY_INITIALS_COLORS[idx % COMPANY_INITIALS_COLORS.length];
+        return (
+          <button
+            key={company.id}
+            type="button"
+            onClick={() => handleSelect(company.id)}
+            className={`
+              w-full flex items-center gap-3 px-3 py-2.5 mx-1 rounded-xl text-left
+              transition-all duration-150 text-sm font-medium
+              ${isActive ? 'bg-teal-50 text-teal-700' : 'text-gray-700 hover:bg-gray-50'}
+            `}
+            style={{ width: 'calc(100% - 8px)' }}
+          >
+            <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[11px] font-bold tracking-wide select-none ${color.bg} ${color.text}`}>
+              {getCompanyInitials(company.name)}
+            </div>
+            <span className="flex-1 truncate">{company.name}</span>
+            {isActive && (
+              <svg className="w-4 h-4 text-teal-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.704 5.296a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.296-7.29a1 1 0 011.408.008z" clipRule="evenodd" />
+              </svg>
+            )}
+          </button>
+        );
+      })}
+    </div>,
+    document.body
+  );
+
+  return (
+    <div className="relative" ref={triggerRef}>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`
+          group flex items-center gap-2.5 rounded-xl border bg-white pl-2 pr-3 py-2
+          shadow-sm transition-all duration-200 outline-none
+          ${open
+            ? 'border-teal-400 ring-2 ring-teal-100 shadow-md'
+            : 'border-gray-200 hover:border-teal-300 hover:shadow-md hover:shadow-teal-50'}
+        `}
+      >
+        <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold tracking-wide select-none ${selColor.bg} ${selColor.text}`}>
+          {getCompanyInitials(selected?.name)}
+        </div>
+        <div className="text-left min-w-[130px]">
+          <span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 leading-none mb-0.5">
+            Company
+          </span>
+          <span className="block text-sm font-semibold text-gray-900 leading-tight truncate max-w-[160px]">
+            {selected?.name || 'Select Company'}
+          </span>
+        </div>
+        <svg
+          className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 ml-1 ${open ? 'rotate-180 text-teal-500' : 'group-hover:text-teal-400'}`}
+          viewBox="0 0 20 20" fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.51a.75.75 0 01-1.08 0l-4.25-4.51a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {panel}
+    </div>
+  );
+};
+
+// ============================================================================
 // MAIN QUOTATIONS LIST COMPONENT
 // ============================================================================
 
@@ -678,6 +838,15 @@ export default function QuotationsList() {
   const [searchTerm,             setSearchTerm]             = useState('');
   const [showFilterModal,        setShowFilterModal]        = useState(false);
   const [activeFilters,          setActiveFilters]          = useState(EMPTY_QUOTATION_FILTERS);
+  const [selectedCompanyId,      setSelectedCompanyId]      = useState(() => {
+    if (typeof window === 'undefined') {
+      return String(QUOTATION_COMPANIES[0]?.id || 1);
+    }
+    const savedCompany = window.localStorage.getItem(COMPANY_FILTER_STORAGE_KEY);
+    return QUOTATION_COMPANIES.some((company) => String(company.id) === String(savedCompany))
+      ? String(savedCompany)
+      : String(QUOTATION_COMPANIES[0]?.id || 1);
+  });
   const [showSelectClientModal,  setShowSelectClientModal]  = useState(false);
   const [showSuccessModal,       setShowSuccessModal]       = useState(false);
   const [createdQuotation,       _setCreatedQuotation]      = useState(null);
@@ -704,9 +873,15 @@ export default function QuotationsList() {
     lastFetchParams.current = null;
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(COMPANY_FILTER_STORAGE_KEY, selectedCompanyId);
+    }
+  }, [selectedCompanyId]);
+
   // ── Fetch quotations ────────────────────────────────────────────────────────
   const fetchQuotations = useCallback(async () => {
-    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder });
+    const fetchKey = JSON.stringify({ currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder, selectedCompanyId });
     const hasActiveFilters = Object.values(activeFilters).some((value) => String(value || '').trim() !== '');
     const useLocalSearchAndFilter = Boolean(searchTerm.trim() || hasActiveFilters);
 
@@ -733,6 +908,7 @@ export default function QuotationsList() {
         sort_by:    sortBy,
         sort_order: sortOrder,
         type:       1,
+        company:    selectedCompanyId,
       });
 
       if (response.status === 'success' && response.data) {
@@ -758,6 +934,7 @@ export default function QuotationsList() {
           ...q,
           project_name: projectMap[q.project]?.name || q.project_name || (q.project ? `Project #${q.project}` : 'N/A'),
           project_cts_number: projectMap[q.project]?.cts_number || q.project_cts_number || '',
+          company_name: q.company_name || getQuotationCompanyName(q.company) || 'ERP System',
         }));
 
         if (useLocalSearchAndFilter) {
@@ -797,7 +974,7 @@ export default function QuotationsList() {
       requestInProgress.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder]);
+  }, [currentPage, pageSize, searchTerm, activeFilters, sortBy, sortOrder, selectedCompanyId]);
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
 
@@ -815,6 +992,11 @@ export default function QuotationsList() {
   const handleFilterToggle = ()      => setShowFilterModal(true);
   const handleApplyFilters = (filters) => { setActiveFilters(filters); setCurrentPage(1); };
   const handleRetry        = ()      => { lastFetchParams.current = null; fetchQuotations(); };
+  const handleCompanyChange = (event) => {
+    setSelectedCompanyId(event.target.value);
+    setCurrentPage(1);
+    lastFetchParams.current = null;
+  };
 
   // ── Delete handlers ──────────────────────────────────────────────────────
   const handleDeleteQuotation = (quotation) => {
@@ -895,6 +1077,16 @@ export default function QuotationsList() {
     }
   };
 
+  const selectedCompany = QUOTATION_COMPANIES.find((company) => String(company.id) === String(selectedCompanyId)) || QUOTATION_COMPANIES[0];
+
+  const companySelector = (
+    <CompanyDropdown
+      companies={QUOTATION_COMPANIES}
+      selectedId={selectedCompanyId}
+      onChange={(id) => handleCompanyChange({ target: { value: id } })}
+    />
+  );
+
   // ── Stats cards ─────────────────────────────────────────────────────────────
   const renderStatsCards = () => (
     <>
@@ -943,7 +1135,7 @@ export default function QuotationsList() {
         data={quotations}
         loading={loading}
         error={error}
-        emptyMessage={quotationConfig.emptyMessage}
+        emptyMessage={`No quotations found for ${selectedCompany?.name || 'the selected company'}`}
         currentPage={currentPage}
         totalPages={totalPages}
         totalCount={totalCount}
@@ -960,6 +1152,7 @@ export default function QuotationsList() {
         showFilter={Object.values(activeFilters).some((value) => String(value || '').trim() !== '')}
         statsCards={renderStatsCards()}
         actionHandlers={isPrivileged ? { onDeleteQuotation: handleDeleteQuotation } : undefined}
+        headerControls={companySelector}
       />
 
       {/* Delete confirmation modal */}

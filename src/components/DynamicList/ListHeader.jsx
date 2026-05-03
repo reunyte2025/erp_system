@@ -25,11 +25,12 @@ const ListHeader = ({
   onFilterToggle,
   filterActive = false,
   note,
+  controls,
 }) => {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 border-b border-gray-200/80 space-y-2.5">
       {/* ── INLINE HEADER (All controls in one row) ── */}
-      <div className="flex items-center gap-3 sm:gap-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         {/* Title */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {Icon && (
@@ -56,6 +57,12 @@ const ListHeader = ({
               onChange={(e) => onSearch && onSearch(e.target.value)}
               className="w-full pl-11 pr-4 py-2.5 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-full text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent focus:bg-white transition-all duration-300 shadow-sm hover:border-gray-400"
             />
+          </div>
+        )}
+
+        {controls && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {controls}
           </div>
         )}
 
