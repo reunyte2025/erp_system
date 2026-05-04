@@ -688,7 +688,7 @@ const UserDropdown = ({ value, onChange, disabled, initialOption = null }) => {
 // CREATE PROJECT MODAL COMPONENT
 // ============================================================================
 
-const CreateProjectModal = ({ isOpen, onClose, onSuccess, initialData = null }) => {
+const CreateProjectModal = ({ isOpen, onClose, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [initialClientOption, setInitialClientOption] = useState(null);

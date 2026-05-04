@@ -15,7 +15,6 @@ import { Search, Filter, Plus } from 'lucide-react';
 const ListHeader = ({
   title,
   icon: Icon,
-  totalCount,
   addButtonLabel,
   onAdd,
   showSearch = true,

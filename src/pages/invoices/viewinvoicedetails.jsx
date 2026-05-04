@@ -29,42 +29,19 @@ import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import InvoiceTypeTable from './InvoiceTypeTable';
+import {
+  fmtInvNum,
+  fmtINR,
+  fmtDate,
+  groupItemsByCategory,
+  calcItemUnitAmount,
+  numberToWords,
+  normalizeInvoiceType,
+  detectInvoiceTypeFromData,
+} from '../../services/invoiceHelpers';
 
-// ─── Constants ──────────────────────────────────────────────────────────────────
-
-// Regulatory invoice categories (from quotation/proforma flow)
-const REGULATORY_COMPLIANCE_CATEGORIES = {
-  1: 'Construction Certificate',
-  2: 'Occupational Certificate',
-  3: 'Water Main Commissioning',
-  4: 'STP Commissioning',
-};
-
-// Execution & Purchase Order invoice categories
-const EXECUTION_COMPLIANCE_CATEGORIES = {
-  5: 'Water Connection',
-  6: 'SWD Line Work',
-  7: 'Sewer/Drainage Line Work',
-};
-
-// Merged map for display
-const COMPLIANCE_CATEGORIES = {
-  ...REGULATORY_COMPLIANCE_CATEGORIES,
-  ...EXECUTION_COMPLIANCE_CATEGORIES,
-};
-
-const SUB_COMPLIANCE_CATEGORIES = {
-  0: { id: 0, name: 'Default' },
-  1: { id: 1, name: 'Plumbing Compliance' },
-  2: { id: 2, name: 'PCO Compliance' },
-  3: { id: 3, name: 'General Compliance' },
-  4: { id: 4, name: 'Road Setback Handing over' },
-  5: { id: 5, name: 'Internal Water Main' },
-  6: { id: 6, name: 'Permanent Water Connection' },
-  7: { id: 7, name: 'Pipe Jacking Method' },
-  8: { id: 8, name: 'HDD Method' },
-  9: { id: 9, name: 'Open Cut Method' },
-};
+// ─── Status config (with Lucide Icon refs — kept here because invoiceHelpers.js is zero-React) ──
 
 const STATUS_CONFIG = {
   '1':                 { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
@@ -84,263 +61,19 @@ const STATUS_CONFIG = {
   'canceled':          { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-
-const fmtInvNum = (n) => {
-  if (!n) return '—';
-  return String(n);
-};
-
-const fmtINR = (v) => {
-  const n = parseFloat(v) || 0;
-  // Always show 2 decimal places to preserve amounts like 61,371.80
-  return new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-};
-
-const fmtDate = (ds) => {
-  if (!ds) return '—';
-  try { return new Date(ds).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-  catch { return '—'; }
-};
-
-const isMiscNumeric = (v) => {
-  if (v === '' || v == null) return false;
-  const s = String(v).trim();
-  return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
-};
-
-const getStatus = (s) => {
+// Local getStatus override that also resolves Lucide Icon refs
+const getStatusWithIcon = (s) => {
   const key = String(s || '');
   const lower = key.toLowerCase();
   return STATUS_CONFIG[key] || STATUS_CONFIG[lower] || STATUS_CONFIG['1'];
 };
 
-const groupItemsByCategory = (items = []) => {
-  const groups = {};
-  items.forEach((item) => {
-    const catId = item.compliance_category ?? item.category ?? null;
-    const key = catId != null ? String(catId) : 'other';
-    if (!groups[key]) {
-      groups[key] = {
-        catId,
-        catName: catId != null ? (COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`) : 'Other Services',
-        items: [],
-      };
-    }
-    groups[key].items.push(item);
-  });
-  return Object.values(groups);
-};
-
-const calcItemTotal = (item) => {
-  const qty  = parseInt(item.quantity) || 1;
-  const prof = parseFloat(item.Professional_amount) || 0;
-
-  const isExecItem = (
-    item.material_rate   != null ||
-    item.labour_rate     != null ||
-    item.material_amount != null ||
-    item.labour_amount   != null
-  );
-
-  if (isExecItem) {
-    // material_amount / labour_amount are server-computed aggregate totals (rate × qty).
-    // Professional_amount is per-unit — must be multiplied by qty separately.
-    const matAmt  = parseFloat(item.material_amount) || 0;
-    const labAmt  = parseFloat(item.labour_amount)   || 0;
-    const matRate = parseFloat(item.material_rate)   || 0;
-    const labRate = parseFloat(item.labour_rate)     || 0;
-    if (matAmt > 0 || labAmt > 0) {
-      return parseFloat((matAmt + labAmt + prof * qty).toFixed(2));
-    }
-    // Fallback: all fields are per-unit
-    return parseFloat(((matRate + labRate + prof) * qty).toFixed(2));
-  }
-
-  // Regulatory: both per-unit fees × qty
-  const consultancy = (() => {
-    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw == null || raw === '') return 0;
-    const n = parseFloat(String(raw).trim());
-    return isNaN(n) ? 0 : n;
-  })();
-  return parseFloat(((prof + consultancy) * qty).toFixed(2));
-};
-
-/**
- * Returns the PER-UNIT amount for one piece of a line item.
- * Used in the PDF modal checklist so lineTotal = unitAmt × selectedQty is always correct.
- *
- * EXECUTION items  → mat_rate + lab_rate + Professional_amount  (all per-unit)
- *   Fallback when rates absent: (matAmt + labAmt) / qty + prof
- * REGULATORY items → Professional_amount + consultancy_charges  (both already per-unit)
- */
-const calcItemUnitAmount = (item) => {
-  const qty  = parseInt(item.quantity) || 1;
-  const prof = parseFloat(item.Professional_amount) || 0;
-
-  const isExecItem = (
-    item.material_rate   != null ||
-    item.labour_rate     != null ||
-    item.material_amount != null ||
-    item.labour_amount   != null
-  );
-
-  if (isExecItem) {
-    const matRate = parseFloat(item.material_rate) || 0;
-    const labRate = parseFloat(item.labour_rate)   || 0;
-    if (matRate > 0 || labRate > 0) {
-      return parseFloat((matRate + labRate + prof).toFixed(2));
-    }
-    const matAmt = parseFloat(item.material_amount) || 0;
-    const labAmt = parseFloat(item.labour_amount)   || 0;
-    return parseFloat(((matAmt + labAmt) / qty + prof).toFixed(2));
-  }
-
-  const consultancy = (() => {
-    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw == null || raw === '') return 0;
-    const n = parseFloat(String(raw).trim());
-    return isNaN(n) ? 0 : n;
-  })();
-  return parseFloat((prof + consultancy).toFixed(2));
-};
-
-function numberToWords(n) {
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const convert = (num) => {
-    if (num === 0) return '';
-    if (num < 20) return ones[num] + ' ';
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '') + ' ';
-    if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred ' + convert(num % 100);
-    if (num < 100000) return convert(Math.floor(num / 1000)) + 'Thousand ' + convert(num % 1000);
-    if (num < 10000000) return convert(Math.floor(num / 100000)) + 'Lakh ' + convert(num % 100000);
-    return convert(Math.floor(num / 10000000)) + 'Crore ' + convert(n % 10000000);
-  };
-  const int = Math.floor(Math.abs(n));
-  const dec = Math.round((Math.abs(n) - int) * 100);
-  let str = convert(int).trim() || 'Zero';
-  if (dec > 0) str += ` and ${convert(dec).trim()} Paise`;
-  return str;
-}
-
-/**
- * Determine compliance type from items
- * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
- */
-const getComplianceType = (items = []) => {
-  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
-  const hasExec = items.some(it => [3, 4].includes(it.compliance_category));
-  
-  if (hasCerts && hasExec) return 'mixed';
-  if (hasCerts) return 'certificates';
-  if (hasExec) return 'execution';
-  return 'none';
-};
-
-/**
- * Get display text for compliance type
- */
-const getComplianceTypeLabel = (items = []) => {
-  const type = getComplianceType(items);
-  switch (type) {
-    case 'certificates':
-      return 'Certificates (Construction & Occupational)';
-    case 'execution':
-      return 'Execution (Water Main & STP)';
-    case 'mixed':
-      return 'Mixed Compliance (Certificates & Execution)';
-    default:
-      return 'No Compliance Items';
-  }
-};
-
-/**
- * Check if invoice has Execution compliance items (categories 3 or 4)
- */
-const hasExecutionCompliance = (items = []) => {
-  return items.some(it => [3, 4].includes(it.compliance_category));
-};
-
-const normalizeInvoiceType = (value = '') => {
-  const t = String(value || '').toLowerCase().trim();
-  if (!t) return '';
-  if (t.includes('vendor') || t.includes('purchase')) return 'vendor';
-  if (t.includes('execution')) return 'execution';
-  if (t.includes('regulatory')) return 'regulatory';
-  return '';
-};
-
-/**
- * Detect the true invoice type from response data using STRUCTURAL validation.
- *
- * WHY NOT trust invoice_type string alone:
- *   The backend's /get_purchase_order_invoice/ endpoint may return data for
- *   ANY invoice ID (not just vendor invoices), with invoice_type = "Vendor
- *   Compliance". Trusting that string causes execution invoices to be
- *   misidentified. We must cross-check the structural fields instead.
- *
- * Rule priority (most reliable → least reliable):
- *   1. vendor field is non-null  →  vendor
- *   2. client field is non-null  →  check items for rate breakdown to distinguish
- *      execution (has material_rate/labour_rate) from regulatory (does not)
- *   3. invoice_type string       →  only used when structural fields are absent
- *      (e.g., both client and vendor are null/undefined in response)
- */
-const detectInvoiceTypeFromData = (invoiceData = {}) => {
-  // ── Structural check 1: vendor field present and non-null → vendor invoice ─
-  // A true vendor/PO invoice will always have a non-null vendor field.
-  if (invoiceData?.vendor != null && invoiceData.vendor !== '') return 'vendor';
-
-  // ── Structural check 2: client field present and non-null → client invoice ─
-  if (invoiceData?.client != null && invoiceData.client !== '') {
-    // Distinguish execution vs regulatory by items
-    if (Array.isArray(invoiceData?.items)) {
-      const hasRateBreakdown = invoiceData.items.some((item) =>
-        (item?.material_rate != null && parseFloat(item.material_rate) !== 0) ||
-        (item?.labour_rate   != null && parseFloat(item.labour_rate)   !== 0) ||
-        (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
-        (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
-      );
-      if (hasRateBreakdown) return 'execution';
-    }
-    return 'regulatory';
-  }
-
-  // ── Structural check 3: vendor_name set but vendor ID null ─────────────────
-  if (invoiceData?.vendor_name) return 'vendor';
-
-  // ── Fallback: trust invoice_type string only when structural fields absent ──
-  // This handles edge cases where the response omits client/vendor entirely.
-  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
-  if (normalizedType) return normalizedType;
-
-  // ── Last resort: items analysis without client/vendor context ──────────────
-  if (Array.isArray(invoiceData?.items)) {
-    const hasRateBreakdown = invoiceData.items.some((item) =>
-      (item?.material_rate   != null && parseFloat(item.material_rate)   !== 0) ||
-      (item?.labour_rate     != null && parseFloat(item.labour_rate)     !== 0) ||
-      (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
-      (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
-    );
-    if (hasRateBreakdown) return 'execution'; // default to execution not vendor when ambiguous
-  }
-
-  return '';
-};
-
 // ─── Sub-components ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
-  const { Icon } = status;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: status.color, background: status.bg, border: `1px solid ${status.border}`, fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20 }}>
-      <Icon size={11} /> {status.label}
+      <status.Icon size={11} /> {status.label}
     </span>
   );
 };
@@ -348,7 +81,7 @@ const StatusPill = ({ status }) => {
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
     <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-      <Icon size={10} /> {label}
+      {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
       {value || '—'}
@@ -596,7 +329,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-const SendToClientModal = ({ invoice, client, invNum, issuedDate, onClose }) => {
+const SendToClientModal = ({ client, invNum, issuedDate, onClose }) => {
   const defaultEmail   = client?.email || '';
   const defaultSubject = `Invoice ${invNum}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
   const defaultBody    = `Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your invoice ${invNum}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and make the payment at the earliest convenience.\n\nBest regards,\nERP System`;
@@ -940,7 +673,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           const all = pr?.data?.results || pr?.results || [];
           const found = all.find(proj => String(proj.id) === String(resolvedProjectId));
           if (found) setProject(found);
-        } catch {}
+        } catch { /* project details are optional */ }
       }
 
       if (isPoInvoice) {
@@ -1032,7 +765,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           try {
             const cr = await getClientById(resolvedClientId);
             if (cr.status === 'success' && cr.data) setClient(cr.data);
-          } catch {}
+          } catch { /* quotation details are optional */ }
         }
       }
 
@@ -1044,7 +777,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             const u = ur.data.data;
             setCreatedByName(`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || '');
           }
-        } catch {}
+        } catch { /* client details are optional */ }
       }
 
       setTimeout(() => setVisible(true), 60);
@@ -1297,7 +1030,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
   // ── Derived values ────────────────────────────────────────────────────────────
   const statusKey  = String(invoice.status_display || invoice.status || '1').toLowerCase();
-  const status     = getStatus(statusKey !== '' ? statusKey : (invoice.status ?? 1));
+  const status     = getStatusWithIcon(statusKey !== '' ? statusKey : (invoice.status ?? 1));
   const isCancelled = (
     String(invoice.status) === '6' ||
     statusKey === 'cancelled' ||
@@ -1328,7 +1061,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const isPurchaseOrder  = isVendorInvoice || invoiceTypeRaw.includes('purchase order') || invoiceTypeRaw.includes('vendor');
   const isExecution      = !isPurchaseOrder && (invoiceTypeRaw.includes('execution') || items.some(it => [5, 6, 7].includes(Number(it.compliance_category))));
   // Regulatory = everything that is neither Execution nor PO (i.e. categories 1-4 / proforma flow)
-  const isRegulatory     = !isPurchaseOrder && !isExecution;
 
   // PO invoices share the material/labour column layout with Execution invoices
   const hasRateColumns   = isExecution || isPurchaseOrder;
@@ -1342,9 +1074,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         : invoice.client
           ? `Client #${invoice.client}`
           : '—';
-
-  // Keep clientName alias for legacy usage (SendToClientModal etc.)
-  const clientName = billedToName;
 
   const projName = project
     ? (project.name || project.title || `Project #${invoice.project}`)
@@ -1747,122 +1476,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <span className="vid-sec-badge">{items.length} {items.length === 1 ? 'item' : 'items'}</span>
               </div>
 
-              <div className="vid-table-wrap">
-                {items.length === 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 8 }}>
-                    <FileText size={32} color="#e2e8f0" />
-                    <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No line items found</p>
-                  </div>
-                ) : (
-                  <table className="vid-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 32 }}>#</th>
-                        <th>Description</th>
-                        <th style={{ width: 80 }}>Sub-Category</th>
-                        {hasRateColumns && <th style={{ width: 70 }}>Unit</th>}
-                        <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-                        {hasRateColumns ? (
-                          <>
-                            <th style={{ width: 115, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Material Amt (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Labour Amt (₹)</th>
-                          </>
-                        ) : (
-                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy</th>
-                        )}
-                        <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                        <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                      </tr>
-                    </thead>
-                    {groups.map((grp, gi) => {
-                      // #, Description, Sub-Category, [Unit], Qty,
-                      // [Mat.Rate, Lab.Rate, Mat.Amt, Lab.Amt] OR [Consultancy],
-                      // Professional, Item Total
-                      const colSpanCount = hasRateColumns ? 11 : 7;
-                      const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
-                      return (
-                        <tbody key={gi}>
-                          <tr className="vid-cat-row">
-                            <td colSpan={colSpanCount}>
-                              <div className="vid-cat-inner">
-                                <span className="vid-cat-dot" />
-                                {grp.catName}
-                                <span className="vid-cat-cnt">{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span>
-                              </div>
-                            </td>
-                          </tr>
-                          {grp.items.map((item, ii) => {
-                            const prof    = parseFloat(item.Professional_amount || 0);
-                            const qty     = parseInt(item.quantity) || 1;
-                            const total   = calcItemTotal(item);
-                            const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-
-                            if (hasRateColumns) {
-                              // Execution & Purchase Order columns:
-                              // Mat. Rate | Lab. Rate | Material Amt | Labour Amt | Professional | Total
-                              const matRate = parseFloat(item.material_rate)   || 0;
-                              const labRate = parseFloat(item.labour_rate)     || 0;
-                              const matAmt  = parseFloat(item.material_amount) || 0;
-                              const labAmt  = parseFloat(item.labour_amount)   || 0;
-                              return (
-                                <tr key={ii} className="vid-row">
-                                  <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
-                                  <td><div className="vid-desc">{item.description || '—'}</div></td>
-                                  <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                                  <td style={{ fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
-                                  <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
-                                </tr>
-                              );
-                            }
-
-                            // Regulatory columns: Consultancy, Professional, Total
-                            const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
-                            const consultancyStr = consultancyRaw && String(consultancyRaw).trim() && String(consultancyRaw).trim() !== '--'
-                              ? String(consultancyRaw).trim() : null;
-                            return (
-                              <tr key={ii} className="vid-row">
-                                <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
-                                <td><div className="vid-desc">{item.description || '—'}</div></td>
-                                <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                                <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                  {consultancyStr
-                                    ? isMiscNumeric(consultancyStr)
-                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
-                                      : <span className="vid-misc-note" title="Note — not in total">{consultancyStr}</span>
-                                    : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
-                              </tr>
-                            );
-                          })}
-                          <tr className="vid-cat-sub">
-                            <td colSpan={colSpanCount - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
-                          </tr>
-                        </tbody>
-                      );
-                    })}
-                  </table>
-                )}
-              </div>
+              {/* ══════════ ITEMS TABLE — delegated to InvoiceTypeTable ══════════ */}
+              <InvoiceTypeTable
+                isExecution={isExecution}
+                isPurchaseOrder={isPurchaseOrder}
+                items={items}
+              />
             </div>
 
             {/* RIGHT: Quick Info Card */}
@@ -1968,7 +1587,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
       {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
       {sendModal && (
         <SendToClientModal
-          invoice={invoice}
           client={client}
           invNum={invNum}
           issuedDate={fmtDate(invoice.issue_date || invoice.created_at)}
@@ -2164,8 +1782,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           modalInvoiceTypeRaw.includes('execution') ||
           allItems.some(it => [5, 6, 7].includes(Number(it.compliance_category)))
         );
-        const modalIsRegulatory   = !isPurchaseOrder && !modalIsExecution;
-
         // ── Selected Items Total (uses correct per-unit helper) ──
         const selectedTotal = parseFloat(
           Object.values(pdfItemSelections)
@@ -2308,9 +1924,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                       });
 
                     // Flat ordered list used only for border-bottom logic
-                    const flatOrdered = checklistGroups.flatMap(g => g.items);
-                    const totalFlat   = flatOrdered.length;
-
                     return (
                       <div style={{ marginBottom: 20 }}>
                         {/* Header row */}
@@ -2429,87 +2042,51 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                                       {/* Checkbox */}
                                       <div
                                         onClick={() => setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, selected: !sel.selected } }))}
-                                        style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${sel.selected ? '#0f766e' : '#d1d5db'}`, background: sel.selected ? '#0f766e' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 2, transition: 'all .12s' }}
+                                        style={{
+                                          width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 2,
+                                          border: `2px solid ${sel.selected ? '#0f766e' : '#cbd5e1'}`,
+                                          background: sel.selected ? '#0f766e' : '#fff',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          cursor: 'pointer', transition: 'all .12s',
+                                        }}
                                       >
                                         {sel.selected && (
-                                          <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
-                                            <path d="M1 4.5L4 7.5L10 1.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                            <path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                                           </svg>
                                         )}
                                       </div>
 
-                                      {/* Description + sub-category + per-type rate chips */}
+                                      {/* Item info */}
                                       <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3 }}>
-                                          {item.description || `Item #${itemIdx + 1}`}
+                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3, transition: 'color .1s' }}>
+                                          {item.description || '—'}
                                         </div>
-
-                                        {/* Sub-category badge */}
-                                        {item.sub_compliance_category != null && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] && (
-                                          <span style={{ fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 7px', borderRadius: 20, border: '1px solid #e2e8f0', fontWeight: 600, display: 'inline-block', marginBottom: 4 }}>
-                                            {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category].name}
-                                          </span>
-                                        )}
-
-                                        {/* Execution / Vendor: mat / lab / prof — shows per-unit rate AND dynamic total for selected qty */}
-                                        {showExecBreakdown && (
-                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
-                                            {matRatePerUnit > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
-                                                Mat: ₹{fmtINR(matRatePerUnit)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#0369a1', fontWeight: 700 }}> = ₹{fmtINR(dynamicMatAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
-                                            {labRatePerUnit > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#7c3aed' : '#d1d5db', fontWeight: 600 }}>
-                                                Lab: ₹{fmtINR(labRatePerUnit)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#7c3aed', fontWeight: 700 }}> = ₹{fmtINR(dynamicLabAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
-                                            {prof > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
-                                                Prof: ₹{fmtINR(prof)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#0f766e', fontWeight: 700 }}> = ₹{fmtINR(dynamicProfAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
+                                        {showExecBreakdown ? (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 11, color: '#64748b' }}>
+                                            {matRatePerUnit > 0 && <span>Mat: ₹{fmtINR(dynamicMatAmt)}</span>}
+                                            {labRatePerUnit > 0 && <span>Lab: ₹{fmtINR(dynamicLabAmt)}</span>}
+                                            {prof > 0 && <span>Prof: ₹{fmtINR(dynamicProfAmt)}</span>}
                                           </div>
-                                        )}
-
-                                        {/* Regulatory: consultancy + prof per-unit */}
-                                        {!showExecBreakdown && !itemIsExec && (
-                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
-                                            {consultancyNum > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
-                                                Consultancy: ₹{fmtINR(consultancyNum)}/unit
-                                              </span>
-                                            )}
-                                            {prof > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
-                                                Professional: ₹{fmtINR(prof)}/unit
-                                              </span>
-                                            )}
+                                        ) : (
+                                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                                            Prof: ₹{fmtINR(prof * selQty)}
+                                            {consultancyNum > 0 && <span style={{ marginLeft: 10 }}>Cons: ₹{fmtINR(consultancyNum * selQty)}</span>}
                                           </div>
                                         )}
                                       </div>
 
-                                      {/* Quantity input + line total */}
-                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                      {/* Qty + Line total */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>QTY</span>
+                                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>Qty</span>
                                           <input
                                             type="number"
                                             min={1}
                                             max={sel.maxQty}
                                             value={sel.quantity}
-                                            disabled={!sel.selected || pdfLoading}
+                                            disabled={!sel.selected}
                                             onChange={e => {
-                                              // Allow free typing (including clearing with backspace)
                                               const raw = e.target.value;
                                               if (raw === '' || raw === '-') {
                                                 setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: raw } }));

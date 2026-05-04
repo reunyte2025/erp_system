@@ -194,7 +194,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
                 || (record.client === null && record.vendor != null);
               resolved = true;
             }
-          } catch (_) { /* try next strategy */ }
+          } catch { /* try next strategy */ }
         }
 
         // Strategy 2: if regulatory endpoint failed or returned nothing, try purchase order endpoint
@@ -206,7 +206,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
               isPO = true;
               resolved = true;
             }
-          } catch (_) { /* fall through to default */ }
+          } catch { /* fall through to default */ }
         }
 
         // Cache so label updates immediately on future renders without refetch
@@ -215,7 +215,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
         const path = isPO ? `/purchase/${entity_id}` : `/quotations/${entity_id}`;
         closeDropdowns();
         navigate(path, { state: { quotationType: isPO ? 'vendor' : 'client' } });
-      } catch (_) {
+      } catch {
         // Hard fallback — go to quotations list
         setIsNotificationOpen(false);
         setShowAllPanel(false);
@@ -259,7 +259,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
             invoiceType = normalizeInvoiceTypeHint(found.invoice_type) ||
               (found.vendor || found.vendor_name || found.quotation ? 'Vendor Compliance' : '');
           }
-        } catch (_) {
+        } catch {
           // The detail page still has its endpoint fallback cascade.
         } finally {
           setLoadingNotifId(null);
@@ -323,7 +323,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   };
 
   // ─── Shared notification row ───────────────────────────────────────────────
-  const NotificationRow = ({ notification, inPanel = false }) => {
+  const NotificationRow = ({ notification }) => {
     const rawCategory = getNotificationCategory(notification);
     // For QUOTATION events: check cache first (populated on first click),
     // then fall back to metadata heuristic (vendor set, client null)
@@ -337,7 +337,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
     const isPOEvent      = etp0 === 'PURCHASE_ORDER' || et0.includes('PURCHASE_ORDER');
     const isQuotationPO  = et0.includes('QUOTATION') && (cachedIsPO === true || (cachedIsPO === undefined && heuristicIsPO));
     const category       = (isPOEvent || isQuotationPO) ? 'purchase' : rawCategory;
-    const { icon, bg, text, label, labelCls } = getCategoryStyle(category, notification.event_type);
+    const { icon, bg, text, label } = getCategoryStyle(category, notification.event_type);
     const et  = (notification.event_type  || '').toUpperCase();
     const etp = (notification.entity_type || '').toUpperCase();
     // QUOTATION / PURCHASE_ORDER events are always clickable — resolved async in handleNotificationClick
@@ -435,7 +435,7 @@ export default function Navbar({ user, onLogout, pageTitle, onToggleSidebar, bre
   );
   const handleLogout = async () => {
     if (!window.confirm('Are you sure you want to logout?')) return;
-    try { await authLogout(); } catch (_) {}
+    try { await authLogout(); } catch { /* logout still clears local session */ }
     onLogout();
   };
 

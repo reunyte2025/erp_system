@@ -697,7 +697,7 @@ const NocModal = ({
       .catch(() => setClients([]))
       .finally(() => setClientsLoading(false));
 
-  }, [isOpen, isEdit, editData]); // eslint-disable-line
+  }, [isOpen, isEdit, editData]);
 
   // ── Fetch projects whenever the selected client changes ───────────────
   // Mirrors how quotationsList.jsx calls getClientProjects(clientId) so that
@@ -723,7 +723,7 @@ const NocModal = ({
       .catch(() => setProjects([]))
       .finally(() => setProjectsLoading(false));
 
-  }, [isOpen, form.client_id]); // eslint-disable-line
+  }, [isOpen, form.client_id]);
 
   // ── When client changes, reset project selection ─────────────────────
   const handleClientChange = (val) => {
@@ -1081,7 +1081,7 @@ const StatCard = ({ icon: Icon, value, label, subLabel, gradient, loading }) => 
     <div className="absolute -right-2 -bottom-6 w-20 h-20 rounded-full bg-white/10" />
     <div className="relative flex items-start gap-3">
       <div className="bg-white/20 rounded-full p-2.5 flex-shrink-0">
-        <Icon className="w-5 h-5 text-white" />
+        {Icon && <Icon className="w-5 h-5 text-white" />}
       </div>
       <div className="min-w-0">
         <h3 className="text-2xl font-bold text-white leading-none mb-1">
@@ -1523,7 +1523,7 @@ export default function NocsPage() {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                     }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  {Icon && <Icon className="w-4 h-4" />}
                   {label}
                   <span className={`inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 rounded-full text-xs font-bold
                     ${activeTab === key ? badgeActive : 'bg-gray-200 text-gray-500'}`}>

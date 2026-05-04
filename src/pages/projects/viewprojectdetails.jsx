@@ -260,7 +260,7 @@ const DetailCard = ({ icon: Icon, iconBg, iconColor, iconBorder, label, value, f
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexShrink: 0,
     }}>
-      <Icon size={18} color={iconColor} />
+      {Icon && <Icon size={18} color={iconColor} />}
     </div>
     <div style={{ minWidth: 0, flex: 1 }}>
       <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.16em', color: '#64748b', marginBottom: 5 }}>
@@ -283,7 +283,7 @@ const TimelineItem = ({ icon: Icon, label, date, isLast = false }) => (
         background: 'rgba(255,255,255,.15)', border: '1.5px solid rgba(255,255,255,.3)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon size={17} color="rgba(255,255,255,.95)" />
+        {Icon && <Icon size={17} color="rgba(255,255,255,.95)" />}
       </div>
       {!isLast && (
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,.2)', marginTop: 4 }} />
@@ -307,7 +307,7 @@ const SectionHeader = ({ icon: Icon, iconBg, iconColor, iconBorder, title }) => 
       background: iconBg, border: `1.5px solid ${iconBorder}`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
-      <Icon size={15} color={iconColor} />
+      {Icon && <Icon size={15} color={iconColor} />}
     </div>
     <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', letterSpacing: '-.01em' }}>{title}</span>
   </div>

@@ -1,13 +1,31 @@
+/**
+ * viewpodetails.jsx
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Purchase Order Details page — pixel-perfect mirror of viewquotationdetails,
+ * viewproformadetails, and viewinvoicedetails.
+ *
+ * Split into 3 files:
+ *   • purchaseHelpers.js    — pure helpers / constants (no React)
+ *   • PurchaseTypeTable.jsx — view-mode items table component
+ *   • viewpodetails.jsx     — this file (main page, edit mode, modals)
+ *
+ * Key differences from other detail pages:
+ *   • Always Execution Compliance (POs are never Regulatory)
+ *   • "Bill To" shows Vendor, not Client
+ *   • Company field is editable in edit mode (same pattern as quotation)
+ *   • Uses /quotations/update_execution_quotation/ for updates
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
-  X,
-  CheckCircle, Clock, FileText, XCircle,
+  X, CheckCircle, Clock, FileText, XCircle,
   Building2, User, MapPin, Hash, Calendar,
   Tag, Percent, ChevronRight, Mail, Truck,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Search, ChevronDown, Edit, Receipt,
+  ChevronDown, Receipt,
 } from 'lucide-react';
 import {
   getPurchaseOrderById,
@@ -20,164 +38,62 @@ import { getComplianceByCategory } from '../../services/proforma';
 import { getProjects } from '../../services/projects';
 import { createPurchaseOrderInvoice } from '../../services/invoices';
 import { getVendorById, getVendors } from '../../services/vendors';
+import { QUOTATION_COMPANIES } from '../../services/quotation';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import PurchaseTypeTable from './PurchaseTypeTable';
+import {
+  fmtPONum,
+  fmtINR,
+  fmtDate,
+  getStatus,
+  groupItemsByCategory,
+  calcItemTotal,
+  numberToWords,
+  PO_COMPANIES,
+  getPOCompanyName,
+  GST_APPLICABLE_COMPANY_ID,
+  STATUS_CONFIG,
+} from '../../services/purchaseHelpers';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── STATUS_CONFIG with Lucide Icons (this file only — helpers stay zero-React) ─
 
-const COMPLIANCE_CATEGORIES = {
-  5: 'Water Connection',
-  6: 'SWD Line Work',
-  7: 'Sewer/Drainage Line Work',
+const STATUS_CONFIG_UI = {
+  '1':          { ...STATUS_CONFIG['1'],          Icon: FileText    },
+  '2':          { ...STATUS_CONFIG['2'],          Icon: CheckCircle },
+  '3':          { ...STATUS_CONFIG['3'],          Icon: CheckCircle },
+  '4':          { ...STATUS_CONFIG['4'],          Icon: XCircle     },
+  '5':          { ...STATUS_CONFIG['5'],          Icon: XCircle     },
+  '6':          { ...STATUS_CONFIG['6'],          Icon: Clock       },
+  '7':          { ...STATUS_CONFIG['7'],          Icon: Clock       },
+  'draft':      { ...STATUS_CONFIG['draft'],      Icon: FileText    },
+  'pending':    { ...STATUS_CONFIG['pending'],    Icon: Clock       },
+  'sent':       { ...STATUS_CONFIG['sent'],       Icon: CheckCircle },
+  'accepted':   { ...STATUS_CONFIG['accepted'],   Icon: CheckCircle },
+  'rejected':   { ...STATUS_CONFIG['rejected'],   Icon: XCircle     },
+  'expired':    { ...STATUS_CONFIG['expired'],    Icon: XCircle     },
+  'processing': { ...STATUS_CONFIG['processing'], Icon: Clock       },
 };
 
-const SUB_COMPLIANCE_CATEGORIES = {
-  0: { id: 0, name: 'Default' },
-  5: { id: 5, name: 'Internal Water Main' },
-  6: { id: 6, name: 'Permanent Water Connection' },
-  7: { id: 7, name: 'Pipe Jacking Method' },
-  8: { id: 8, name: 'HDD Method' },
-  9: { id: 9, name: 'Open Cut Method' },
+const getStatusUI = (s) => {
+  const key = String(s || '');
+  const lower = key.toLowerCase();
+  return STATUS_CONFIG_UI[key] || STATUS_CONFIG_UI[lower] || STATUS_CONFIG_UI['1'];
 };
-
-// Purchase Orders are ALWAYS execution compliance only.
-const PO_COMPLIANCE_GROUPS = { execution: [5, 6, 7] };
-
-const STATUS_CONFIG = {
-  '1':          { label: 'Draft',        Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':          { label: 'Sent',         Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '3':          { label: 'Accepted',     Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '4':          { label: 'Rejected',     Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '5':          { label: 'Expired',      Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '6':          { label: 'Under Review', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '7':          { label: 'Pending',      Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'draft':      { label: 'Draft',        Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'pending':    { label: 'Pending',      Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'sent':       { label: 'Sent',         Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'accepted':   { label: 'Accepted',     Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'rejected':   { label: 'Rejected',     Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'expired':    { label: 'Expired',      Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'processing': { label: 'Under Review', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmtPONum = (n) => {
-  if (!n) return '—';
-  const s = String(n);
-  if (s.startsWith('QT-') || s.startsWith('PO-')) return s;
-  if (s.length >= 8) return `PO-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-  return `PO-2026-${s.padStart(5, '0')}`;
-};
-
-const fmtINR = (v) => {
-  const n = parseFloat(v) || 0;
-  return new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-};
-
-const fmtDate = (ds) => {
-  if (!ds) return '—';
-  try {
-    return new Date(ds).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch { return '—'; }
-};
-
-const isMiscNumeric = (v) => {
-  if (v === '' || v == null) return false;
-  const s = String(v).trim();
-  return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
-};
-
-const getStatus = (s) =>
-  STATUS_CONFIG[String(s || '').toLowerCase()] ||
-  STATUS_CONFIG[String(s || '')] ||
-  STATUS_CONFIG['1'];
-
-const groupItemsByCategory = (items = []) => {
-  const groups = {};
-  items.forEach((item) => {
-    const catId = item.compliance_category ?? item.category ?? null;
-    const key   = catId != null ? String(catId) : 'other';
-    if (!groups[key]) {
-      groups[key] = {
-        catId,
-        catName: catId != null ? (COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`) : 'Other Services',
-        items: [],
-      };
-    }
-    groups[key].items.push(item);
-  });
-  return Object.values(groups);
-};
-
-const calcItemTotal = (item) => {
-  const qty     = parseInt(item.quantity) || 1;
-  const prof    = parseFloat(item.Professional_amount) || 0;
-  const matRate = parseFloat(item.material_rate) || 0;
-  const labRate = parseFloat(item.labour_rate) || 0;
-  const matAmt  = parseFloat(item.material_amount) || 0;
-  const labAmt  = parseFloat(item.labour_amount) || 0;
-
-  if (matAmt > 0 || labAmt > 0) {
-    return parseFloat((matAmt + labAmt).toFixed(2));
-  }
-
-  if (matRate > 0 || labRate > 0) {
-    return parseFloat((((matRate + labRate) * qty)).toFixed(2));
-  }
-
-  return parseFloat((prof * qty).toFixed(2));
-};
-
-const hasRateBreakdown = (item) => {
-  const matRate = parseFloat(item.material_rate) || 0;
-  const labRate = parseFloat(item.labour_rate) || 0;
-  const matAmt  = parseFloat(item.material_amount) || 0;
-  const labAmt  = parseFloat(item.labour_amount) || 0;
-  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
-};
-
-// ─── Number to words ──────────────────────────────────────────────────────────
-function numberToWords(n) {
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
-    'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const convert = (num) => {
-    if (num === 0) return '';
-    if (num < 20)     return ones[num] + ' ';
-    if (num < 100)    return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '') + ' ';
-    if (num < 1000)   return ones[Math.floor(num / 100)] + ' Hundred ' + convert(num % 100);
-    if (num < 100000) return convert(Math.floor(num / 1000)) + 'Thousand ' + convert(num % 1000);
-    if (num < 10000000) return convert(Math.floor(num / 100000)) + 'Lakh ' + convert(num % 100000);
-    return convert(Math.floor(num / 10000000)) + 'Crore ' + convert(n % 10000000);
-  };
-  const int = Math.floor(n);
-  const dec = Math.round((n - int) * 100);
-  let str = convert(int).trim() || 'Zero';
-  if (dec > 0) str += ` and ${convert(dec).trim()} Paise`;
-  return str;
-}
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-const StatusPill = ({ status }) => {
-  const { Icon } = status;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      color: status.color, background: status.bg,
-      border: `1px solid ${status.border}`,
-      fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20,
-    }}>
-      <Icon size={11} /> {status.label}
-    </span>
-  );
-};
+const StatusPill = ({ status }) => (
+  <span style={{
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    color: status.color, background: status.bg,
+    border: `1px solid ${status.border}`,
+    fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20,
+  }}>
+    <status.Icon size={11} /> {status.label}
+  </span>
+);
 
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -186,7 +102,7 @@ const MetaBlock = ({ icon: Icon, label, value, accent }) => (
       textTransform: 'uppercase', letterSpacing: '0.08em',
       display: 'flex', alignItems: 'center', gap: 4,
     }}>
-      <Icon size={10} /> {label}
+      {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{
       fontSize: 13, fontWeight: 700,
@@ -238,7 +154,17 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const [pdfError,      setPdfError]      = useState('');
   const [visible,       setVisible]       = useState(false);
 
-  // ── Edit mode state — mirrors viewquotationdetails exactly ──────────────────
+  // ── PDF Modal state (mirrors viewquotationdetails exactly) ───────────────────
+  const [showPdfModal,     setShowPdfModal]     = useState(false);
+  const [pdfCompanyName,   setPdfCompanyName]   = useState('');
+  const [pdfAddress,       setPdfAddress]       = useState('');
+  const [pdfContactPerson, setPdfContactPerson] = useState('');
+  const [pdfSubject,       setPdfSubject]       = useState('');
+  const [pdfExtraNotes,    setPdfExtraNotes]    = useState(['']);
+  const [pdfFormError,     setPdfFormError]     = useState('');
+  const [pdfApiError,      setPdfApiError]      = useState('');
+
+  // ── Edit mode state ───────────────────────────────────────────────────────────
   const [editMode,    setEditMode]    = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [saveError,   setSaveError]   = useState('');
@@ -249,17 +175,46 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const [editDiscRate, setEditDiscRate] = useState(0);
   const [editItems,    setEditItems]    = useState([]);
 
-  // AddComplianceModal — locked to execution only for POs
+  // ── Company edit — same pattern as viewquotationdetails ──────────────────────
+  const [editCompany,     setEditCompany]     = useState(1);
+  const [companyDropOpen, setCompanyDropOpen] = useState(false);
+  const [dropdownPos,     setDropdownPos]     = useState({ top: 0, left: 0 });
+  const companyDropRef = useRef(null);
+  const companyBtnRef  = useRef(null);
+
+  const openCompanyDrop = () => {
+    if (companyBtnRef.current) {
+      const rect = companyBtnRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 8, left: rect.left });
+    }
+    setCompanyDropOpen(o => !o);
+  };
+
+  useEffect(() => {
+    if (!companyDropOpen) return;
+    const handler = (e) => {
+      if (
+        companyDropRef.current && !companyDropRef.current.contains(e.target) &&
+        companyBtnRef.current  && !companyBtnRef.current.contains(e.target)
+      ) {
+        setCompanyDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [companyDropOpen]);
+
+  // ── AddComplianceModal — execution categories only ────────────────────────────
   const [showAddSection, setShowAddSection] = useState(false);
 
-  // ── Generate Invoice modal state ─────────────────────────────────────────────
-  const [showInvoiceModal,   setShowInvoiceModal]   = useState(false);
-  const [advanceAmount,      setAdvanceAmount]      = useState('');
-  const [invoiceGenerating,  setInvoiceGenerating]  = useState(false);
-  const [invoiceChecking,    setInvoiceChecking]    = useState(false);
-  const [invoiceError,       setInvoiceError]       = useState('');
-  const [invoiceSuccess,     setInvoiceSuccess]     = useState(null);
-  const [invoiceModal,       setInvoiceModal]       = useState({
+  // ── Generate Invoice modal state ──────────────────────────────────────────────
+  const [showInvoiceModal,  setShowInvoiceModal]  = useState(false);
+  const [advanceAmount,     setAdvanceAmount]     = useState('');
+  const [invoiceGenerating, setInvoiceGenerating] = useState(false);
+  const [invoiceChecking,   setInvoiceChecking]   = useState(false);
+  const [invoiceError,      setInvoiceError]      = useState('');
+  const [invoiceSuccess,    setInvoiceSuccess]    = useState(null);
+  const [invoiceModal,      setInvoiceModal]      = useState({
     open: false, invoiceId: null, invoiceNum: '', alreadyExists: false, genericError: '',
   });
 
@@ -268,55 +223,50 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     return () => onUpdateNavigation?.(null);
   }, [onUpdateNavigation]);
 
+  // ─── Data fetch ───────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No Purchase Order ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      // Use the dedicated Purchase Order service function
-      const res = await getPurchaseOrderById(id);
+      const res    = await getPurchaseOrderById(id);
       const poData = res.data;
       setPo(poData);
 
+      // Resolve vendor name if missing
       if (!poData.vendor_name && poData.vendor) {
         try {
-          const vendorRes = await getVendorById(poData.vendor);
+          const vendorRes  = await getVendorById(poData.vendor);
           const vendorData = vendorRes?.data || vendorRes;
           const vendorName = vendorData?.name || vendorData?.vendor_name || '';
-          if (vendorName) {
-            poData.vendor_name = vendorName;
-            setPo({ ...poData });
-          }
+          if (vendorName) { poData.vendor_name = vendorName; setPo({ ...poData }); }
         } catch {
           try {
-            const listRes = await getVendors({ page: 1, page_size: 500 });
+            const listRes    = await getVendors({ page: 1, page_size: 500 });
             const allVendors = listRes?.data?.results || listRes?.results || [];
-            const found = allVendors.find((vendor) => String(vendor.id) === String(poData.vendor));
-            if (found?.name) {
-              poData.vendor_name = found.name;
-              setPo({ ...poData });
-            }
-          } catch {
-            // Keep the detail page usable even if vendor lookup fails.
-          }
+            const found      = allVendors.find(v => String(v.id) === String(poData.vendor));
+            if (found?.name) { poData.vendor_name = found.name; setPo({ ...poData }); }
+          } catch { /* non-critical */ }
         }
       }
 
+      // Resolve project details
       if (poData.project) {
         try {
           const pr  = await getProjects({ page: 1, page_size: 500 });
           const all = pr?.data?.results || pr?.results || [];
           const found = all.find(p => String(p.id) === String(poData.project));
           if (found) setProject(found);
-        } catch {}
+        } catch { /* optional */ }
       }
 
+      // Resolve creator name
       if (poData.created_by) {
         try {
           const user = await getUserById(poData.created_by);
           if (user) {
             setCreatedByName(`${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || '');
           }
-        } catch {}
+        } catch { /* optional */ }
       }
 
       setTimeout(() => setVisible(true), 60);
@@ -329,20 +279,20 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
-  // ── fetchDescriptionsForModal — same as quotation, execution categories only ─
+  // ─── Compliance modal fetch ───────────────────────────────────────────────────
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    // PO only uses execution categories (5/6/7).
     const res = await getComplianceByCategory(categoryId, subCategoryId || null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
   };
 
-  // ── Edit mode lifecycle — exact copy of quotation pattern ──────────────────
+  // ─── Edit mode lifecycle ──────────────────────────────────────────────────────
   const enterEditMode = () => {
     if (!po) return;
     setEditSacCode(po.sac_code || '');
     setEditGstRate(parseFloat(po.gst_rate || 0));
     setEditDiscRate(parseFloat(po.discount_rate || 0));
+    setEditCompany(parseInt(po.company) || 1);
     setEditItems((po.items || []).map(it => ({
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
@@ -354,7 +304,6 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       material_amount:         parseFloat(it.material_amount || 0),
       labour_rate:             parseFloat(it.labour_rate || 0),
       labour_amount:           parseFloat(it.labour_amount || 0),
-      miscellaneous_amount:    (it.miscellaneous_amount === '--' || it.miscellaneous_amount === null) ? '' : (it.miscellaneous_amount || ''),
       compliance_category:     it.compliance_category ?? 5,
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
@@ -363,11 +312,20 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     setEditMode(true);
   };
 
-  const cancelEditMode = () => { setEditMode(false); setSaveError(''); };
+  const cancelEditMode = () => { setEditMode(false); setSaveError(''); setCompanyDropOpen(false); };
+
+  // ── Edit totals live calculation ──────────────────────────────────────────────
+  // GST only applies for company ID 1 (same rule as quotation/proforma pages)
+  const isGSTApplicable = editMode
+    ? parseInt(editCompany) === GST_APPLICABLE_COMPANY_ID
+    : parseInt(po?.company) === GST_APPLICABLE_COMPANY_ID;
 
   const calcEditSubtotal   = () => parseFloat(editItems.reduce((s, it) => s + calcItemTotal(it), 0).toFixed(2));
   const calcEditDiscAmt    = (sub) => parseFloat(((sub * (editDiscRate || 0)) / 100).toFixed(2));
-  const calcEditGstAmt     = (sub, disc) => parseFloat((((sub - disc) * (editGstRate || 0)) / 100).toFixed(2));
+  const calcEditGstAmt     = (sub, disc) => {
+    if (!isGSTApplicable) return 0;
+    return parseFloat((((sub - disc) * (editGstRate || 0)) / 100).toFixed(2));
+  };
   const calcEditGrandTotal = () => {
     const sub  = calcEditSubtotal();
     const disc = calcEditDiscAmt(sub);
@@ -386,29 +344,31 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
   const removeItem = (idx) => setEditItems(prev => prev.filter((_, i) => i !== idx));
 
-  // Called by AddComplianceModal — new items added from the modal
   const handleComplianceSave = (newFlatItems) => {
     setEditItems(prev => [...prev, ...newFlatItems]);
     setShowAddSection(false);
   };
 
-  // ── Save / Update — same API as quotation: PUT /quotations/update_quotation/ ─
+  // ─── Save / Update ────────────────────────────────────────────────────────────
   const handleSaveUpdate = async () => {
     setSaveError('');
+
+    // Validate items
     for (const it of editItems) {
       if (!String(it.description).trim()) { setSaveError('All items must have a description.'); return; }
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
-      const prof = parseFloat(it.Professional_amount) || 0;
+      const prof    = parseFloat(it.Professional_amount) || 0;
       const matRate = parseFloat(it.material_rate) || 0;
       const labRate = parseFloat(it.labour_rate) || 0;
-      const matAmt = parseFloat(it.material_amount) || 0;
-      const labAmt = parseFloat(it.labour_amount) || 0;
+      const matAmt  = parseFloat(it.material_amount) || 0;
+      const labAmt  = parseFloat(it.labour_amount) || 0;
       if (prof <= 0 && matRate <= 0 && labRate <= 0 && matAmt <= 0 && labAmt <= 0) {
         setSaveError('Each item must have a rate or amount greater than 0.');
         return;
       }
     }
     if (!editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
+
     setSaving(true);
     try {
       const sub   = calcEditSubtotal();
@@ -424,11 +384,12 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
       const payload = {
         id:               parseInt(po.id),
-        vendor:           parseInt(po.vendor),   // PO uses vendor instead of client
+        vendor:           parseInt(po.vendor),
         project:          parseInt(po.project),
+        company:          parseInt(editCompany) || 1,
         status:           resolvedStatus,
         sac_code:         editSacCode.trim(),
-        gst_rate:         String(parseFloat(editGstRate || 0).toFixed(2)),
+        gst_rate:         isGSTApplicable ? String(parseFloat(editGstRate || 0).toFixed(2)) : '0.00',
         discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
         total_amount:     Math.round(sub),
         total_gst_amount: Math.round(gst),
@@ -436,14 +397,14 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         items: editItems.map(it => {
           const compCat    = parseInt(it.compliance_category) || 5;
           const subCompCat = parseInt(it.sub_compliance_category) || 0;
-          const rawId  = it.id != null ? parseInt(it.id) : null;
-          const itemId = rawId && rawId > 0 ? rawId : null;
-          const qty = parseInt(it.quantity) || 1;
-          const prof = parseFloat(it.Professional_amount) || 0;
-          const matRate = parseFloat(it.material_rate) || 0;
-          const labRate = parseFloat(it.labour_rate) || 0;
-          const matAmt = (parseFloat(it.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
-          const labAmt = (parseFloat(it.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
+          const rawId      = it.id != null ? parseInt(it.id) : null;
+          const itemId     = rawId && rawId > 0 ? rawId : null;
+          const qty        = parseInt(it.quantity) || 1;
+          const prof       = parseFloat(it.Professional_amount) || 0;
+          const matRate    = parseFloat(it.material_rate) || 0;
+          const labRate    = parseFloat(it.labour_rate) || 0;
+          const matAmt     = (parseFloat(it.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+          const labAmt     = (parseFloat(it.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
           return {
             id:                      itemId,
             description:             String(it.description).trim(),
@@ -465,25 +426,22 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       const response = await updatePurchaseOrder(payload);
       const data = response;
 
-      if (data && (data.id || data.quotation_number)) {
+      const newCompanyName = (QUOTATION_COMPANIES || PO_COMPANIES).find(c => c.id === parseInt(editCompany))?.name || po.company_name;
+
+      if (data && (data.id || data.quotation_number || data.status === 'success')) {
         const updated = data.data || data;
         setPo(prev => ({
           ...prev, ...updated,
-          sac_code: editSacCode.trim(),
-          gst_rate: String(editGstRate),
-          discount_rate: String(editDiscRate),
-          total_amount: sub, total_gst_amount: gst, grand_total: grand,
-          items: updated.items || editItems.map(it => ({
-            ...it,
-            total_amount: calcItemTotal(it),
-          })),
+          company:          editCompany,
+          company_name:     newCompanyName,
+          sac_code:         editSacCode.trim(),
+          gst_rate:         String(isGSTApplicable ? editGstRate : 0),
+          discount_rate:    String(editDiscRate),
+          total_amount:     sub,
+          total_gst_amount: gst,
+          grand_total:      grand,
+          items: updated.items || editItems.map(it => ({ ...it, total_amount: calcItemTotal(it) })),
         }));
-        setSaveSuccess(true);
-        setEditMode(false);
-        setTimeout(() => setSaveSuccess(false), 3500);
-      } else if (data?.status === 'success') {
-        const updated = data.data || {};
-        setPo(prev => ({ ...prev, ...updated, sac_code: editSacCode.trim(), gst_rate: String(editGstRate), discount_rate: String(editDiscRate), total_amount: sub, total_gst_amount: gst, grand_total: grand }));
         setSaveSuccess(true);
         setEditMode(false);
         setTimeout(() => setSaveSuccess(false), 3500);
@@ -524,10 +482,9 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     }
   };
 
-  // ── Invoice number formatter ─────────────────────────────────────────────────
+  // ─── Invoice helpers ──────────────────────────────────────────────────────────
   const fmtInvNum = (n) => n ? String(n) : '—';
 
-  // ── Extract trailing digits from a PO/invoice number for matching ────────────
   const extractTrailingDigits = (numStr) => {
     if (!numStr) return '';
     const s = String(numStr);
@@ -535,17 +492,13 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     return lastDash >= 0 ? s.substring(lastDash + 1) : s;
   };
 
-  // ── Find the invoice for THIS purchase order (quotation) by matching ─────────
-  // Matches by quotation field on invoice OR by shared trailing digits.
   const fetchInvoiceForThisPO = async () => {
     const poTrailing = extractTrailingDigits(po.quotation_number || String(po.id));
-    const results = await getAllInvoices({ page: 1, page_size: 100 });
-    // First try: match by quotation field on the invoice (most reliable)
+    const results    = await getAllInvoices({ page: 1, page_size: 100 });
     const quotationId = Number(po.id);
-    let match = results.find((inv) => Number(inv.quotation) === quotationId);
-    // Second try: match by shared trailing digits in invoice_number
+    let match = results.find(inv => Number(inv.quotation) === quotationId);
     if (!match && poTrailing) {
-      match = results.find((inv) => {
+      match = results.find(inv => {
         const invTrailing = extractTrailingDigits(inv.invoice_number);
         return invTrailing && invTrailing === poTrailing;
       });
@@ -553,62 +506,34 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     return match || null;
   };
 
-  // ── Dismiss invoice modal helper ─────────────────────────────────────────────
   const dismissInvoiceModal = () =>
     setInvoiceModal({ open: false, invoiceId: null, invoiceNum: '', alreadyExists: false, genericError: '' });
 
-  // ── Generate Invoice button click (pre-checks for existing invoice) ──────────
   const handleInvoiceButtonClick = async () => {
     setInvoiceChecking(true);
     try {
       const existing = await fetchInvoiceForThisPO();
       if (existing) {
-        setInvoiceModal({
-          open: true,
-          invoiceId: existing.id,
-          invoiceNum: fmtInvNum(existing.invoice_number),
-          alreadyExists: true,
-          genericError: '',
-        });
+        setInvoiceModal({ open: true, invoiceId: existing.id, invoiceNum: fmtInvNum(existing.invoice_number), alreadyExists: true, genericError: '' });
         return;
       }
-      // No existing invoice — safe to open modal
-      setAdvanceAmount('');
-      setInvoiceError('');
-      setInvoiceSuccess(null);
+      setAdvanceAmount(''); setInvoiceError(''); setInvoiceSuccess(null);
       setShowInvoiceModal(true);
     } catch {
-      // Pre-check failed — open modal and let the API 409 handle it
-      setAdvanceAmount('');
-      setInvoiceError('');
-      setInvoiceSuccess(null);
+      setAdvanceAmount(''); setInvoiceError(''); setInvoiceSuccess(null);
       setShowInvoiceModal(true);
     } finally {
       setInvoiceChecking(false);
     }
   };
 
-  // ── Generate Invoice handler (called from inside the modal) ──────────────────
   const handleGenerateInvoice = async () => {
-    setInvoiceError('');
-    setInvoiceGenerating(true);
+    setInvoiceError(''); setInvoiceGenerating(true);
     try {
       const advance = advanceAmount ? parseFloat(advanceAmount) : 0;
-      if (advanceAmount && isNaN(advance)) {
-        setInvoiceError('Please enter a valid advance amount.');
-        setInvoiceGenerating(false);
-        return;
-      }
-      if (advance < 0) {
-        setInvoiceError('Advance amount cannot be negative.');
-        setInvoiceGenerating(false);
-        return;
-      }
-      // For Purchase Orders: use the dedicated purchase order invoice endpoint
-      const res = await createPurchaseOrderInvoice({
-        quotation:      po.id,
-        advance_amount: String(advance.toFixed(2)),
-      });
+      if (advanceAmount && isNaN(advance)) { setInvoiceError('Please enter a valid advance amount.'); setInvoiceGenerating(false); return; }
+      if (advance < 0) { setInvoiceError('Advance amount cannot be negative.'); setInvoiceGenerating(false); return; }
+      const res     = await createPurchaseOrderInvoice({ quotation: po.id, advance_amount: String(advance.toFixed(2)) });
       const created = res?.data || res;
       if (!created?.id && !created?.invoice_number) {
         setInvoiceError('Invoice created but response was unexpected. Please check Invoice List.');
@@ -618,23 +543,16 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     } catch (e) {
       const status   = e.response?.status;
       const respData = e.response?.data;
-
-      // ── 409 Conflict: safety-net if pre-check missed it ──────────────────────
       if (status === 409) {
         setShowInvoiceModal(false);
-        let existingId  = null;
-        let existingNum = '';
+        let existingId = null; let existingNum = '';
         try {
           const match = await fetchInvoiceForThisPO();
-          if (match) {
-            existingId  = match.id;
-            existingNum = fmtInvNum(match.invoice_number);
-          }
-        } catch { /* silently ignore */ }
+          if (match) { existingId = match.id; existingNum = fmtInvNum(match.invoice_number); }
+        } catch { /* ignore */ }
         setInvoiceModal({ open: true, invoiceId: existingId, invoiceNum: existingNum, alreadyExists: true, genericError: '' });
         return;
       }
-
       let msg = '';
       if (respData) {
         const errs = respData.errors || respData.message || respData.detail || respData;
@@ -647,35 +565,47 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     }
   };
 
-  const handleDownload = async () => {
-    if (pdfLoading) return;
-    setPdfError('');
+  const handleDownload = () => {
+    setPdfCompanyName('');
+    setPdfAddress('');
+    setPdfContactPerson('');
+    setPdfSubject('');
+    setPdfExtraNotes(['']);
+    setPdfFormError('');
+    setPdfApiError('');
+    setShowPdfModal(true);
+  };
+
+  const handleConfirmPdfDownload = async () => {
+    if (!pdfCompanyName.trim()) { setPdfFormError('Company name is required.'); return; }
+    setPdfFormError(''); setPdfApiError('');
+    setPdfLoading(true);
     try {
-      setPdfLoading(true);
-      // If the server has already generated a PDF URL, open it directly
-      if (po?.quotation_url) {
-        window.open(po.quotation_url, '_blank');
-        return;
-      }
-      // Otherwise call the service which POSTs to /quotations/generate_pdf/?id=<id>
-      await generatePurchaseOrderPdf(po.id, fmtPONum(po?.quotation_number));
+      const fileName = `${fmtPONum(po?.quotation_number) || `PurchaseOrder_${id}`}.pdf`;
+      await generatePurchaseOrderPdf(po.id, {
+        company_name:   pdfCompanyName.trim(),
+        address:        pdfAddress.trim(),
+        contact_person: pdfContactPerson.trim(),
+        subject:        pdfSubject.trim(),
+        extra_notes:    pdfExtraNotes.map(n => n.trim()).filter(Boolean),
+      }, fileName);
+      setShowPdfModal(false);
     } catch (e) {
-      console.error('PDF download failed:', e);
-      setPdfError(e.message || 'Failed to generate PDF. Please try again.');
-      // Auto-clear error after 5 s
-      setTimeout(() => setPdfError(''), 5000);
+      setPdfApiError(e.message || 'Failed to generate PDF. Please try again.');
     } finally {
       setPdfLoading(false);
     }
   };
 
+  // ─── Guard clauses ────────────────────────────────────────────────────────────
   if (loading)    return <LoadingView />;
   if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/purchase')} />;
   if (!po)        return <ErrorView message="Purchase order not available." onRetry={fetchData} onBack={() => navigate('/purchase')} />;
 
-  // ── Derived values ─────────────────────────────────────────────────────────────
-  const status     = getStatus(po.status_display || po.status);
-  const poNum      = fmtPONum(po.quotation_number);
+  // ─── Derived values ────────────────────────────────────────────────────────────
+  const status   = getStatusUI(po.status_display || po.status);
+  const poNum    = fmtPONum(po.quotation_number);
+
   const subtotal   = parseFloat(po.total_amount  || 0);
   const gstRate    = parseFloat(po.gst_rate      || 0);
   const discRate   = parseFloat(po.discount_rate || 0);
@@ -683,19 +613,28 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const taxable    = parseFloat((subtotal - discAmt).toFixed(2));
   const gstAmt     = parseFloat(((taxable * gstRate) / 100).toFixed(2));
   const grandTotal = parseFloat((taxable + gstAmt).toFixed(2));
-  const items      = po.items || [];
-  const groups     = groupItemsByCategory(items);
-  const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  const vendorName = po.vendor_name || (po.vendor ? `Vendor #${po.vendor}` : '—');
-  const projName   = project
+  const items    = po.items || [];
+  const groups   = groupItemsByCategory(items);
+  const totalQty = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
+
+  const companyName = po.company_name || getPOCompanyName(po.company) || 'ERP System';
+  const vendorName  = po.vendor_name  || (po.vendor ? `Vendor #${po.vendor}` : '—');
+  const projName    = project
     ? (project.name || project.title || `Project #${po.project}`)
     : po.project_name || (po.project ? `Project #${po.project}` : '—');
-  const projLoc    = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
+  const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
+
+  // ── Edit totals (live) ────────────────────────────────────────────────────────
+  const eSub   = editMode ? calcEditSubtotal() : 0;
+  const eDisc  = editMode ? calcEditDiscAmt(eSub) : 0;
+  const eTax   = editMode ? parseFloat((eSub - eDisc).toFixed(2)) : 0;
+  const eGst   = editMode ? calcEditGstAmt(eSub, eDisc) : 0;
+  const eGrand = editMode ? calcEditGrandTotal() : 0;
 
   return (
     <>
-      {/* ─── Global styles — pixel-perfect mirror of viewquotationdetails.jsx ─── */}
+      {/* ─── Global styles ─── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         .vpod-root *{box-sizing:border-box;font-family:'Outfit',sans-serif}
@@ -703,24 +642,32 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         @keyframes vpod_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
         @keyframes vpod_toast_in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
         @keyframes vpod_pulse_ring{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.35);opacity:0}}
+        @keyframes vqd_dd_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .vpod-root{min-height:100vh;padding:0}
+
+        /* ── Top bar ── */
         .vpod-topbar{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px}
         .vpod-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
         .vpod-back:hover{background:#e2e8f0;color:#1e293b}
-        .vpod-actions{display:flex;gap:8px}
+        .vpod-actions{display:flex;gap:8px;flex-wrap:wrap}
         .vpod-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#475569;cursor:pointer;transition:all .15s}
         .vpod-btn-o:hover{background:#f8fafc;border-color:#cbd5e1}
         .vpod-btn-p{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
         .vpod-btn-p:hover{background:#0d6460}
         .vpod-btn-p:disabled{opacity:.6;cursor:not-allowed}
-        .vpod-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(217,119,6,.25)}
-        .vpod-btn-edit:hover{background:linear-gradient(135deg,#d97706,#b45309);box-shadow:0 4px 12px rgba(217,119,6,.35)}
+        .vpod-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #0f766e;color:#0f766e;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit}
+        .vpod-btn-edit:hover{background:#f0fdf4}
         .vpod-btn-save{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
         .vpod-btn-save:hover{background:linear-gradient(135deg,#0d6460,#0b7a72)}
         .vpod-btn-save:disabled{opacity:.6;cursor:not-allowed}
         .vpod-btn-cancel{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s}
         .vpod-btn-cancel:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626}
         .vpod-spin{animation:vpod_spin .7s linear infinite}
+        .vpod-btn-invoice{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(109,40,217,.25)}
+        .vpod-btn-invoice:hover{background:linear-gradient(135deg,#6d28d9,#5b21b6);box-shadow:0 4px 12px rgba(109,40,217,.35)}
+        .vpod-btn-invoice:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+
+        /* ── Document card ── */
         .vpod-doc{background:#fff;border-radius:20px;box-shadow:0 2px 4px rgba(0,0,0,.04),0 12px 40px rgba(0,0,0,.09);overflow:hidden;opacity:0;transform:translateY(16px);transition:opacity .4s ease,transform .4s ease}
         .vpod-doc.in{opacity:1;transform:translateY(0)}
         .vpod-doc.vpod-doc-editing{box-shadow:0 0 0 2.5px #f59e0b,0 2px 4px rgba(0,0,0,.04),0 12px 40px rgba(0,0,0,.09)}
@@ -739,52 +686,56 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         .vpod-doc-num{font-size:24px;font-weight:900;color:#fff;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:3px}
         .vpod-doc-date{font-size:12px;color:rgba(255,255,255,.6);margin-top:5px;font-weight:400}
 
+        /* ── Company edit button (in header, edit mode) ── */
+        .vpod-co-edit-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+        .vpod-co-edit-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);border-radius:8px;padding:4px 10px;cursor:pointer;transition:all .15s}
+        .vpod-co-edit-btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
+        .vpod-co-dropdown{position:fixed;z-index:99999;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06);min-width:220px;overflow:hidden;animation:vqd_dd_in .18s cubic-bezier(.16,1,.3,1)}
+        .vpod-co-dd-header{padding:10px 14px 8px;font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid #f1f5f9}
+        .vpod-co-dd-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;font-size:13px;font-weight:600;color:#1e293b}
+        .vpod-co-dd-item:hover{background:#f0fdf4}
+        .vpod-co-dd-item.active{background:#ecfdf5;color:#0f766e}
+        .vpod-co-dd-item .co-check{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .vpod-co-dd-item .co-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid #e2e8f0;flex-shrink:0}
+
         /* ── Meta strip ── */
         .vpod-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #e8ecf2}
         .vpod-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
 
         /* ── Parties ── */
-        .vpod-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #f0f4f8;background:#fff}
-        .vpod-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px;padding-top:36px}
-        .vpod-party{padding-right:24px}
-        .vpod-party--proj{padding-left:24px;padding-right:24px}
+        .vpod-parties{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:0;padding:24px 40px;border-bottom:1.5px solid #f0f4f8;align-items:start}
+        .vpod-arrow-col{display:flex;align-items:center;justify-content:center;padding-top:28px}
+        .vpod-party{display:flex;flex-direction:column;gap:4px;padding-right:24px}
+        .vpod-party--proj{padding-left:24px;border-left:1.5px solid #f0f4f8;padding-right:24px}
         .vpod-party--rates{padding-left:24px;border-left:1.5px solid #f0f4f8}
-        .vpod-plabel{font-size:9.5px;font-weight:800;letter-spacing:.14em;color:#94a3b8;text-transform:uppercase;margin-bottom:10px}
-        .vpod-pavatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vpod-picon{width:44px;height:44px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vpod-pname{font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:5px}
-        .vpod-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-bottom:3px;word-break:break-all}
-        .vpod-rates-list{display:flex;flex-direction:column;gap:12px}
+        .vpod-plabel{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+        .vpod-pavatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:6px}
+        .vpod-picon{width:36px;height:36px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:6px}
+        .vpod-pname{font-size:15px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
+        .vpod-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-top:2px}
+        .vpod-rates-list{display:flex;flex-direction:column;gap:10px}
         .vpod-rate-row{display:flex;align-items:center;gap:10px}
-        .vpod-rate-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-        .vpod-rate-v{font-size:15px;font-weight:800;color:#1e293b;line-height:1.2}
-        .vpod-rate-l{font-size:11px;color:#94a3b8;font-weight:500}
+        .vpod-rate-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .vpod-rate-v{font-size:15px;font-weight:800;color:#1e293b}
+        .vpod-rate-l{font-size:11px;color:#94a3b8;font-weight:500;margin-top:1px}
 
-        /* ── Items section ── */
-        .vpod-items{padding:0 40px 32px}
-        .vpod-sec-hdr{display:flex;align-items:center;gap:8px;padding:22px 0 14px;border-bottom:2px solid #f0f4f8;font-size:13px;font-weight:700;color:#1e293b}
-        .vpod-sec-badge{background:#ecfdf5;color:#059669;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;border:1px solid #bbf7d0}
-        .vpod-table-wrap{overflow-x:auto;margin-top:0}
+        .vpod-items{padding:0 40px 24px}
+        .vpod-sec-hdr{display:flex;align-items:center;gap:8px;padding:20px 0 14px;font-size:14px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
+        .vpod-sec-badge{background:#f1f5f9;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:#64748b}
+        .vpod-table-wrap{overflow-x:auto;border-radius:12px;border:1.5px solid #f0f4f8}
         .vpod-table{width:100%;border-collapse:collapse;font-size:13px}
-        .vpod-table thead tr{background:#f8fafc}
-        .vpod-table thead th{padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;border-bottom:1.5px solid #e8ecf2;white-space:nowrap}
-        .vpod-table thead th:first-child{padding-left:16px}
-        .vpod-table thead th:last-child{padding-right:16px;text-align:right}
-        .vpod-cat-row td{padding:9px 12px 6px 16px;background:#fafbfc;border-top:1.5px solid #f0f4f8}
-        .vpod-cat-inner{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.08em}
-        .vpod-cat-dot{width:6px;height:6px;border-radius:50%;background:#0d9488;flex-shrink:0}
-        .vpod-cat-cnt{margin-left:auto;font-size:10px;font-weight:600;color:#94a3b8;text-transform:none;letter-spacing:0}
-        .vpod-row{border-bottom:1px solid #f8fafc;transition:background .1s}
-        .vpod-row:hover{background:#fafffe}
-        .vpod-row td{padding:11px 12px;vertical-align:top}
-        .vpod-row td:first-child{padding-left:16px}
-        .vpod-row td:last-child{padding-right:16px;text-align:right}
-        .vpod-row-idx{font-size:11px;font-weight:700;color:#d1d5db;text-align:center}
-        .vpod-desc{font-size:13px;font-weight:500;color:#334155;line-height:1.55;max-width:300px}
-        .vpod-subcat{display:inline-block;background:#f1f5f9;color:#475569;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;white-space:nowrap}
-        .vpod-qty-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:700}
-        .vpod-misc-note{color:#d97706;font-style:italic;font-size:11px;border-bottom:1px dashed #fcd34d;cursor:help}
-        .vpod-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
+        .vpod-table thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;background:#f8fafc;border-bottom:1.5px solid #f0f4f8;white-space:nowrap}
+        .vpod-cat-row td{padding:8px 12px;background:#f8fafc;border-top:1.5px solid #f0f4f8}
+        .vpod-cat-inner{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#374151}
+        .vpod-cat-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
+        .vpod-cat-cnt{background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px}
+        .vpod-row td{padding:10px 12px;border-top:1px solid #f8fafc;vertical-align:top}
+        .vpod-row:hover td{background:#fafffe}
+        .vpod-row-idx{text-align:center;font-size:11px;color:#d1d5db;font-weight:700;width:32px}
+        .vpod-desc{font-size:13px;color:#1e293b;font-weight:500;line-height:1.5}
+        .vpod-subcat{display:inline-flex;align-items:center;padding:2px 8px;background:#eff6ff;color:#1d4ed8;border-radius:8px;font-size:10px;font-weight:700}
+        .vpod-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;background:#f1f5f9;border-radius:6px;font-size:12px;font-weight:700;color:#475569;padding:0 5px}
+        .vpod-cat-sub td{padding:6px 12px;background:#fafffe;border-top:1px solid #f0f4f8}
 
         /* ── Edit mode ── */
         .vpod-edit-banner{display:flex;align-items:center;gap:10px;padding:10px 18px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fcd34d;border-radius:12px;margin-bottom:14px;animation:vpod_in .25s ease}
@@ -798,42 +749,31 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         .vpod-save-err{display:flex;align-items:flex-start;gap:8px;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#dc2626;line-height:1.5}
 
         /* ── Footer ── */
-        .vpod-foot{display:grid;grid-template-columns:1fr 300px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
-        .vpod-sum-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
-        .vpod-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}
+        .vpod-foot{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px 40px;border-top:1.5px solid #f0f4f8}
+        .vpod-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
+        .vpod-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vpod-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vpod-sum-lbl{font-size:11px;color:#94a3b8;font-weight:500}
+        .vpod-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
         .vpod-sum-val{font-size:13px;font-weight:700;color:#1e293b}
-        .vpod-remarks{margin-top:18px}
-        .vpod-rem-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:6px}
-        .vpod-rem-text{font-size:12px;color:#64748b;line-height:1.65;white-space:pre-wrap}
         .vpod-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
-        .vpod-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
+        .vpod-tbox-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;align-items:center;gap:6px}
         .vpod-trow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#475569;font-weight:500}
         .vpod-trow--disc{color:#ea580c}
-        .vpod-trow--sub{color:#94a3b8;font-size:12px}
-        .vpod-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:11px 0}
-        .vpod-grand{display:flex;justify-content:space-between;align-items:baseline;font-size:19px;font-weight:900;color:#0f766e;letter-spacing:-.02em}
-        .vpod-words{margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;font-size:10.5px;line-height:1.55;color:#64748b;font-style:italic}
-        .vpod-dl-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:11px;background:#0f766e;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s;font-family:inherit}
-        .vpod-dl-btn:hover{background:#0d6460}
-        .vpod-dl-btn:active{transform:scale(.98)}
+        .vpod-trow--sub{color:#64748b;font-size:12px}
+        .vpod-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:10px 0}
+        .vpod-grand{display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:900;color:#1e293b;padding:4px 0}
+        .vpod-words{font-size:11px;color:#94a3b8;margin-top:8px;font-style:italic;line-height:1.5}
+        .vpod-dl-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:14px;padding:11px 0;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;border-radius:10px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s}
+        .vpod-dl-btn:hover{background:linear-gradient(135deg,#0d6460,#0b7a72);transform:translateY(-1px)}
         .vpod-dl-btn:disabled{opacity:.6;cursor:not-allowed}
 
-        /* ── Success toast ── */
+        /* ── Toasts & modals ── */
         .vpod-success-toast{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:10px;background:#0f766e;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,118,110,.4);animation:vpod_toast_in .3s cubic-bezier(.16,1,.3,1)}
-
-        /* ── Generate Invoice button ── */
-        .vpod-btn-invoice{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(109,40,217,.25)}
-        .vpod-btn-invoice:hover{background:linear-gradient(135deg,#6d28d9,#5b21b6);box-shadow:0 4px 12px rgba(109,40,217,.35)}
-        .vpod-btn-invoice:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
-
-        /* ── Modal overlay ── */
-        .vpod-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px}
-        .vpod-modal{background:#fff;border-radius:20px;box-shadow:0 24px 60px rgba(0,0,0,.22);width:100%;max-width:460px;overflow:hidden;animation:vpod_in .22s cubic-bezier(.16,1,.3,1)}
-        .vpod-modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 18px;border-bottom:1.5px solid #f0f4f8}
-        .vpod-modal-body{padding:22px 24px}
-        .vpod-modal-foot{display:flex;gap:10px;padding:0 24px 22px}
+        .vpod-remarks{margin-top:14px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e8ecf2}
+        .vpod-rem-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+        .vpod-rem-text{font-size:12.5px;color:#475569;line-height:1.6;margin:0}
+        .vpod-misc-note{font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:2px 6px;font-style:italic}
+        .vpod-exec-rate-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
 
         /* ── Doc footer ── */
         .vpod-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #e8ecf2;font-size:11px;color:#94a3b8}
@@ -848,16 +788,15 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
         /* ── Responsive ── */
         @media(max-width:700px){
-          .vpod-hdr{padding:22px 20px 22px;flex-direction:column}
+          .vpod-hdr{padding:22px 20px 22px}
           .vpod-meta{padding:12px 20px}
           .vpod-meta-sep{display:none}
           .vpod-parties{grid-template-columns:1fr;padding:20px;gap:16px}
           .vpod-arrow-col{display:none}
-          .vpod-party--proj,.vpod-party--rates{padding-left:0}
-          .vpod-party--rates{border-left:none;border-top:1.5px solid #f0f4f8;padding-top:16px}
+          .vpod-party--proj,.vpod-party--rates{padding-left:0;border-left:none}
+          .vpod-party--rates{border-top:1.5px solid #f0f4f8;padding-top:16px}
           .vpod-items{padding:0 20px 24px}
-          .vpod-foot{grid-template-columns:1fr;padding:20px}
-          .vpod-doc-foot{padding:12px 20px;flex-direction:column;gap:4px;text-align:center}
+          .vpod-foot{grid-template-columns:1fr;padding:20px}          .vpod-doc-foot{padding:12px 20px;flex-direction:column;gap:4px;text-align:center}
           .vpod-doc-num{font-size:19px}
           .vpod-grand{font-size:16px}
           .vpod-hdr-r{text-align:left;margin-top:16px}
@@ -916,7 +855,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>Edit Mode Active</div>
               <div style={{ fontSize: 11, color: '#a16207', marginTop: 1 }}>
-                Edit any field inline or click "+ Add Item" to add new execution compliance items. Click "Save Changes" when done.
+                Edit any field inline · Click company name in header to change company · Click "+ Add Item" to add new execution compliance items · "Save Changes" when done.
               </div>
             </div>
             {saveError && (
@@ -935,14 +874,46 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div className="vpod-hdr-l">
               <div className="vpod-logo">
                 <div className="vpod-logo-badge">
-                  {(po.company_name || 'CI')[0].toUpperCase()}
+                  {editMode
+                    ? (PO_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName || 'CI')[0].toUpperCase()
+                    : (companyName || 'CI')[0].toUpperCase()}
                 </div>
                 <div>
-                  <div className="vpod-co-name">{po.company_name || 'Company'}</div>
+                  {editMode ? (
+                    <div className="vpod-co-edit-wrap">
+                      <div
+                        ref={companyBtnRef}
+                        className="vpod-co-edit-btn"
+                        onClick={openCompanyDrop}
+                        title="Click to change company"
+                      >
+                        <span className="vpod-co-name" style={{ fontSize: 17 }}>
+                          {PO_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,.18)', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.9)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+                          <PenLine size={9} /> Change
+                        </span>
+                        <ChevronDown size={13} color="rgba(255,255,255,.7)" style={{ transform: companyDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="vpod-co-name">{companyName}</div>
+                  )}
                   <div className="vpod-co-sub">Purchase Order</div>
                 </div>
               </div>
-              <StatusPill status={status} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <StatusPill status={status} />
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)',
+                  color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                  letterSpacing: '0.03em',
+                }}>
+                  <Truck size={11} />
+                  Execution Compliance
+                </span>
+              </div>
             </div>
             <div className="vpod-hdr-r">
               <div className="vpod-doc-label">Purchase Order</div>
@@ -957,12 +928,20 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <div className="vpod-meta-sep" />
             <MetaBlock icon={Calendar} label="Last Updated" value={fmtDate(po.updated_at)} />
             <div className="vpod-meta-sep" />
-            {po.company_name && (
-              <>
-                <MetaBlock icon={Building2} label="Company" value={po.company_name} />
-                <div className="vpod-meta-sep" />
-              </>
+            {editMode ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Building2 size={10} /> Company
+                  <span style={{ color: '#f59e0b', fontSize: 10 }}>✎</span>
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f766e' }}>
+                  {PO_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName}
+                </span>
+              </div>
+            ) : (
+              po.company_name && <MetaBlock icon={Building2} label="Company" value={po.company_name} />
             )}
+            <div className="vpod-meta-sep" />
             {editMode ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -982,12 +961,24 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             )}
             <div className="vpod-meta-sep" />
             <MetaBlock icon={Hash} label="PO Number" value={poNum} accent />
-            {createdByName && (
-              <>
-                <div className="vpod-meta-sep" />
-                <MetaBlock icon={User} label="Prepared By" value={createdByName} />
-              </>
-            )}
+            <div className="vpod-meta-sep" />
+            {/* PO Type — always Execution */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: '#f5f3ff', border: '1.5px solid #ddd6fe',
+                color: '#7c3aed', fontSize: 11, fontWeight: 700,
+                padding: '3px 9px', borderRadius: 20,
+              }}>
+                <Truck size={10} />
+                Execution
+              </span>
+            </div>
+            {createdByName && <>
+              <div className="vpod-meta-sep" />
+              <MetaBlock icon={User} label="Prepared By" value={createdByName} />
+            </>}
           </div>
 
           {/* ══════════ PARTIES ══════════ */}
@@ -1032,27 +1023,40 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
             {/* Applied Rates — editable in edit mode */}
             <div className="vpod-party vpod-party--rates">
-              <div className="vpod-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
+              <div className="vpod-plabel">
+                Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}
+              </div>
               <div className="vpod-rates-list">
-                <div className="vpod-rate-row">
-                  <div className="vpod-rate-icon" style={{ background: '#eff6ff' }}>
-                    <Percent size={14} color="#2563eb" />
+
+                {/* ── GST Rate row
+                    ONLY shown for GST-applicable company (ID 1).
+                    Companies 2, 3, 4: this entire row is hidden in both
+                    view mode AND edit mode — exactly as quotation does it. ── */}
+                {isGSTApplicable && (
+                  <div className="vpod-rate-row">
+                    <div className="vpod-rate-icon" style={{ background: '#eff6ff' }}>
+                      <Percent size={14} color="#2563eb" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      {editMode ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            type="number" min="0" max="100" step="0.01"
+                            className="vpod-edit-input vpod-edit-input-sm"
+                            value={editGstRate}
+                            onChange={e => setEditGstRate(parseFloat(e.target.value) || 0)}
+                          />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>%</span>
+                        </div>
+                      ) : (
+                        <div className="vpod-rate-v">{gstRate}%</div>
+                      )}
+                      <div className="vpod-rate-l">GST Rate</div>
+                    </div>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    {editMode ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" min="0" max="100" step="0.01"
-                          className="vpod-edit-input vpod-edit-input-sm"
-                          value={editGstRate}
-                          onChange={e => setEditGstRate(parseFloat(e.target.value) || 0)} />
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>%</span>
-                      </div>
-                    ) : (
-                      <div className="vpod-rate-v">{gstRate}%</div>
-                    )}
-                    <div className="vpod-rate-l">GST Rate</div>
-                  </div>
-                </div>
+                )}
+
+                {/* Discount Rate row — always visible for all companies */}
                 <div className="vpod-rate-row">
                   <div className="vpod-rate-icon" style={{ background: (editMode ? editDiscRate : discRate) > 0 ? '#fff7ed' : '#f8fafc' }}>
                     <Tag size={14} color={(editMode ? editDiscRate : discRate) > 0 ? '#ea580c' : '#94a3b8'} />
@@ -1060,10 +1064,12 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   <div style={{ flex: 1 }}>
                     {editMode ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" min="0" max="100" step="0.01"
+                        <input
+                          type="number" min="0" max="100" step="0.01"
                           className="vpod-edit-input vpod-edit-input-sm"
                           value={editDiscRate}
-                          onChange={e => setEditDiscRate(parseFloat(e.target.value) || 0)} />
+                          onChange={e => setEditDiscRate(parseFloat(e.target.value) || 0)}
+                        />
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#ea580c' }}>%</span>
                       </div>
                     ) : (
@@ -1074,6 +1080,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     <div className="vpod-rate-l">Discount</div>
                   </div>
                 </div>
+
               </div>
             </div>
           </div>
@@ -1104,119 +1111,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
               )}
             </div>
 
-            {/* ── VIEW MODE TABLE ── */}
-            {!editMode && (items.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 8 }}>
-                <FileText size={32} color="#e2e8f0" />
-                <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No line items found</p>
-              </div>
-            ) : (
-              <div className="vpod-table-wrap">
-                <table className="vpod-table">
-                  <thead>
-                    <tr>
-                      <th rowSpan={2} style={{ width: 32 }}>#</th>
-                      <th rowSpan={2}>Service Description</th>
-                      <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
-                      <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
-                      <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
-                      <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
-                      <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                    </tr>
-                    <tr>
-                      <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate</th>
-                      <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate</th>
-                      <th style={{ width: 110, textAlign: 'right' }}>Material Amt</th>
-                      <th style={{ width: 110, textAlign: 'right' }}>Labour Amt</th>
-                    </tr>
-                  </thead>
-                  {groups.map((grp, gi) => {
-                    const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
-                    return (
-                      <tbody key={gi}>
-                        <tr className="vpod-cat-row">
-                          <td colSpan={10}>
-                            <div className="vpod-cat-inner">
-                              <span className="vpod-cat-dot" />
-                              {grp.catName}
-                              <span className="vpod-cat-cnt">{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span>
-                            </div>
-                          </td>
-                        </tr>
-                        {grp.items.map((item, ii) => {
-                          const qty     = parseInt(item.quantity) || 1;
-                          const total   = parseFloat(item.total_amount) || calcItemTotal(item);
-                          const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                          const prof    = parseFloat(item.Professional_amount || 0);
-                          const matRate = parseFloat(item.material_rate || 0);
-                          const labRate = parseFloat(item.labour_rate || 0);
-                          const matAmt  = parseFloat(item.material_amount || 0);
-                          const labAmt  = parseFloat(item.labour_amount || 0);
-                          const itemSacCode = item.sac_code;
-                          const showBreakdown = hasRateBreakdown(item);
-                          return (
-                            <tr key={ii} className="vpod-row">
-                              <td className="vpod-row-idx">{ii + 1}</td>
-                              <td>
-                                <div className="vpod-desc">{item.description || item.compliance_name || '—'}</div>
-                                {itemSacCode && (
-                                  <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
-                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
-                                  </div>
-                                )}
-                              </td>
-                              <td>
-                                {subCat
-                                  ? <span className="vpod-subcat">{subCat.name}</span>
-                                  : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
-                              </td>
-                              <td style={{ textAlign: 'center' }}>
-                                <span className="vpod-qty-badge">{qty}</span>
-                              </td>
-                              <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                {item.unit || '—'}
-                              </td>
-                              {showBreakdown ? (
-                                <>
-                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
-                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                </>
-                              ) : (
-                                <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
-                                  {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                </td>
-                              )}
-                              <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>
-                                ₹&nbsp;{fmtINR(total)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        <tr className="vpod-cat-sub">
-                          <td colSpan={9} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
-                            {grp.catName} subtotal
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 16 }}>
-                            ₹&nbsp;{fmtINR(grpTotal)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    );
-                  })}
-                </table>
-              </div>
-            ))}
+            {/* ── VIEW MODE — uses PurchaseTypeTable component ── */}
+            {!editMode && <PurchaseTypeTable items={items} />}
 
             {/* ── EDIT MODE TABLE ── */}
             {editMode && (
@@ -1227,7 +1123,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No items. Click "+ Add Item" above to get started.</p>
                   </div>
                 ) : (() => {
-                  // Group edit items by category
+                  // Group edit items by compliance category
+                  const COMPLIANCE_CATEGORIES = { 5: 'Water Connection', 6: 'SWD Line Work', 7: 'Sewer/Drainage Line Work' };
                   const editGroups = {};
                   editItems.forEach((it, globalIdx) => {
                     const catId = it.compliance_category ?? 5;
@@ -1241,12 +1138,14 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                       <thead>
                         <tr>
                           <th style={{ width: 32 }}>#</th>
-                          <th style={{ width: 'auto' }}>Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span></th>
+                          <th style={{ width: 'auto' }}>
+                            Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                          </th>
                           <th style={{ width: 58, textAlign: 'center' }}>Qty</th>
                           <th style={{ width: 72, textAlign: 'center' }}>Unit</th>
-                          <th style={{ width: 120, textAlign: 'right' }}>Professional (₹)</th>
-                          <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
-                          <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          <th style={{ width: 116, textAlign: 'right' }}>Material Amt (₹)</th>
+                          <th style={{ width: 116, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          <th style={{ width: 116, textAlign: 'right' }}>Professional (₹)</th>
                           <th style={{ width: 110, textAlign: 'right' }}>Item Total</th>
                           <th style={{ width: 40 }}></th>
                         </tr>
@@ -1302,16 +1201,6 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                                     <input
                                       type="number" min="0" step="0.01"
                                       className="vpod-edit-input"
-                                      value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                      onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00"
-                                      style={{ textAlign: 'right', width: '100%' }}
-                                    />
-                                  </td>
-                                  <td>
-                                    <input
-                                      type="number" min="0" step="0.01"
-                                      className="vpod-edit-input"
                                       value={it.material_amount === 0 ? '' : it.material_amount}
                                       onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
                                       placeholder="0.00"
@@ -1324,6 +1213,16 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                                       className="vpod-edit-input"
                                       value={it.labour_amount === 0 ? '' : it.labour_amount}
                                       onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                      placeholder="0.00"
+                                      style={{ textAlign: 'right', width: '100%' }}
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number" min="0" step="0.01"
+                                      className="vpod-edit-input"
+                                      value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                      onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
                                       placeholder="0.00"
                                       style={{ textAlign: 'right', width: '100%' }}
                                     />
@@ -1364,38 +1263,46 @@ export default function ViewPODetails({ onUpdateNavigation }) {
               <div className="vpod-sum-title">Purchase Order Summary</div>
               <div className="vpod-sum-grid">
                 <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">PO Type</span>
+                  <span className="vpod-sum-val" style={{ color: '#7c3aed' }}>Execution Compliance</span>
+                </div>
+                <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">Total Items</span>
-                  <span className="vpod-sum-val">{items.length}</span>
+                  <span className="vpod-sum-val">{editMode ? editItems.length : items.length}</span>
                 </div>
                 <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">Total Quantity</span>
-                  <span className="vpod-sum-val">{totalQty}</span>
+                  <span className="vpod-sum-val">{editMode ? editItems.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0) : totalQty}</span>
                 </div>
                 <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">Compliance Groups</span>
-                  <span className="vpod-sum-val">{groups.length}</span>
+                  <span className="vpod-sum-val">{editMode ? Object.keys(editItems.reduce((a, it) => ({ ...a, [it.compliance_category ?? 5]: 1 }), {})).length : groups.length}</span>
                 </div>
                 <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">SAC Code</span>
                   <span className="vpod-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>
-                    {po.sac_code || '—'}
+                    {editMode ? editSacCode || '—' : (po.sac_code || '—')}
                   </span>
                 </div>
-                {po.company_name && (
-                  <div className="vpod-sum-item">
-                    <span className="vpod-sum-lbl">Company</span>
-                    <span className="vpod-sum-val">{po.company_name}</span>
-                  </div>
-                )}
-                {po.quotation_type && (
-                  <div className="vpod-sum-item">
-                    <span className="vpod-sum-lbl">PO Type</span>
-                    <span className="vpod-sum-val">{po.quotation_type}</span>
-                  </div>
-                )}
                 <div className="vpod-sum-item">
                   <span className="vpod-sum-lbl">Status</span>
                   <span><StatusPill status={status} /></span>
+                </div>
+                <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">Vendor</span>
+                  <span className="vpod-sum-val">{vendorName}</span>
+                </div>
+                <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">Project</span>
+                  <span className="vpod-sum-val">{projName}</span>
+                </div>
+                <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">Company</span>
+                  <span className="vpod-sum-val">
+                    {editMode
+                      ? (PO_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName)
+                      : companyName}
+                  </span>
                 </div>
                 {createdByName && (
                   <div className="vpod-sum-item">
@@ -1403,7 +1310,45 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     <span className="vpod-sum-val">{createdByName}</span>
                   </div>
                 )}
+                <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">Issue Date</span>
+                  <span className="vpod-sum-val">{fmtDate(po.created_at)}</span>
+                </div>
+                <div className="vpod-sum-item">
+                  <span className="vpod-sum-lbl">Last Updated</span>
+                  <span className="vpod-sum-val">{fmtDate(po.updated_at)}</span>
+                </div>
               </div>
+
+              {/* Execution cost breakdown — always shown for POs (always execution) */}
+              {items.length > 0 && (
+                <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Truck size={11} /> Execution Cost Breakdown
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Professional</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + ((parseFloat(it.Professional_amount) || 0) * (parseInt(it.quantity) || 1)), 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Material</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + (parseFloat(it.material_amount) || 0), 0))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Labour</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                        ₹&nbsp;{fmtINR(items.reduce((s, it) => s + (parseFloat(it.labour_amount) || 0), 0))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {po.notes && (
                 <div className="vpod-remarks">
                   <div className="vpod-rem-title">Notes</div>
@@ -1421,44 +1366,41 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             {/* Right — totals */}
             <div>
               {editMode ? (
-                (() => {
-                  const eSub   = calcEditSubtotal();
-                  const eDisc  = calcEditDiscAmt(eSub);
-                  const eTax   = parseFloat((eSub - eDisc).toFixed(2));
-                  const eGst   = calcEditGstAmt(eSub, eDisc);
-                  const eGrand = calcEditGrandTotal();
-                  return (
-                    <div className="vpod-edit-totals">
-                      <div className="vpod-tbox-title" style={{ color: '#065f46' }}>
-                        Live Calculation
-                        <span style={{ marginLeft: 6, fontSize: 9, background: '#059669', color: '#fff', padding: '2px 6px', borderRadius: 4 }}>EDIT MODE</span>
-                      </div>
-                      <div className="vpod-trow"><span>Subtotal</span><span style={{ fontWeight: 700, color: '#1e293b' }}>₹&nbsp;{fmtINR(eSub)}</span></div>
-                      {eDisc > 0 && (
-                        <>
-                          <div className="vpod-trow vpod-trow--disc"><span>Discount ({editDiscRate}%)</span><span style={{ fontWeight: 700 }}>−&nbsp;₹&nbsp;{fmtINR(eDisc)}</span></div>
-                          <div className="vpod-trow vpod-trow--sub"><span>Taxable Amount</span><span>₹&nbsp;{fmtINR(eTax)}</span></div>
-                        </>
-                      )}
-                      {eGst > 0 && <div className="vpod-trow"><span>GST ({editGstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(eGst)}</span></div>}
-                      <hr className="vpod-tdiv" />
-                      <div className="vpod-grand" style={{ fontSize: 21 }}>
-                        <span>Grand Total</span>
-                        <span style={{ color: '#059669' }}>₹&nbsp;{fmtINR(eGrand)}</span>
-                      </div>
-                      <div className="vpod-words"><strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>{numberToWords(eGrand)} Rupees only</div>
-                      <button className="vpod-btn-save" onClick={handleSaveUpdate} disabled={saving}
-                        style={{ width: '100%', marginTop: 14, padding: 11, justifyContent: 'center', borderRadius: 10 }}>
-                        {saving ? <><Loader2 size={15} className="vpod-spin" /> Saving…</> : <><Save size={15} /> Save Changes</>}
-                      </button>
-                      {saveError && (
-                        <div className="vpod-save-err" style={{ marginTop: 8 }}>
-                          <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {saveError}
-                        </div>
-                      )}
+                <div className="vpod-edit-totals">
+                  <div className="vpod-tbox-title" style={{ color: '#065f46' }}>
+                    Live Calculation
+                    <span style={{ marginLeft: 6, fontSize: 9, background: '#059669', color: '#fff', padding: '2px 6px', borderRadius: 4 }}>EDIT MODE</span>
+                  </div>
+                  <div className="vpod-trow"><span>Subtotal</span><span style={{ fontWeight: 700, color: '#1e293b' }}>₹&nbsp;{fmtINR(eSub)}</span></div>
+                  {eDisc > 0 && (
+                    <>
+                      <div className="vpod-trow vpod-trow--disc"><span>Discount ({editDiscRate}%)</span><span style={{ fontWeight: 700 }}>−&nbsp;₹&nbsp;{fmtINR(eDisc)}</span></div>
+                      <div className="vpod-trow vpod-trow--sub"><span>Taxable Amount</span><span>₹&nbsp;{fmtINR(eTax)}</span></div>
+                    </>
+                  )}
+                  {isGSTApplicable && eGst > 0 && (
+                    <div className="vpod-trow"><span>GST ({editGstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(eGst)}</span></div>
+                  )}
+                  <hr className="vpod-tdiv" />
+                  <div className="vpod-grand" style={{ fontSize: 21 }}>
+                    <span>Grand Total</span>
+                    <span style={{ color: '#059669' }}>₹&nbsp;{fmtINR(eGrand)}</span>
+                  </div>
+                  <div className="vpod-words"><strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>{numberToWords(eGrand)} Rupees only</div>
+                  <button
+                    className="vpod-btn-save"
+                    onClick={handleSaveUpdate}
+                    disabled={saving}
+                    style={{ width: '100%', marginTop: 14, padding: 11, justifyContent: 'center', borderRadius: 10 }}
+                  >
+                    {saving ? <><Loader2 size={15} className="vpod-spin" /> Saving…</> : <><Save size={15} /> Save Changes</>}
+                  </button>
+                  {saveError && (
+                    <div className="vpod-save-err" style={{ marginTop: 8 }}>
+                      <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {saveError}
                     </div>
-                  );
-                })()
+                  )}
+                </div>
               ) : (
                 <div className="vpod-tbox">
                   <div className="vpod-tbox-title">Amount Payable</div>
@@ -1485,14 +1427,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     </div>
                   )}
                   <hr className="vpod-tdiv" />
-                  <div className="vpod-grand">
-                    <span>Grand Total</span>
-                    <span>₹&nbsp;{fmtINR(grandTotal)}</span>
-                  </div>
-                  <div className="vpod-words">
-                    <strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>
-                    {numberToWords(grandTotal)} Rupees only
-                  </div>
+                  <div className="vpod-grand"><span>Grand Total</span><span>₹&nbsp;{fmtINR(grandTotal)}</span></div>
+                  <div className="vpod-words"><strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>{numberToWords(grandTotal)} Rupees only</div>
                 </div>
               )}
               {!editMode && (
@@ -1523,6 +1459,195 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
       </div>{/* end .vpod-root */}
 
+      {/* ══════════ COMPANY DROPDOWN PORTAL ══════════ */}
+      {companyDropOpen && (
+        <div
+          ref={companyDropRef}
+          className="vpod-co-dropdown"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          <div className="vpod-co-dd-header">Select Company</div>
+          {PO_COMPANIES.map(co => {
+            const isActive = parseInt(editCompany) === co.id;
+            return (
+              <div
+                key={co.id}
+                className={`vpod-co-dd-item${isActive ? ' active' : ''}`}
+                onClick={() => { setEditCompany(co.id); setCompanyDropOpen(false); }}
+              >
+                {isActive
+                  ? <span className="co-check"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
+                  : <span className="co-dot" />}
+                {co.name}
+                {co.id === GST_APPLICABLE_COMPANY_ID && (
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#2563eb', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '1px 6px' }}>GST</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══════════ DOWNLOAD PDF MODAL ══════════ */}
+      {showPdfModal && (
+        <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
+          <div
+            className="absolute inset-0 bg-black/50 pointer-events-auto"
+            style={{ position: 'fixed', width: '100vw', height: '100vh' }}
+            onClick={() => !pdfLoading && setShowPdfModal(false)}
+          />
+          <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
+            <div
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }}
+              className="pointer-events-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal header */}
+              <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <FileText size={17} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: '-.01em' }}>Download Purchase Order PDF</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', marginTop: 2 }}>{poNum}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)', borderRadius: 8, width: 30, height: 30, cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', opacity: pdfLoading ? 0.5 : 1 }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal body */}
+              <div style={{ padding: '20px 24px 24px' }}>
+                {pdfFormError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#dc2626' }}>
+                    <AlertCircle size={13} /> {pdfFormError}
+                  </div>
+                )}
+                {pdfApiError && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#dc2626' }}>
+                    <AlertCircle size={13} /> {pdfApiError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Company Name */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                      <Building2 size={11} /> Company Name <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      value={pdfCompanyName}
+                      onChange={e => setPdfCompanyName(e.target.value)}
+                      placeholder="Enter company / vendor name"
+                      disabled={pdfLoading}
+                      style={{ width: '100%', padding: '8px 12px', border: `1.5px solid ${pdfFormError && !pdfCompanyName.trim() ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s' }}
+                    />
+                  </div>
+                  {/* Address */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                      <MapPin size={11} /> Address <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <input
+                      value={pdfAddress}
+                      onChange={e => setPdfAddress(e.target.value)}
+                      placeholder="Street, City, State"
+                      disabled={pdfLoading}
+                      style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  {/* Contact Person */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                      <User size={11} /> Contact Person <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <input
+                      value={pdfContactPerson}
+                      onChange={e => setPdfContactPerson(e.target.value)}
+                      placeholder="e.g. Mr. Rajesh Kumar"
+                      disabled={pdfLoading}
+                      style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  {/* Subject */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                      <FileText size={11} /> Subject <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <input
+                      value={pdfSubject}
+                      onChange={e => setPdfSubject(e.target.value)}
+                      placeholder="e.g. Purchase Order for Plumbing Services"
+                      disabled={pdfLoading}
+                      style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  {/* Extra Notes */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                      <FileText size={11} /> Extra Notes <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    {pdfExtraNotes.map((note, ni) => (
+                      <div key={ni} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                        <input
+                          value={note}
+                          onChange={e => setPdfExtraNotes(prev => prev.map((n, i) => i === ni ? e.target.value : n))}
+                          placeholder={`Note ${ni + 1}`}
+                          disabled={pdfLoading}
+                          style={{ flex: 1, padding: '7px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                        />
+                        {pdfExtraNotes.length > 1 && (
+                          <button
+                            onClick={() => setPdfExtraNotes(prev => prev.filter((_, i) => i !== ni))}
+                            disabled={pdfLoading}
+                            style={{ padding: '6px 10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', color: '#dc2626', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setPdfExtraNotes(prev => [...prev, ''])}
+                      disabled={pdfLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 7, fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      <Plus size={12} /> Add Note
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    disabled={pdfLoading}
+                    style={{ flex: 1, padding: '8px 0', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#475569', cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: pdfLoading ? 0.5 : 1 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmPdfDownload}
+                    disabled={pdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                  >
+                    {pdfLoading
+                      ? <><Loader2 size={13} className="vpod-spin" /> Generating…</>
+                      : <><Download size={13} /> Generate &amp; Download</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══════════ ADD COMPLIANCE MODAL — execution only ══════════ */}
       <AddComplianceModal
         isOpen={showAddSection}
@@ -1542,13 +1667,16 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
       {/* ═══════════ GENERATE INVOICE MODAL ══════════ */}
       {showInvoiceModal && (
-        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpod_toast_in .2s ease' }}>
-          <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }} />
-          <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpod_toast_in .32s cubic-bezier(.16,1,.3,1)' }}
-              onClick={e => e.stopPropagation()}>
-
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, overflow: 'hidden', animation: 'vpod_toast_in .2s ease' }}>
+          <div
+            style={{ position: 'fixed', width: '100vw', height: '100vh', background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(4px)' }}
+            onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }}
+          />
+          <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, position: 'relative', zIndex: 1 }}>
+            <div
+              style={{ background: '#fff', borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpod_toast_in .32s cubic-bezier(.16,1,.3,1)' }}
+              onClick={e => e.stopPropagation()}
+            >
               {/* Top accent bar */}
               <div style={{ height: 5, background: 'linear-gradient(90deg,#7c3aed,#6d28d9,#8b5cf6)' }} />
 
@@ -1570,9 +1698,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   </div>
                   {parseFloat(advanceAmount) > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'center', gap: 16, margin: '8px 0 16px', fontSize: 12, color: '#64748b' }}>
-                      <span>Grand Total: <strong style={{ color: '#1e293b' }}>Rs. {fmtINR(invoiceSuccess.grand_total)}</strong></span>
-                      <span>Advance Paid: <strong style={{ color: '#059669' }}>Rs. {fmtINR(advanceAmount)}</strong></span>
-                      <span>Outstanding: <strong style={{ color: '#dc2626' }}>Rs. {fmtINR(invoiceSuccess.total_outstanding)}</strong></span>
+                      <span>Grand Total: <strong style={{ color: '#1e293b' }}>₹{fmtINR(invoiceSuccess.grand_total)}</strong></span>
+                      <span>Advance Paid: <strong style={{ color: '#059669' }}>₹{fmtINR(advanceAmount)}</strong></span>
                     </div>
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
@@ -1617,13 +1744,13 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     </button>
                   </div>
 
-                  {/* Purchase Order summary chip */}
+                  {/* PO summary chip */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
                     <CheckCircle size={15} color="#059669" style={{ flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>Purchase Order</div>
                       <div style={{ fontSize: 11, color: '#047857', marginTop: 1 }}>
-                        {poNum} · Vendor: <strong>{po.vendor_name || '—'}</strong> · Grand Total: <strong>Rs. {fmtINR(grandTotal)}</strong>
+                        {poNum} · Vendor: <strong>{po.vendor_name || '—'}</strong> · Grand Total: <strong>₹{fmtINR(grandTotal)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1631,12 +1758,10 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   {/* Advance amount input */}
                   <div style={{ marginBottom: 20 }}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
-                      Advance Amount (Rs.) <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— optional</span>
+                      Advance Amount (₹) <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— optional</span>
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="number" min="0" step="0.01"
                       placeholder="0.00 — leave blank if no advance"
                       value={advanceAmount}
                       onChange={e => { setAdvanceAmount(e.target.value); setInvoiceError(''); }}
@@ -1650,28 +1775,26 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     </p>
                   </div>
 
-                  {/* Live preview when advance is entered */}
+                  {/* Live preview when advance entered */}
                   {advanceAmount && !isNaN(parseFloat(advanceAmount)) && parseFloat(advanceAmount) > 0 && (
                     <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
                       <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Payment Preview</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#475569' }}>
-                          <span>Grand Total</span>
-                          <span style={{ fontWeight: 700, color: '#1e293b' }}>Rs. {fmtINR(grandTotal)}</span>
+                          <span>Grand Total</span><span style={{ fontWeight: 700, color: '#1e293b' }}>₹{fmtINR(grandTotal)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#059669' }}>
-                          <span>Advance Paid</span>
-                          <span style={{ fontWeight: 700 }}>− Rs. {fmtINR(parseFloat(advanceAmount))}</span>
+                          <span>Advance Paid</span><span style={{ fontWeight: 700 }}>− ₹{fmtINR(parseFloat(advanceAmount))}</span>
                         </div>
                         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: '#dc2626' }}>
                           <span>Outstanding Balance</span>
-                          <span>Rs. {fmtINR(Math.max(0, grandTotal - parseFloat(advanceAmount)))}</span>
+                          <span>₹{fmtINR(Math.max(0, grandTotal - parseFloat(advanceAmount)))}</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Error message */}
+                  {/* Error */}
                   {invoiceError && (
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626', lineHeight: 1.5 }}>
                       <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -1700,7 +1823,6 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                   </div>
                 </div>
               )}
-
             </div>
           </div>
         </div>
@@ -1781,7 +1903,6 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           </button>
         </div>
       )}
-
     </>
   );
 }

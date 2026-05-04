@@ -9,8 +9,9 @@ import { getClients } from '../../services/clients';
 import { getQuotations, QUOTATION_COMPANIES, getQuotationCompanyName } from '../../services/quotation';
 import { getProformas } from '../../services/proforma';
 import { getInvoices, cancelInvoice } from '../../services/invoices';
+import { normalizeInvoiceType } from '../../services/invoiceHelpers';
 import { useRole } from '../../components/RoleContext';
-import invoicesConfig, { getColumns, isInvoiceCancelled } from './invoices.config';
+import invoicesConfig, { getColumns } from './invoices.config';
 import DynamicList from '../../components/DynamicList/DynamicList';
 
 /**
@@ -710,7 +711,7 @@ export default function InvoicesList() {
   });
   const [showSelectModal,  setShowSelectModal]  = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdInvoice,   setCreatedInvoice]   = useState(null);
+  const [createdInvoice] = useState(null);
   const [stats, setStats] = useState({ total: 0, total_amount: 0, paid_amount: 0, unpaid_amount: 0 });
 
   // Cancel state
@@ -807,12 +808,18 @@ export default function InvoicesList() {
     setCurrentPage(1);
     lastFetchParams.current = null;
   };
-  const handleRowClick = (invoice) => navigate(`/invoices/${invoice.id}`, {
-    state: {
-      invoiceType: invoice?.invoice_type || '',
-      invoiceData: invoice || null,
-    },
-  });
+  const handleRowClick = (invoice) => {
+    // Normalise to the canonical type key ('regulatory' | 'execution' | 'vendor' | '')
+    // so viewinvoicedetails.jsx hits the correct typed endpoint on the first try —
+    // same pattern used by proformaList → viewproformadetails (proformaType hint).
+    const invoiceType = normalizeInvoiceType(invoice?.invoice_type || '');
+    navigate(`/invoices/${invoice.id}`, {
+      state: {
+        invoiceType,          // canonical type hint → skips endpoint cascade in detail page
+        invoiceData: invoice, // full list-row data → skips extra list fetch in detail page
+      },
+    });
+  };
   const handleViewInvoice = () => {
     setShowSuccessModal(false);
     if (createdInvoice?.id) navigate(`/invoices/${createdInvoice.id}`);

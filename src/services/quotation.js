@@ -10,7 +10,7 @@ import api, { normalizeError } from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
+const ENABLE_SERVICE_LOGGING = import.meta.env.MODE === 'development';
 
 const serviceLogger = {
   log: (...args) => {

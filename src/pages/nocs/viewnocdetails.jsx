@@ -83,7 +83,6 @@ const toDateInputValue = (isoStr) => {
 // ─── Status Pill ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
-  const { Icon } = status;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -91,7 +90,7 @@ const StatusPill = ({ status }) => {
       border: `1px solid ${status.border}`,
       fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20,
     }}>
-      <Icon size={11} /> {status.label}
+      <status.Icon size={11} /> {status.label}
     </span>
   );
 };
@@ -101,7 +100,7 @@ const StatusPill = ({ status }) => {
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
     <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-      <Icon size={10} /> {label}
+      {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
       {value || '—'}
@@ -396,7 +395,7 @@ const ApproveModal = ({ nocId, nocIdDisplay, onClose, onSuccess }) => {
 
 // ─── REJECT MODAL ─────────────────────────────────────────────────────────────
 
-const RejectModal = ({ nocId, nocIdDisplay, onClose, onSuccess }) => {
+const RejectModal = ({ nocId, onClose, onSuccess }) => {
   const [reason,    setReason]    = useState('');
   const [error,     setError]     = useState('');
   const [apiError,  setApiError]  = useState('');
@@ -552,7 +551,7 @@ const UpdateNocModal = ({ noc, nocIdDisplay, onClose, onSuccess }) => {
   const SecHdr = ({ icon: Icon, label, color, bg }) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 800, color, textTransform: 'uppercase', letterSpacing: '.1em', padding: '4px 0 10px', borderBottom: '1.5px solid #f0f4f8', marginBottom: 14, marginTop: 4 }}>
       <div style={{ width: 24, height: 24, borderRadius: 7, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Icon size={12} color={color} />
+        {Icon && <Icon size={12} color={color} />}
       </div>
       {label}
     </div>
@@ -1463,7 +1462,7 @@ export default function ViewNocDetails({ onUpdateNavigation }) {
       {/* ══════════ MODALS ══════════ */}
       {showSubmitModal  && <SubmitModal  nocId={id} nocIdDisplay={nocIdDisplay} onClose={() => setShowSubmitModal(false)}  onSuccess={onSubmitSuccess}  />}
       {showApproveModal && <ApproveModal nocId={id} nocIdDisplay={nocIdDisplay} onClose={() => setShowApproveModal(false)} onSuccess={onApproveSuccess} />}
-      {showRejectModal  && <RejectModal  nocId={id} nocIdDisplay={nocIdDisplay} onClose={() => setShowRejectModal(false)}  onSuccess={onRejectSuccess}  />}
+      {showRejectModal  && <RejectModal  nocId={id} onClose={() => setShowRejectModal(false)}  onSuccess={onRejectSuccess}  />}
       {showUpdateModal  && <UpdateNocModal noc={noc} nocIdDisplay={nocIdDisplay} onClose={() => setShowUpdateModal(false)} onSuccess={onUpdateSuccess} />}
       {showReapplyModal && <ReapplyModal  nocId={id} nocIdDisplay={nocIdDisplay} onClose={() => setShowReapplyModal(false)} onSuccess={onReapplySuccess} onViewNew={onViewNewNoc} />}
 

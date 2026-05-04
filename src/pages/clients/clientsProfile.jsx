@@ -549,7 +549,7 @@ export default function ClientProfile() {
       } else {
         setClientProjects([]);
       }
-    } catch (err) {
+    } catch {
       setProjectsError('Failed to load projects');
       setClientProjects([]);
     } finally {
@@ -576,7 +576,7 @@ export default function ClientProfile() {
       } else {
         setClientInvoices([]);
       }
-    } catch (err) {
+    } catch {
       setInvoicesError('Failed to load invoices');
       setClientInvoices([]);
     } finally {
@@ -712,7 +712,6 @@ export default function ClientProfile() {
   const state = client.state || '';
   const pincode = client.pincode || '';
   const gstNumber = client.gst_number || 'N/A';
-  const sacCode = client.sac_code || 'N/A';
   
   // Construct full address
   const fullAddress = [address, city, state, pincode]

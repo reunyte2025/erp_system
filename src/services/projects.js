@@ -16,7 +16,7 @@ import api from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
+const ENABLE_SERVICE_LOGGING = import.meta.env.MODE === 'development';
 
 const serviceLogger = {
   log: (...args) => ENABLE_SERVICE_LOGGING && console.log('[Projects Service]', ...args),
@@ -41,31 +41,6 @@ const ENDPOINTS = {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-/**
- * Clean payload by removing empty, null, or undefined values
- * This prevents sending unnecessary fields to the API
- */
-const cleanPayload = (data) => {
-  const cleaned = {};
-  
-  Object.entries(data).forEach(([key, value]) => {
-    // Only include non-empty values
-    if (value !== null && value !== undefined && value !== '') {
-      // Trim strings
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed) {
-          cleaned[key] = trimmed;
-        }
-      } else {
-        cleaned[key] = value;
-      }
-    }
-  });
-  
-  return cleaned;
-};
 
 /**
  * Parse API errors into user-friendly messages.
