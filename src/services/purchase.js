@@ -20,7 +20,7 @@ import api, { handleApiError, normalizeError } from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
+const ENABLE_SERVICE_LOGGING = import.meta.env.MODE === 'development';
 
 const serviceLogger = {
   log:   (...args) => ENABLE_SERVICE_LOGGING && console.log('[Purchase Service]', ...args),
@@ -234,22 +234,21 @@ export const updatePurchaseOrder = async (payload) => {
  * @param {string} [poNumber] - Used as the downloaded filename (optional)
  * @throws {Error} If PDF generation or download fails
  */
-export const generatePurchaseOrderPdf = async (id, poNumber) => {
+export const generatePurchaseOrderPdf = async (id, { company_name = '', address = '', contact_person = '', subject = '', extra_notes = [] } = {}, fileName = null) => {
+  if (!id) throw new Error('Purchase Order ID is required');
   try {
-    if (!id) throw new Error('Purchase Order ID is required');
-
     serviceLogger.log(`Generating PDF for purchase order ${id}...`);
 
     const response = await api.post(
       ENDPOINTS.GENERATE_PDF,
-      {},
-      { params: { id }, responseType: 'blob' }
+      { id: parseInt(id), company_name, address, contact_person, subject, extra_notes },
+      { responseType: 'blob' }
     );
 
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
-    const downloadName = poNumber ? `${poNumber}.pdf` : `PurchaseOrder_${id}.pdf`;
+    const downloadName = fileName || `PurchaseOrder_${id}.pdf`;
     link.setAttribute('download', downloadName);
     document.body.appendChild(link);
     link.click();

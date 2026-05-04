@@ -1,176 +1,72 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
   CheckCircle, Clock, Send, FileText, XCircle,
   Building2, User, MapPin, Hash, Calendar,
-  Tag, Percent, ChevronRight, Mail, FileEdit,
+  Tag, Percent, ChevronRight, ChevronDown, Mail, FileEdit,
   ThumbsUp, ThumbsDown, Receipt,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
   Edit, X, Paperclip, FileSearch, Wrench,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, updateRegulatoryProforma, updateExecutionProforma, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateConstructiveProformaPdf, generateOtherProformaPdf, sendProformaToClient } from '../../services/proforma';
+import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateConstructiveProformaPdf, generateOtherProformaPdf, sendProformaToClient } from '../../services/proforma';
 import { createRegulatoryInvoice, createExecutionInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
 import { useRole } from '../../components/RoleContext';
-import { getQuotationCompanyName } from '../../services/quotation';
+import { getQuotationCompanyName, QUOTATION_COMPANIES } from '../../services/quotation';
 import api from '../../services/api';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Helpers & constants (from shared module) ────────────────────────────────
+import {
+  COMPLIANCE_CATEGORIES,
+  SUB_COMPLIANCE_CATEGORIES,
+  COMPLIANCE_GROUPS,
+  fmtPNum,
+  fmtINR,
+  fmtDate,
+  groupItemsByCategory,
+  getComplianceType,
+  numberToWords,
+  calcItemTotal,
+  getExecutionDisplayValues,
+  hasExecutionRateBreakdown,
+} from '../../services/proformaHelpers';
 
-const COMPLIANCE_CATEGORIES = {
-  1: 'Construction Certificate',
-  2: 'Occupational Certificate',
-  3: 'Water Main Commissioning',
-  4: 'STP Commissioning',
-  5: 'Water Connection',
-  6: 'SWD Line Work',
-  7: 'Sewer/Drainage Line Work',
-};
+// ─── Table component ─────────────────────────────────────────────────────────
+import ProformaTypeTable from './ProformaTypeTable';
 
-const SUB_COMPLIANCE_CATEGORIES = {
-  1: { id: 1, name: 'Plumbing Compliance' },
-  2: { id: 2, name: 'PCO Compliance' },
-  3: { id: 3, name: 'General Compliance' },
-  4: { id: 4, name: 'Road Setback Handing over' },
-  0: { id: 0, name: 'Default' },
-  5: { id: 5, name: 'Internal Water Main' },
-  6: { id: 6, name: 'Permanent Water Connection' },
-  7: { id: 7, name: 'Pipe Jacking Method' },
-  8: { id: 8, name: 'HDD Method' },
-  9: { id: 9, name: 'Open Cut Method' },
-};
+// ─── Company GST applicability ────────────────────────────────────────────────
+// Company ID 1 (Constructive India) is GST applicable.
+// Company IDs 2, 3, 4 are NOT GST applicable.
+const GST_APPLICABLE_COMPANY_ID = 1;
 
-const COMPLIANCE_GROUPS = {
-  certificates: [1, 2],
-  execution: [5, 6, 7],
-};
-
-// STATUS_CONFIG — aligned with backend Proforma model:
-// 1=Draft  2=Sent (pending approval)  3=Approved  4=Rejected  5=Expired
+// ─── Status config (with Lucide Icon refs, kept local so no React in helpers) ─
 const STATUS_CONFIG = {
-  '1':         { label: 'Draft',               Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':         { label: 'Sent for Approval',   Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':         { label: 'Approved',            Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '4':         { label: 'Rejected',            Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '5':         { label: 'Expired',             Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
-  'draft':     { label: 'Draft',               Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'sent':      { label: 'Sent for Approval',   Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'approved':  { label: 'Approved',            Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'rejected':  { label: 'Rejected',            Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'expired':   { label: 'Expired',             Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  '1':        { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  '2':        { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  '3':        { label: 'Approved',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  '4':        { label: 'Rejected',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  '5':        { label: 'Expired',           Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  'draft':    { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'sent':     { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'approved': { label: 'Approved',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'rejected': { label: 'Rejected',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'expired':  { label: 'Expired',           Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmtPNum = (n) => {
-  if (!n) return '—';
-  if (String(n).startsWith('PF-')) return String(n);
-  const s = String(n);
-  if (s.length >= 8) return `PF-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-  return `PF-2026-${String(n).padStart(5, '0')}`;
-};
-
-const fmtINR = (v) => {
-  const n = parseFloat(v) || 0;
-  return new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-};
-
-const fmtDate = (ds) => {
-  if (!ds) return '—';
-  try { return new Date(ds).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-  catch { return '—'; }
-};
-
-const isMiscNumeric = (v) => {
-  if (v === '' || v == null) return false;
-  const s = String(v).trim();
-  return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
-};
-
-// getStatus: tries numeric string key first (e.g. '3'), then lowercase string (e.g. 'approved')
-const getStatus = (s) => {
+// getStatus with Icon — overrides the pure helper so Icon is available in JSX
+const getStatusWithIcon = (s) => {
   const key = String(s || '');
   return STATUS_CONFIG[key] || STATUS_CONFIG[key.toLowerCase()] || STATUS_CONFIG['1'];
 };
 
-const groupItemsByCategory = (items = []) => {
-  const groups = {};
-  items.forEach((item) => {
-    const catId = item.compliance_category ?? item.category ?? null;
-    const key = catId != null ? String(catId) : 'other';
-    if (!groups[key]) {
-      groups[key] = {
-        catId,
-        catName: catId != null ? (COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`) : 'Other Services',
-        items: [],
-      };
-    }
-    groups[key].items.push(item);
-  });
-  return Object.values(groups);
-};
-
-// ─── Number to words ──────────────────────────────────────────────────────────
-
-/**
- * Determine compliance type from items
- * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
- */
-const getComplianceType = (items = []) => {
-  const hasCerts = items.some(it => [1, 2, 3, 4].includes(Number(it.compliance_category)));
-  const hasExec  = items.some(it => [5, 6, 7].includes(Number(it.compliance_category)));
-  if (hasCerts && hasExec) return 'mixed';
-  if (hasCerts) return 'certificates';
-  if (hasExec)  return 'execution';
-  return 'none';
-};
-
-/**
- * Get display text for compliance type
- */
-const getComplianceTypeLabel = (items = []) => {
-  const type = getComplianceType(items);
-  switch (type) {
-    case 'certificates': return 'Regulatory Compliance';
-    case 'execution':    return 'Execution Compliance';
-    case 'mixed':        return 'Mixed Compliance (Certificates & Execution)';
-    default:             return 'No Compliance Items';
-  }
-};
-
-function numberToWords(n) {
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
-    'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const convert = (num) => {
-    if (num === 0) return '';
-    if (num < 20) return ones[num] + ' ';
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '') + ' ';
-    if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred ' + convert(num % 100);
-    if (num < 100000) return convert(Math.floor(num / 1000)) + 'Thousand ' + convert(num % 1000);
-    if (num < 10000000) return convert(Math.floor(num / 100000)) + 'Lakh ' + convert(num % 100000);
-    return convert(Math.floor(num / 10000000)) + 'Crore ' + convert(n % 10000000);
-  };
-  const int = Math.floor(Math.abs(n));
-  const dec = Math.round((Math.abs(n) - int) * 100);
-  let str = convert(int).trim() || 'Zero';
-  if (dec > 0) str += ` and ${convert(dec).trim()} Paise`;
-  return str;
-}
-
-// ─── Sub-components ────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
-  const { Icon } = status;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -178,7 +74,7 @@ const StatusPill = ({ status }) => {
       border: `1px solid ${status.border}`,
       fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20,
     }}>
-      <Icon size={11} /> {status.label}
+      <status.Icon size={11} /> {status.label}
     </span>
   );
 };
@@ -186,7 +82,7 @@ const StatusPill = ({ status }) => {
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
     <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-      <Icon size={10} /> {label}
+      {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
       {value || '—'}
@@ -222,27 +118,6 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 
 const QuickInfoCard = ({ proforma, client, project }) => {
   const [activeTab, setActiveTab] = useState('info');
-
-  const timeline = [
-    {
-      title: 'Proforma Generated',
-      sub: fmtDate(proforma.created_at),
-      color: '#059669', bg: '#ecfdf5', border: '#bbf7d0',
-      Icon: CheckCircle, pending: false,
-    },
-    ...(proforma.updated_at && proforma.updated_at !== proforma.created_at ? [{
-      title: 'Last Updated',
-      sub: fmtDate(proforma.updated_at),
-      color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe',
-      Icon: FileEdit, pending: false,
-    }] : []),
-    {
-      title: 'Awaiting Client Approval',
-      sub: 'Pending client response',
-      color: '#d97706', bg: '#fffbeb', border: '#fcd34d',
-      Icon: Clock, pending: true,
-    },
-  ];
 
   const clientDisplayName = client
     ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Unknown Client'
@@ -353,9 +228,9 @@ const QuickInfoCard = ({ proforma, client, project }) => {
             </div>
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
               {[
-                { label: 'GST Rate',      value: `${parseFloat(proforma.gst_rate || 0)}%`,       color: '#2563eb' },
-                { label: 'Discount',      value: parseFloat(proforma.discount_rate || 0) > 0 ? `${parseFloat(proforma.discount_rate)}%` : 'Nil', color: '#ea580c' },
-                { label: 'SAC Code',      value: proforma.sac_code || '—',                         color: '#0f766e' },
+                { label: 'GST Rate',  value: `${parseFloat(proforma.gst_rate || 0)}%`,       color: '#2563eb' },
+                { label: 'Discount',  value: parseFloat(proforma.discount_rate || 0) > 0 ? `${parseFloat(proforma.discount_rate)}%` : 'Nil', color: '#ea580c' },
+                { label: 'SAC Code', value: proforma.sac_code || '—',                          color: '#0f766e' },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
@@ -379,7 +254,6 @@ const QuickInfoCard = ({ proforma, client, project }) => {
       {activeTab === 'timeline' && (() => {
         const entries = proforma.metadata || [];
 
-        // Derive icon + color from event string
         const getEventStyle = (event = '') => {
           const e = event.toLowerCase();
           if (e.includes('approved'))          return { color: '#059669', bg: '#ecfdf5', border: '#bbf7d0', dot: '✅' };
@@ -409,35 +283,22 @@ const QuickInfoCard = ({ proforma, client, project }) => {
 
         return (
           <div style={{ padding: '14px 14px', position: 'relative', maxHeight: 400, overflowY: 'auto' }}>
-            {/* vertical connector line */}
             <div style={{ position: 'absolute', left: 33, top: 24, bottom: 24, width: 2, background: 'linear-gradient(to bottom,#0d9488 0%,#e2e8f0 100%)', borderRadius: 2, zIndex: 0 }} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', zIndex: 1 }}>
               {entries.map((ev, i) => {
-                const style = getEventStyle(ev.event || '');
-                const ts    = ev.timestamp || ev.timespan || '';
+                const style  = getEventStyle(ev.event || '');
+                const ts     = ev.timestamp || ev.timespan || '';
                 const isLast = i === entries.length - 1;
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingBottom: isLast ? 0 : 14 }}>
-                    {/* dot */}
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: style.bg, border: `2px solid ${style.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 0 3px #fff', fontSize: 13 }}>
+                  <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: isLast ? 0 : 16, position: 'relative' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: style.bg, border: `1.5px solid ${style.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, zIndex: 1, position: 'relative' }}>
                       {style.dot}
                     </div>
-                    {/* content */}
-                    <div style={{ flex: 1, paddingTop: 4, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: style.color, lineHeight: 1.4, marginBottom: 2, wordBreak: 'break-word' }}>
-                        {ev.event || 'Event'}
-                      </div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500, marginBottom: 1 }}>
-                        {fmtMetaTime(ts)}
-                      </div>
-                      {ev.by && (
-                        <div style={{ fontSize: 10, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 800, flexShrink: 0 }}>
-                            {ev.by.charAt(0).toUpperCase()}
-                          </span>
-                          {ev.by}
-                        </div>
-                      )}
+                    <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: style.color, lineHeight: 1.3 }}>{ev.event || 'Event'}</div>
+                      {ev.reason && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>Reason: {ev.reason}</div>}
+                      {ev.updated_by && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>By: {ev.updated_by}</div>}
+                      {ts && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{fmtMetaTime(ts)}</div>}
                     </div>
                   </div>
                 );
@@ -450,49 +311,7 @@ const QuickInfoCard = ({ proforma, client, project }) => {
   );
 };
 
-const calcItemTotal = (item) => {
-  const qty = parseInt(item.quantity) || 1;
-
-  if (
-    item.material_amount !== undefined ||
-    item.labour_amount !== undefined ||
-    item.material_rate !== undefined ||
-    item.labour_rate !== undefined
-  ) {
-    const prof = parseFloat(item.Professional_amount) || 0;
-    const matRate = parseFloat(item.material_rate) || 0;
-    const labRate = parseFloat(item.labour_rate) || 0;
-    const matAmt = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
-    const labAmt = (parseFloat(item.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
-    if (matAmt > 0 || labAmt > 0) {
-      return parseFloat((matAmt + labAmt).toFixed(2));
-    }
-    return parseFloat((prof * qty).toFixed(2));
-  }
-
-  const prof = parseFloat(item.Professional_amount || 0);
-  const miscSource = item.consultancy_charges ?? item.miscellaneous_amount;
-  const misc = isMiscNumeric(miscSource) ? parseFloat(miscSource) : 0;
-  return parseFloat(((prof + misc) * qty).toFixed(2));
-};
-
-const getExecutionDisplayValues = (item) => {
-  const qty = parseInt(item.quantity) || 1;
-  const prof = parseFloat(item.Professional_amount) || 0;
-  const matRate = parseFloat(item.material_rate || 0);
-  const labRate = parseFloat(item.labour_rate || 0);
-  const matAmt = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
-  const labAmt = (parseFloat(item.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
-  return { qty, prof, matRate, labRate, matAmt, labAmt };
-};
-
-const hasExecutionRateBreakdown = (item) => {
-  const { matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
-  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
-};
-
-
-// ─── Send to Client Modal ────────────────────────────────────────────────────
+// ─── Send to Client Modal ─────────────────────────────────────────────────────
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
@@ -542,10 +361,10 @@ const SendToClientModal = ({ proforma, client, pNum, issuedDate, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
-      <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={onClose} />
-      <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-        <div className="relative bg-white" style={{ borderRadius: 18, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.24)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
+      <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 20, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 520, overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }} onClick={e => e.stopPropagation()}>
+        <div style={{ height: 4, background: 'linear-gradient(90deg,#0f766e,#14b8a6)' }} />
 
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
@@ -631,8 +450,6 @@ const SendToClientModal = ({ proforma, client, pNum, issuedDate, onClose }) => {
               </div>
             </div>
           )}
-
-        </div>
       </div>
     </div>
   );
@@ -643,8 +460,14 @@ const SendToClientModal = ({ proforma, client, pNum, issuedDate, onClose }) => {
 export default function ViewProformaDetails({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // ── Role-based access via RoleContext (set by AuthenticatedLayout) ──────────
+  // proformaType may be passed via navigate() state from the list page:
+  //   navigate(`/proforma/${row.id}`, { state: { proformaType: row.proforma_type } })
+  // This lets getProformaById call the correct typed endpoint immediately,
+  // without a trial-and-error round-trip to the wrong endpoint.
+  const proformaTypeHint = location.state?.proformaType || '';
+
   const { userRole } = useRole();
   const isAdminOrManager = userRole === 'Admin' || userRole === 'Manager';
 
@@ -660,7 +483,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [scopeError,    setScopeError]    = useState('');
   const [pdfError,      setPdfError]      = useState('');
 
-  // ── PDF modal extra fields (company-specific) ────────────────────────────────
   const [pdfCompanyName,   setPdfCompanyName]   = useState('');
   const [pdfAddress,       setPdfAddress]       = useState('');
   const [pdfGstNo,         setPdfGstNo]         = useState('');
@@ -676,13 +498,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [pdfCode,          setPdfCode]          = useState('');
   const [visible,       setVisible]       = useState(false);
 
-  // ── Edit mode state (mirrors viewquotationdetails exactly) ───────────────────
   const [editMode,    setEditMode]    = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [saveError,   setSaveError]   = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // ── Approval flow state ───────────────────────────────────────────────────────
   const [sendModal,             setSendModal]             = useState(false);
   const [showUpdateReasonModal, setShowUpdateReasonModal] = useState(false);
   const [updateReason,          setUpdateReason]          = useState('');
@@ -695,36 +515,56 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [rejectReasonError,   setRejectReasonError]   = useState('');
   const [approvalToast,       setApprovalToast]       = useState('');
 
-  // ── Generate Invoice modal state ─────────────────────────────────────────────
   const [showInvoiceModal,   setShowInvoiceModal]   = useState(false);
   const [advanceAmount,      setAdvanceAmount]      = useState('');
   const [invoiceGenerating,  setInvoiceGenerating]  = useState(false);
-  const [invoiceChecking,    setInvoiceChecking]    = useState(false); // true while pre-checking for existing invoice
+  const [invoiceChecking,    setInvoiceChecking]    = useState(false);
   const [invoiceError,       setInvoiceError]       = useState('');
-  const [invoiceSuccess,     setInvoiceSuccess]     = useState(null); // holds created invoice object
+  const [invoiceSuccess,     setInvoiceSuccess]     = useState(null);
 
-  // ── Invoice Already Exists toast state (mirrors proformaModal in viewquotationdetails) ──
   const [invoiceModal, setInvoiceModal] = useState({
-    open: false,
-    invoiceId: null,
-    invoiceNum: '',
-    invoiceType: '',
-    alreadyExists: false,
-    genericError: '',
+    open: false, invoiceId: null, invoiceNum: '', invoiceType: '', alreadyExists: false, genericError: '',
   });
 
   const [editSacCode,  setEditSacCode]  = useState('');
   const [editGstRate,  setEditGstRate]  = useState(0);
   const [editDiscRate, setEditDiscRate] = useState(0);
   const [editItems,    setEditItems]    = useState([]);
+  const [editCompany,  setEditCompany]  = useState(1);
+  const [companyDropOpen, setCompanyDropOpen] = useState(false);
+  const [dropdownPos,    setDropdownPos]    = useState({ top: 0, left: 0 });
+  const companyDropRef  = useRef(null);
+  const companyBtnRef   = useRef(null);
 
-  // ── Compliance modal state — handled by AddComplianceModal component ────────
+  const openCompanyDrop = () => {
+    if (companyBtnRef.current) {
+      const rect = companyBtnRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 8, left: rect.left });
+    }
+    setCompanyDropOpen(o => !o);
+  };
+
+  useEffect(() => {
+    if (!companyDropOpen) return;
+    const handler = (e) => {
+      if (
+        companyDropRef.current && !companyDropRef.current.contains(e.target) &&
+        companyBtnRef.current  && !companyBtnRef.current.contains(e.target)
+      ) {
+        setCompanyDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [companyDropOpen]);
+
   const [showAddSection, setShowAddSection] = useState(false);
 
-  // Scroll lock when modal open
-  // Lock body scroll whenever ANY modal is open — prevents blue/scrollable background
+  // ── Scroll lock — only for modals that overlay inline content (add section, reason, reject, invoice)
+  //    sendModal and showPdfModal intentionally do NOT lock the body scroll so the background
+  //    stays scrollable and keeps its normal appearance, matching the quotation detail page behaviour.
   useEffect(() => {
-    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || sendModal || showPdfModal;
+    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || showInvoiceModal;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = 'fixed';
@@ -745,14 +585,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       document.body.style.width = '';
       document.body.style.overflow = '';
     };
-  }, [showAddSection, showUpdateReasonModal, showRejectModal, sendModal, showInvoiceModal, showPdfModal]);
+  }, [showAddSection, showUpdateReasonModal, showRejectModal, showInvoiceModal]);
 
   // ── Compliance modal helpers ─────────────────────────────────────────────────
 
-  /**
-   * fetchDescriptionsForModal — passed to AddComplianceModal as fetchDescriptions prop.
-   * Calls the proforma service and returns a plain array of description objects.
-   */
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
     const res = await getComplianceByCategory(categoryId, subCategoryId || null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
@@ -761,19 +597,12 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   const handleOpenAddSection = () => setShowAddSection(true);
 
-  /**
-   * Called by AddComplianceModal when user clicks "Save Compliance".
-   * Normalizes modal-emitted items into the editItems shape — mirrors viewquotationdetails.jsx exactly.
-   * Modal emits: description, compliance_category, sub_compliance_category,
-   *              Professional_amount, miscellaneous_amount (regulatory),
-   *              material_rate, material_amount, labour_rate, labour_amount, sac_code (execution)
-   */
   const handleComplianceSave = (newFlatItems) => {
     const EXECUTION_CATS = [5, 6, 7];
     const normalized = newFlatItems.map(item => {
       const isExec = EXECUTION_CATS.includes(parseInt(item.compliance_category));
       const base = {
-        id:                      null, // new — backend assigns
+        id:                      null,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
         unit:                    String(item.unit || '').trim() || '',
@@ -783,22 +612,20 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         total_amount:            parseFloat(item.total_amount) || 0,
       };
       if (isExec) {
-        // Execution: include all rate/amount fields; omit consultancy_charges/miscellaneous_amount
         return {
           ...base,
-          sac_code:             String(item.sac_code || '').trim(),
-          material_rate:        parseFloat(item.material_rate)   || 0,
-          material_amount:      parseFloat(item.material_amount) || 0,
-          labour_rate:          parseFloat(item.labour_rate)     || 0,
-          labour_amount:        parseFloat(item.labour_amount)   || 0,
+          sac_code:        String(item.sac_code || '').trim(),
+          material_rate:   parseFloat(item.material_rate)   || 0,
+          material_amount: parseFloat(item.material_amount) || 0,
+          labour_rate:     parseFloat(item.labour_rate)     || 0,
+          labour_amount:   parseFloat(item.labour_amount)   || 0,
         };
       } else {
-        // Regulatory: include consultancy_charges; do NOT include execution rate fields
         const miscRaw = item.miscellaneous_amount ?? item.consultancy_charges ?? '';
         return {
           ...base,
-          consultancy_charges:   (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
-          miscellaneous_amount:  (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '' : String(miscRaw),
+          consultancy_charges:  (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
+          miscellaneous_amount: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '' : String(miscRaw),
         };
       }
     });
@@ -810,11 +637,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   const enterEditMode = () => {
     if (!proforma) return;
-    // Block editing when sent for approval, approved, or expired
     if (isSent() || isApproved() || isExpired()) return;
     setEditSacCode(proforma.sac_code || '');
     setEditGstRate(parseFloat(proforma.gst_rate || 0));
     setEditDiscRate(parseFloat(proforma.discount_rate || 0));
+    setEditCompany(parseInt(proforma.company) || 1);
     setEditItems((proforma.items || []).map(it => ({
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
@@ -838,9 +665,19 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   const cancelEditMode = () => { setEditMode(false); setSaveError(''); };
 
+  // ── GST applicability — derived from the selected company in edit mode,
+  //    or the saved company in view mode. Only company ID 1 is GST applicable.
+  const isGSTApplicable = proforma
+    ? (editMode ? parseInt(editCompany) : parseInt(proforma.company)) === GST_APPLICABLE_COMPANY_ID
+    : true; // safe default while loading
+
   const calcEditSubtotal   = () => parseFloat(editItems.reduce((s, it) => s + calcItemTotal(it), 0).toFixed(2));
   const calcEditDiscAmt    = (sub) => parseFloat(((sub * (editDiscRate || 0)) / 100).toFixed(2));
-  const calcEditGstAmt     = (sub, disc) => parseFloat((((sub - disc) * (editGstRate || 0)) / 100).toFixed(2));
+  // GST fix: non-GST companies always return 0 regardless of editGstRate
+  const calcEditGstAmt     = (sub, disc) => {
+    if (!isGSTApplicable) return 0;
+    return parseFloat((((sub - disc) * (editGstRate || 0)) / 100).toFixed(2));
+  };
   const calcEditGrandTotal = () => {
     const sub  = calcEditSubtotal();
     const disc = calcEditDiscAmt(sub);
@@ -854,7 +691,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       const updated = { ...it, [field]: value };
       const qty = parseInt(updated.quantity) || 1;
 
-      // Bidirectional rate/amount sync for Execution items
       if (field === 'material_rate') {
         updated.material_amount = parseFloat(((parseFloat(value) || 0) * qty).toFixed(2));
       } else if (field === 'material_amount') {
@@ -897,18 +733,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       if (isExecutionItem && !hasExecutionValue) { setSaveError('Execution items must have a professional, material, or labour amount greater than 0.'); return; }
       if (!isExecutionItem && (parseFloat(it.Professional_amount) || 0) <= 0) { setSaveError('Professional amount must be > 0 for all regulatory items.'); return; }
     }
-    // For Regulatory: top-level SAC code is required.
-    // For Execution: top-level SAC code is optional — each item carries its own sac_code.
     const isExecType = (proforma?.proforma_type || '').toLowerCase().includes('execution') ||
       editItems.some(it => [5, 6, 7].includes(Number(it.compliance_category)));
     if (!isExecType && !editSacCode.trim()) { setSaveError('SAC Code is required.'); return; }
-    // All fields valid — open reason modal before submitting
     setUpdateReason('');
     setUpdateReasonError('');
     setShowUpdateReasonModal(true);
   };
 
-  // Step 2: called from the reason modal — actually submits to backend
+  // Step 2: actually submits to backend
   const handleSaveUpdateConfirm = async () => {
     if (!updateReason.trim()) { setUpdateReasonError('Please provide a reason for this update.'); return; }
     setUpdateReasonError('');
@@ -917,28 +750,33 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     try {
       const sub   = calcEditSubtotal();
       const disc  = calcEditDiscAmt(sub);
-      const gst   = calcEditGstAmt(sub, disc);
+      // GST fix: force 0 for non-GST companies before building payload
+      const gst   = isGSTApplicable ? calcEditGstAmt(sub, disc) : 0;
       const grand = sub - disc + gst;
 
-      // All payload building and item serialization is handled by the service layer.
-      // JSX only passes the raw UI state values — service decides routing + shape.
       const payload = {
         id:               parseInt(proforma.id),
         proforma_type:    proforma.proforma_type || '',
         client:           parseInt(proforma.client),
         project:          parseInt(proforma.project),
-        company:          parseInt(proforma.company) || 1,
+        company:          parseInt(editCompany) || 1,
         issue_date:       proforma.issue_date  || new Date().toISOString(),
         valid_until:      proforma.valid_until  || new Date().toISOString(),
         sac_code:         editSacCode.trim(),
-        gst_rate:         String(parseFloat(editGstRate  || 0).toFixed(2)),
+        // GST fix: always send "0.00" for non-GST companies
+        gst_rate:         isGSTApplicable
+                            ? String(parseFloat(editGstRate  || 0).toFixed(2))
+                            : '0.00',
         discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
         total_amount:     String(sub.toFixed(2)),
-        total_gst_amount: String(gst.toFixed(2)),
+        // GST fix: always send "0.00" for non-GST companies
+        total_gst_amount: isGSTApplicable
+                            ? String(gst.toFixed(2))
+                            : '0.00',
         grand_total:      String(grand.toFixed(2)),
         reason:           updateReason.trim(),
         status:           getProformaStatus() || 1,
-        items:            editItems,   // raw items — service layer normalizes fields
+        items:            editItems,
       };
 
       const data = await updateProformaFull(payload);
@@ -947,8 +785,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         const updated = data.data || data;
         setProforma(prev => ({
           ...prev, ...updated,
+          company:       editCompany,
+          company_name:  QUOTATION_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || prev.company_name,
           sac_code:      editSacCode.trim(),
-          gst_rate:      String(editGstRate),
+          gst_rate:      isGSTApplicable ? String(editGstRate) : '0',
           discount_rate: String(editDiscRate),
           total_amount:  sub, total_gst_amount: gst, grand_total: grand,
           items: updated.items || editItems.map(it => ({
@@ -990,26 +830,17 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     return () => onUpdateNavigation?.(null);
   }, [onUpdateNavigation]);
 
-  // ── Approval helpers ────────────────────────────────────────────────────────
-
-  // ── Status helpers — backend model: 1=Draft 2=Sent 3=Approved 4=Rejected 5=Expired ──
-  // Checks BOTH the numeric status field AND status_display string (case-insensitive)
-  // so it works correctly on fresh page load AND after optimistic UI updates.
+  // ── Status helpers ───────────────────────────────────────────────────────────
   const getProformaStatus = () => {
     const raw = proforma?.status;
-    // Could be integer 3, string '3', or string 'Approved' — normalise to int when possible
     const n = parseInt(raw);
     return isNaN(n) ? 0 : n;
   };
   const getStatusDisplay = () => String(proforma?.status_display ?? '').toLowerCase().trim();
 
-  const isDraft    = () => getProformaStatus() === 1 || getStatusDisplay() === 'draft';
   const isSent     = () => getProformaStatus() === 2 || getStatusDisplay() === 'sent';
   const isApproved = () => getProformaStatus() === 3 || getStatusDisplay() === 'approved';
-  const isRejected = () => getProformaStatus() === 4 || getStatusDisplay() === 'rejected';
   const isExpired  = () => getProformaStatus() === 5 || getStatusDisplay() === 'expired';
-
-  // isPendingApproval = proforma has been sent and is awaiting Admin/Manager action
   const isPendingApproval = () => isSent();
 
   const showApprovalToastMsg = (type) => {
@@ -1022,20 +853,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setSendingForApproval(true);
     try {
       await sendProformaForApproval(proforma.id);
-      // Optimistically update, then re-fetch real backend state
       setProforma(prev => ({ ...prev, status: 2, status_display: 'Sent' }));
       showApprovalToastMsg('sent');
       try {
-        const fresh = await getProformaById(proforma.id);
-        if (fresh?.status === 'success' && fresh?.data) {
-          setProforma(fresh.data);
-        }
+        const fresh = await getProformaById(proforma.id, proforma.proforma_type);
+        if (fresh?.status === 'success' && fresh?.data) setProforma(fresh.data);
       } catch { /* silently ignore */ }
     } catch (e) {
-      const msg = e.response?.data?.errors?.detail
-        || e.response?.data?.message
-        || e.response?.data?.detail
-        || 'Failed to send for approval.';
+      const msg = e.response?.data?.errors?.detail || e.response?.data?.message || e.response?.data?.detail || 'Failed to send for approval.';
       setSaveError(msg);
     } finally {
       setSendingForApproval(false);
@@ -1047,22 +872,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setApproving(true);
     try {
       await approveProforma(proforma.id);
-      // API returns data:true — not the updated proforma object.
-      // Optimistically update UI immediately, then re-fetch to sync real backend state.
       setProforma(prev => ({ ...prev, status: 3, status_display: 'Approved' }));
       showApprovalToastMsg('approved');
-      // Re-fetch to get the real persisted status so page reload stays consistent
       try {
-        const fresh = await getProformaById(proforma.id);
-        if (fresh?.status === 'success' && fresh?.data) {
-          setProforma(fresh.data);
-        }
-      } catch { /* silently ignore re-fetch error — optimistic state already set */ }
+        const fresh = await getProformaById(proforma.id, proforma.proforma_type);
+        if (fresh?.status === 'success' && fresh?.data) setProforma(fresh.data);
+      } catch { /* silently ignore */ }
     } catch (e) {
-      const msg = e.response?.data?.errors?.detail
-        || e.response?.data?.message
-        || e.response?.data?.detail
-        || 'Failed to approve proforma.';
+      const msg = e.response?.data?.errors?.detail || e.response?.data?.message || e.response?.data?.detail || 'Failed to approve proforma.';
       setSaveError(msg);
     } finally {
       setApproving(false);
@@ -1070,45 +887,29 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   };
 
   const handleRejectSubmit = async () => {
-    if (!rejectReason.trim()) {
-      setRejectReasonError('Please provide a reason for rejection.');
-      return;
-    }
+    if (!rejectReason.trim()) { setRejectReasonError('Please provide a reason for rejection.'); return; }
     setRejectReasonError('');
     setRejecting(true);
     try {
       await rejectProforma(proforma.id, rejectReason);
-      // Optimistically update UI, then re-fetch real backend state
       setProforma(prev => ({ ...prev, status: 4, status_display: 'Rejected' }));
       setShowRejectModal(false);
       setRejectReason('');
       showApprovalToastMsg('rejected');
-      // Re-fetch to ensure status persists correctly on reload
       try {
-        const fresh = await getProformaById(proforma.id);
-        if (fresh?.status === 'success' && fresh?.data) {
-          setProforma(fresh.data);
-        }
+        const fresh = await getProformaById(proforma.id, proforma.proforma_type);
+        if (fresh?.status === 'success' && fresh?.data) setProforma(fresh.data);
       } catch { /* silently ignore */ }
     } catch (e) {
-      const msg = e.response?.data?.errors?.detail
-        || e.response?.data?.message
-        || e.response?.data?.detail
-        || 'Failed to reject proforma.';
+      const msg = e.response?.data?.errors?.detail || e.response?.data?.message || e.response?.data?.detail || 'Failed to reject proforma.';
       setRejectReasonError(msg);
     } finally {
       setRejecting(false);
     }
   };
 
-  // ── Helper: fetch the invoice that belongs to this specific proforma ─────────
-  // The backend's get_all_invoices does not reliably filter by proforma param,
-  // so we fetch the first page and match client-side by proforma id.
-  // ── Invoice number formatter — display EXACTLY as returned by API, never reformat ──
   const fmtInvNum = (n) => n ? String(n) : '—';
 
-  // ── Extract the shared trailing digits from a proforma/invoice number ─────────
-  // e.g. "PF-2026-3075433" → "3075433", "INV-202603-3075433" → "3075433"
   const extractTrailingDigits = (numStr) => {
     if (!numStr) return '';
     const s = String(numStr);
@@ -1116,20 +917,12 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     return lastDash >= 0 ? s.substring(lastDash + 1) : s;
   };
 
-  // ── Find the invoice for THIS proforma by matching shared trailing digits ─────
-  // The backend invoice number is derived from the proforma number, so they share
-  // the same trailing segment (e.g. PF-2026-3075433 → INV-202603-3075433).
-  // get_all_invoices has NO proforma filter param, so we match client-side.
   const fetchInvoiceForThisProforma = async () => {
     const proformaTrailing = extractTrailingDigits(proforma.proforma_number || String(proforma.id));
-    const res = await api.get('/invoices/get_all_invoices/', {
-      params: { page: 1, page_size: 100 },
-    });
+    const res = await api.get('/invoices/get_all_invoices/', { params: { page: 1, page_size: 100 } });
     const results = res.data?.data?.results || res.data?.results || [];
-    // First try: match by proforma field on the invoice object (most reliable)
     const proformaId = Number(proforma.id);
     let match = results.find((inv) => Number(inv.proforma) === proformaId);
-    // Second try: match by shared trailing digits in invoice_number
     if (!match && proformaTrailing) {
       match = results.find((inv) => {
         const invTrailing = extractTrailingDigits(inv.invoice_number);
@@ -1139,81 +932,42 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     return match || null;
   };
 
-  // ── Dismiss invoice modal helper ─────────────────────────────────────────────
   const dismissInvoiceModal = () =>
     setInvoiceModal({ open: false, invoiceId: null, invoiceNum: '', invoiceType: '', alreadyExists: false, genericError: '' });
 
-  // ── Generate Invoice button click ─────────────────────────────────────────────
-  // Pre-checks for an existing invoice BEFORE opening the modal so the modal
-  // never opens if an invoice already exists. Uses fetchInvoiceForThisProforma
-  // which matches by proforma field AND by shared trailing digits.
   const handleInvoiceButtonClick = async () => {
     if (!isApproved()) return;
     setInvoiceChecking(true);
     try {
       const existing = await fetchInvoiceForThisProforma();
       if (existing) {
-        setInvoiceModal({
-          open: true,
-          invoiceId: existing.id,
-          invoiceNum: fmtInvNum(existing.invoice_number),
-          invoiceType: existing.invoice_type || '',
-          alreadyExists: true,
-          genericError: '',
-        });
-        return; // Never open the modal
+        setInvoiceModal({ open: true, invoiceId: existing.id, invoiceNum: fmtInvNum(existing.invoice_number), invoiceType: existing.invoice_type || '', alreadyExists: true, genericError: '' });
+        return;
       }
-      // No existing invoice — safe to open modal
-      setAdvanceAmount('');
-      setInvoiceError('');
-      setInvoiceSuccess(null);
+      setAdvanceAmount(''); setInvoiceError(''); setInvoiceSuccess(null);
       setShowInvoiceModal(true);
     } catch {
-      // Pre-check failed — open modal and let the API 409 handle it
-      setAdvanceAmount('');
-      setInvoiceError('');
-      setInvoiceSuccess(null);
+      setAdvanceAmount(''); setInvoiceError(''); setInvoiceSuccess(null);
       setShowInvoiceModal(true);
     } finally {
       setInvoiceChecking(false);
     }
   };
 
-  // ── Generate Invoice handler (called from inside the modal) ──────────────────
   const handleGenerateInvoice = async () => {
     setInvoiceError('');
     setInvoiceGenerating(true);
     try {
       const advance = advanceAmount ? parseFloat(advanceAmount) : 0;
-      if (advanceAmount && isNaN(advance)) {
-        setInvoiceError('Please enter a valid advance amount.');
-        setInvoiceGenerating(false);
-        return;
-      }
-      if (advance < 0) {
-        setInvoiceError('Advance amount cannot be negative.');
-        setInvoiceGenerating(false);
-        return;
-      }
-
+      if (advanceAmount && isNaN(advance)) { setInvoiceError('Please enter a valid advance amount.'); setInvoiceGenerating(false); return; }
+      if (advance < 0) { setInvoiceError('Advance amount cannot be negative.'); setInvoiceGenerating(false); return; }
       const advanceStr = String(advance.toFixed(2));
 
-      // ── Route to the correct endpoint based on proforma type ─────────────────
-      // Regulatory Compliance → create_purchase_order_invoice (needs quotation id)
-      // Execution Compliance  → create_execution_invoice       (needs proforma id)
       let res;
       if (isRegulatory) {
-        // Regulatory: endpoint expects { proforma, advance_amount }
-        res = await createRegulatoryInvoice({
-          proforma:       proforma.id,
-          advance_amount: advanceStr,
-        });
+        res = await createRegulatoryInvoice({ proforma: proforma.id, advance_amount: advanceStr });
       } else {
-        // Execution: endpoint expects { proforma, advance_amount }
-        res = await createExecutionInvoice({
-          proforma:       proforma.id,
-          advance_amount: advanceStr,
-        });
+        res = await createExecutionInvoice({ proforma: proforma.id, advance_amount: advanceStr });
       }
 
       const created = res?.data || res;
@@ -1226,17 +980,12 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       const status = e.response?.status;
       const respData = e.response?.data;
 
-      // ── 409 Conflict: safety-net if pre-check missed it ──────────────────────
       if (status === 409) {
         setShowInvoiceModal(false);
-        let existingId  = null;
-        let existingNum = '';
+        let existingId = null; let existingNum = '';
         try {
           const match = await fetchInvoiceForThisProforma();
-          if (match) {
-            existingId  = match.id;
-            existingNum = fmtInvNum(match.invoice_number);
-          }
+          if (match) { existingId = match.id; existingNum = fmtInvNum(match.invoice_number); }
         } catch { /* silently ignore */ }
         setInvoiceModal({ open: true, invoiceId: existingId, invoiceNum: existingNum, invoiceType: '', alreadyExists: true, genericError: '' });
         return;
@@ -1258,7 +1007,9 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     if (!id) { setFetchError('No proforma ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      const res = await getProformaById(id);
+      // Pass the type hint so the service calls the correct endpoint directly.
+      // After first load we also derive the type from the loaded proforma itself.
+      const res = await getProformaById(id, proformaTypeHint);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load proforma');
       const p = res.data;
       setProforma(p);
@@ -1267,7 +1018,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         try {
           const cr = await getClientById(p.client);
           if (cr.status === 'success' && cr.data) setClient(cr.data);
-        } catch {}
+        } catch { /* client details are optional */ }
       }
       if (p.project) {
         try {
@@ -1275,7 +1026,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           const all = pr?.data?.results || pr?.results || [];
           const found = all.find(proj => String(proj.id) === String(p.project));
           if (found) setProject(found);
-        } catch {}
+        } catch { /* project details are optional */ }
       }
       if (p.created_by) {
         try {
@@ -1284,7 +1035,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             const u = ur.data.data;
             setCreatedByName(`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || '');
           }
-        } catch {}
+        } catch { /* creator details are optional */ }
       }
       setTimeout(() => setVisible(true), 60);
     } catch (e) {
@@ -1292,39 +1043,23 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, proformaTypeHint]);
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
-  // Opens the scope-of-work modal — both Download PDF buttons call this
   const handleOpenPdfModal = () => {
-    setScopeOfWork('');
-    setScopeError('');
-    setPdfError('');
-    setPdfCompanyName('');
-    setPdfAddress('');
-    setPdfGstNo('');
-    setPdfSacCode('');
-    setPdfInvoiceDate('');
-    setPdfWorkOrderDate('');
-    setPdfValidFrom('');
-    setPdfValidTill('');
-    setPdfVendorCode('');
-    setPdfPoNo('');
-    setPdfScheduleDate('');
-    setPdfState('');
-    setPdfCode('');
+    setScopeOfWork(''); setScopeError(''); setPdfError('');
+    setPdfCompanyName(''); setPdfAddress(''); setPdfGstNo(''); setPdfSacCode('');
+    setPdfInvoiceDate(''); setPdfWorkOrderDate(''); setPdfValidFrom(''); setPdfValidTill('');
+    setPdfVendorCode(''); setPdfPoNo(''); setPdfScheduleDate(''); setPdfState(''); setPdfCode('');
     setShowPdfModal(true);
   };
 
-  // Called when user confirms inside the PDF modal
   const handleConfirmPdfDownload = async () => {
-    if (!scopeOfWork.trim()) {
-      setScopeError('Scope of work is required to generate the PDF.');
-      return;
-    }
-    setScopeError('');
-    setPdfError('');
+    if (!scopeOfWork.trim()) { setScopeError('Scope of work is required to generate the PDF.'); return; }
+    if (!pdfCompanyName.trim()) { setPdfError('Company name is required to generate the PDF.'); return; }
+    if (!pdfAddress.trim()) { setPdfError('Address is required to generate the PDF.'); return; }
+    setScopeError(''); setPdfError('');
     setPdfLoading(true);
     try {
       const fileName    = `${fmtPNum(proforma?.proforma_number)}.pdf`;
@@ -1333,37 +1068,36 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
       if (isConstructive) {
         await generateConstructiveProformaPdf({
-          id:              proforma.id,
-          company_name:    pdfCompanyName,
-          address:         pdfAddress,
-          gst_no:          pdfGstNo,
-          scope_of_work:   scopeOfWork,
-          sac_code:        pdfSacCode,
-          invoice_date:    pdfInvoiceDate,
-          work_order_date: pdfWorkOrderDate,
-          valid_from:      pdfValidFrom,
-          valid_till:      pdfValidTill,
-          vendor_code:     pdfVendorCode,
-          po_no:           pdfPoNo,
-          schedule_date:   pdfScheduleDate,
-          state:           pdfState,
-          code:            pdfCode,
+          id: proforma.id,
+          company_name: pdfCompanyName.trim(),
+          address: pdfAddress.trim(),
+          scope_of_work: scopeOfWork,
+          gst_no: pdfGstNo.trim() || null,
+          sac_code: pdfSacCode.trim() || null,
+          invoice_date: pdfInvoiceDate || null,
+          work_order_date: pdfWorkOrderDate || null,
+          valid_from: pdfValidFrom || null,
+          valid_till: pdfValidTill || null,
+          vendor_code: pdfVendorCode.trim() || null,
+          po_no: pdfPoNo.trim() || null,
+          schedule_date: pdfScheduleDate.trim() ? pdfScheduleDate : null,
+          state: pdfState.trim() || null,
+          code: pdfCode.trim() || null,
         }, fileName);
       } else {
         await generateOtherProformaPdf({
-          id:            proforma.id,
-          company_name:  pdfCompanyName,
-          address:       pdfAddress,
-          gst_no:        pdfGstNo,
+          id: proforma.id,
+          company_name: pdfCompanyName.trim(),
+          address: pdfAddress.trim(),
           scope_of_work: scopeOfWork,
-          po_no:         pdfPoNo,
-          schedule_date: pdfScheduleDate,
-          sac_code:      pdfSacCode,
-          state:         pdfState,
-          code:          pdfCode,
+          gst_no: pdfGstNo.trim() || null,
+          po_no: pdfPoNo.trim() || null,
+          schedule_date: pdfScheduleDate.trim() ? pdfScheduleDate : null,
+          sac_code: pdfSacCode.trim() || null,
+          state: pdfState.trim() || null,
+          code: pdfCode.trim() || null,
         }, fileName);
       }
-
       setShowPdfModal(false);
     } catch (e) {
       setPdfError(e.message || 'Failed to generate PDF. Please try again.');
@@ -1372,27 +1106,36 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     }
   };
 
-  if (loading)     return <LoadingView />;
-  if (fetchError)  return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/proforma')} />;
-  if (!proforma)   return <ErrorView message="Proforma not available." onRetry={fetchData} onBack={() => navigate('/proforma')} />;
+  if (loading)    return <LoadingView />;
+  if (fetchError) return <ErrorView message={fetchError} onRetry={fetchData} onBack={() => navigate('/proforma')} />;
+  if (!proforma)  return <ErrorView message="Proforma not available." onRetry={fetchData} onBack={() => navigate('/proforma')} />;
 
   // ── Derived values ──
-  const status     = getStatus(proforma.status ?? proforma.status_display ?? 1);
+  const status     = getStatusWithIcon(proforma.status ?? proforma.status_display ?? 1);
   const pNum       = fmtPNum(proforma.proforma_number);
-  const subtotal   = parseFloat(proforma.total_amount  || 0);
-  const gstRate    = parseFloat(proforma.gst_rate      || 0);
-  const discRate   = parseFloat(proforma.discount_rate || 0);
+
+  // ── Financial totals: always use the backend-computed values as source of truth.
+  //    Only fall back to recalculation if the backend field is missing (shouldn't happen).
+  const subtotal   = parseFloat(proforma.total_amount    || 0);
+  const gstRate    = parseFloat(proforma.gst_rate        || 0);
+  const discRate   = parseFloat(proforma.discount_rate   || 0);
   const discAmt    = parseFloat(((subtotal * discRate) / 100).toFixed(2));
   const taxable    = parseFloat((subtotal - discAmt).toFixed(2));
-  const gstAmt     = parseFloat(((taxable * gstRate) / 100).toFixed(2));
-  const grandTotal = parseFloat((taxable + gstAmt).toFixed(2));
+  // Prefer backend gst amount; recalculate only as a fallback
+  const gstAmt     = proforma.total_gst_amount != null
+    ? parseFloat(proforma.total_gst_amount)
+    : parseFloat(((taxable * gstRate) / 100).toFixed(2));
+  // Prefer backend grand total; recalculate only as a fallback
+  const grandTotal = proforma.grand_total != null
+    ? parseFloat(proforma.grand_total)
+    : parseFloat((taxable + gstAmt).toFixed(2));
   const items      = proforma.items || [];
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
   const pTypeRaw   = proforma.proforma_type || '';
-  const isExecution = pTypeRaw.toLowerCase().includes('execution') || getComplianceType(items) === 'execution';
+  const isExecution  = pTypeRaw.toLowerCase().includes('execution') || getComplianceType(items) === 'execution';
   const isRegulatory = !isExecution;
-  const companyName = proforma.company_name || getQuotationCompanyName(proforma.company) || 'ERP System';
+  const companyName  = proforma.company_name || getQuotationCompanyName(proforma.company) || 'ERP System';
 
   const clientName = client
     ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email
@@ -1441,25 +1184,24 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
         .vpd-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #f0f4f8;background:#fff}
         .vpd-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px;padding-top:36px}
-        .vpd-party{padding-right:24px}
-        .vpd-party--proj{padding-left:24px;padding-right:24px}
-        .vpd-party--rates{padding-left:24px;border-left:1.5px solid #f0f4f8}
-        .vpd-plabel{font-size:9.5px;font-weight:800;letter-spacing:.14em;color:#94a3b8;text-transform:uppercase;margin-bottom:10px}
-        .vpd-pavatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vpd-picon{width:44px;height:44px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
-        .vpd-pname{font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:5px}
-        .vpd-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-bottom:3px;word-break:break-all}
-        .vpd-rates-list{display:flex;flex-direction:column;gap:12px}
+        .vpd-party{display:flex;flex-direction:column;gap:4px}
+        .vpd-plabel{font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px}
+        .vpd-pavatar{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#0d9488);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:6px}
+        .vpd-picon{margin-bottom:6px}
+        .vpd-pname{font-size:14px;font-weight:700;color:#1e293b;line-height:1.3}
+        .vpd-pdetail{display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b;margin-top:2px}
+        .vpd-party--proj{padding-left:28px}
+        .vpd-party--rates{padding-left:28px;border-left:1.5px solid #f0f4f8}
+        .vpd-rates-list{display:flex;flex-direction:column;gap:10px;margin-top:4px}
         .vpd-rate-row{display:flex;align-items:center;gap:10px}
         .vpd-rate-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-        .vpd-rate-v{font-size:15px;font-weight:800;color:#1e293b;line-height:1.2}
-        .vpd-rate-l{font-size:11px;color:#94a3b8;font-weight:500}
-        /* ── Two-column layout: document left, quick info right ── */
-        .vpd-body-wrap{display:grid;grid-template-columns:1fr 310px;gap:20px;padding:0 40px 32px;align-items:start}
+        .vpd-rate-v{font-size:14px;font-weight:700;color:#1e293b;line-height:1}
+        .vpd-rate-l{font-size:10px;color:#94a3b8;font-weight:500;margin-top:2px}
+        .vpd-body-wrap{display:grid;grid-template-columns:1fr 280px;gap:24px;padding:0 40px 28px;align-items:start}
         .vpd-body-left{min-width:0}
-        .vpd-body-right{position:sticky;top:20px;display:flex;flex-direction:column;gap:0}
-        .vpd-sec-hdr{display:flex;align-items:center;gap:8px;padding:22px 0 14px;border-bottom:2px solid #f0f4f8;font-size:13px;font-weight:700;color:#1e293b}
-        .vpd-sec-badge{background:#ecfdf5;color:#059669;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;border:1px solid #bbf7d0}
+        .vpd-body-right{position:sticky;top:20px}
+        .vpd-sec-hdr{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.1em;padding:16px 0 12px;border-bottom:1.5px solid #f0f4f8;margin-bottom:0}
+        .vpd-sec-badge{background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;text-transform:none;letter-spacing:0}
         .vpd-table-wrap{overflow-x:auto;margin-top:0}
         .vpd-table{width:100%;border-collapse:collapse;font-size:13px}
         .vpd-table thead tr{background:#f8fafc}
@@ -1506,6 +1248,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-btn-approve:hover{background:linear-gradient(135deg,#047857,#065f46);box-shadow:0 4px 12px rgba(5,150,105,.35)}
         .vpd-btn-reject{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#dc2626,#b91c1c);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(220,38,38,.25)}
         .vpd-btn-reject:hover{background:linear-gradient(135deg,#b91c1c,#991b1b);box-shadow:0 4px 12px rgba(220,38,38,.35)}
+        .vpd-doc.vpd-doc-editing{box-shadow:0 0 0 2.5px #f59e0b,0 2px 4px rgba(0,0,0,.04),0 12px 40px rgba(0,0,0,.09)}
+        .vpd-co-edit-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+        .vpd-co-edit-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);border-radius:8px;padding:4px 10px;cursor:pointer;transition:all .15s}
+        .vpd-co-edit-btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
+        .vpd-co-dropdown{position:fixed;z-index:99999;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06);min-width:220px;overflow:hidden;animation:vpd_dd_in .18s cubic-bezier(.16,1,.3,1)}
+        @keyframes vpd_dd_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .vpd-co-dd-header{padding:10px 14px 8px;font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid #f1f5f9}
+        .vpd-co-dd-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;font-size:13px;font-weight:600;color:#1e293b}
+        .vpd-co-dd-item:hover{background:#f0fdf4}
+        .vpd-co-dd-item.active{background:#ecfdf5;color:#0f766e}
+        .vpd-co-dd-item .co-check{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .vpd-co-dd-item .co-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid #e2e8f0;flex-shrink:0}
         .vpd-btn-invoice{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(109,40,217,.25)}
         .vpd-btn-invoice:hover{background:linear-gradient(135deg,#6d28d9,#5b21b6);box-shadow:0 4px 12px rgba(109,40,217,.35)}
         .vpd-btn-invoice:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
@@ -1513,7 +1267,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-admin-bar-label{font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:.1em;margin-right:4px}
         .vpd-btn-edit{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(217,119,6,.25)}
         .vpd-btn-edit:hover{background:linear-gradient(135deg,#d97706,#b45309);box-shadow:0 4px 12px rgba(217,119,6,.35)}
-        .vpd-btn-edit:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
         .vpd-btn-edit:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
         .vpd-btn-save{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
         .vpd-btn-save:hover{background:linear-gradient(135deg,#0d6460,#0b7a72)}
@@ -1545,8 +1298,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         @keyframes notes_spin{to{transform:rotate(360deg)}}
         @keyframes notes_slide_in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes vqd_pulse_ring{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.18);opacity:0}100%{transform:scale(1.18);opacity:0}}
-        @keyframes vpd_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-        @keyframes vpd_overlay_in{from{opacity:0}to{opacity:1}}
         @keyframes vpd_modal_in{from{opacity:0;transform:scale(.93) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
         @keyframes vpd_overlay_in{from{opacity:0}to{opacity:1}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1602,7 +1353,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               </>
             ) : (
               <>
-                {/* Update Proforma — disabled when Sent/Approved/Expired; re-enabled when Rejected */}
                 {(() => {
                   const cantEdit = isSent() || isApproved() || isExpired();
                   let editTitle = 'Edit this proforma';
@@ -1610,48 +1360,31 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   if (isApproved()) editTitle = 'Cannot edit — proforma is approved';
                   if (isExpired())  editTitle = 'Cannot edit — proforma has expired';
                   return (
-                    <button
-                      className="vpd-btn-edit"
-                      onClick={enterEditMode}
-                      disabled={cantEdit}
-                      title={editTitle}
-                      style={cantEdit ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
-                    >
+                    <button className="vpd-btn-edit" onClick={enterEditMode} disabled={cantEdit} title={editTitle} style={cantEdit ? { opacity: 0.45, cursor: 'not-allowed' } : {}}>
                       <Edit2 size={14} /> Update Proforma
                     </button>
                   );
                 })()}
 
-                {/* Send to Client — all roles */}
                 <button className="vpd-btn-o" onClick={() => setSendModal(true)}>
                   <Mail size={14} /> Send to Client
                 </button>
 
-                {/* Download PDF — all roles */}
                 <button className="vpd-btn-p" onClick={handleOpenPdfModal} disabled={pdfLoading}>
                   {pdfLoading ? <><Loader2 size={14} className="vpd-spin" /> Generating…</> : <><Download size={14} /> Download PDF</>}
                 </button>
 
-                {/* Send For Approval — always visible; disabled when already sent/approved/expired */}
                 {(() => {
                   const alreadySent     = isSent();
                   const alreadyApproved = isApproved();
                   const alreadyExpired  = isExpired();
                   const isDisabled      = sendingForApproval || alreadySent || alreadyApproved || alreadyExpired;
-
                   let tooltip = 'Send this proforma for Admin/Manager approval';
                   if (alreadySent)     tooltip = 'Already sent for approval — awaiting Admin/Manager review';
                   if (alreadyApproved) tooltip = 'Proforma is already approved';
                   if (alreadyExpired)  tooltip = 'Proforma has expired';
-
                   return (
-                    <button
-                      className="vpd-btn-send-approval"
-                      onClick={handleSendForApproval}
-                      disabled={isDisabled}
-                      title={tooltip}
-                      style={isDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : {}}
-                    >
+                    <button className="vpd-btn-send-approval" onClick={handleSendForApproval} disabled={isDisabled} title={tooltip} style={isDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : {}}>
                       {sendingForApproval
                         ? <><Loader2 size={14} className="vpd-spin" /> Sending…</>
                         : alreadySent
@@ -1661,7 +1394,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   );
                 })()}
 
-                {/* Generate Invoice — only enabled when Approved (status=3) */}
                 <button
                   className="vpd-btn-invoice"
                   disabled={!isApproved() || invoiceChecking}
@@ -1700,27 +1432,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           </div>
         )}
 
-        {/* ── Admin / Manager Action Bar — only shown when proforma is pending approval ── */}
+        {/* ── Admin / Manager Action Bar ── */}
         {isAdminOrManager && isPendingApproval() && (
           <div className="vpd-admin-bar">
             <span className="vpd-admin-bar-label">Admin Actions</span>
             <div style={{ display: 'flex', gap: 8, marginLeft: 4 }}>
-              <button
-                className="vpd-btn-approve"
-                title="Approve this proforma"
-                onClick={handleApprove}
-                disabled={approving || rejecting}
-              >
-                {approving
-                  ? <><Loader2 size={13} className="vpd-spin" /> Approving…</>
-                  : <><ThumbsUp size={13} /> Approve</>}
+              <button className="vpd-btn-approve" title="Approve this proforma" onClick={handleApprove} disabled={approving || rejecting}>
+                {approving ? <><Loader2 size={13} className="vpd-spin" /> Approving…</> : <><ThumbsUp size={13} /> Approve</>}
               </button>
-              <button
-                className="vpd-btn-reject"
-                title="Reject this proforma"
-                onClick={() => { setRejectReason(''); setRejectReasonError(''); setShowRejectModal(true); }}
-                disabled={approving || rejecting}
-              >
+              <button className="vpd-btn-reject" title="Reject this proforma" onClick={() => { setRejectReason(''); setRejectReasonError(''); setShowRejectModal(true); }} disabled={approving || rejecting}>
                 <ThumbsDown size={13} /> Reject
               </button>
             </div>
@@ -1728,7 +1448,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         )}
 
         {/* ── Document card ── */}
-        <div className={`vpd-doc${visible ? ' in' : ''}`}>
+        <div className={`vpd-doc${visible ? ' in' : ''}${editMode ? ' vpd-doc-editing' : ''}`}>
 
           {/* ══════════ HEADER ══════════ */}
           <div className="vpd-hdr">
@@ -1736,19 +1456,32 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <div className="vpd-logo">
                 <div className="vpd-logo-badge">ERP</div>
                 <div>
-                  <div className="vpd-co-name">{companyName}</div>
+                  {editMode ? (
+                    <div className="vpd-co-edit-wrap">
+                      <div
+                        ref={companyBtnRef}
+                        className="vpd-co-edit-btn"
+                        onClick={openCompanyDrop}
+                        title="Click to change company"
+                      >
+                        <span className="vpd-co-name" style={{ fontSize: 17 }}>
+                          {QUOTATION_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,.18)', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.9)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+                          <PenLine size={9} /> Change
+                        </span>
+                        <ChevronDown size={13} color="rgba(255,255,255,.7)" style={{ transform: companyDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="vpd-co-name">{companyName}</div>
+                  )}
                   <div className="vpd-co-sub">Professional Services</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <StatusPill status={status} />
-                {/* Proforma type badge in header */}
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)',
-                  color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
-                  letterSpacing: '0.03em',
-                }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, letterSpacing: '0.03em' }}>
                   {isExecution ? <Wrench size={11} /> : <FileText size={11} />}
                   {pTypeRaw || 'Proforma'}
                 </span>
@@ -1766,9 +1499,9 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
           {/* ══════════ META STRIP ══════════ */}
           <div className="vpd-meta">
-            <MetaBlock icon={Calendar} label="Issue Date"    value={fmtDate(proforma.issue_date || proforma.created_at)} />
+            <MetaBlock icon={Calendar} label="Issue Date"   value={fmtDate(proforma.issue_date || proforma.created_at)} />
             <div className="vpd-meta-sep" />
-            <MetaBlock icon={Calendar} label="Valid Until"   value={fmtDate(proforma.valid_until)} />
+            <MetaBlock icon={Calendar} label="Valid Until"  value={fmtDate(proforma.valid_until)} />
             <div className="vpd-meta-sep" />
             {editMode ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -1788,19 +1521,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <MetaBlock icon={Tag} label="SAC Code" value={proforma.sac_code} accent />
             )}
             <div className="vpd-meta-sep" />
-            <MetaBlock icon={Hash}     label="Proforma No."  value={pNum} accent />
+            <MetaBlock icon={Hash} label="Proforma No." value={pNum} accent />
             <div className="vpd-meta-sep" />
-            {/* Proforma Type in meta — matches quotation's Type pill exactly */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                background: isExecution ? '#f5f3ff' : '#f0f9ff',
-                border: `1.5px solid ${isExecution ? '#ddd6fe' : '#bae6fd'}`,
-                color: isExecution ? '#7c3aed' : '#0369a1',
-                fontSize: 11, fontWeight: 700,
-                padding: '3px 9px', borderRadius: 20,
-              }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: isExecution ? '#f5f3ff' : '#f0f9ff', border: `1.5px solid ${isExecution ? '#ddd6fe' : '#bae6fd'}`, color: isExecution ? '#7c3aed' : '#0369a1', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20 }}>
                 {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
                 {isExecution ? 'Execution' : 'Regulatory'}
               </span>
@@ -1829,20 +1554,28 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <div className="vpd-party vpd-party--rates">
               <div className="vpd-plabel">Applied Rates {editMode && <span style={{ color: '#f59e0b', fontWeight: 700 }}>— Editable</span>}</div>
               <div className="vpd-rates-list">
-                <div className="vpd-rate-row">
-                  <div className="vpd-rate-icon" style={{ background: '#eff6ff' }}><Percent size={14} color="#2563eb" /></div>
-                  <div style={{ flex: 1 }}>
-                    {editMode ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" min="0" max="100" step="0.01" className="vpd-edit-input" value={editGstRate} onChange={e => setEditGstRate(parseFloat(e.target.value) || 0)} style={{ width: 80, textAlign: 'right' }} />
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>%</span>
-                      </div>
-                    ) : (
-                      <div className="vpd-rate-v">{gstRate}%</div>
-                    )}
-                    <div className="vpd-rate-l">GST Rate</div>
+
+                {/* ── GST Rate row
+                    ONLY shown for GST-applicable company (ID 1).
+                    Companies 2, 3, 4: this entire row is hidden in both
+                    view mode AND edit mode. ── */}
+                {isGSTApplicable && (
+                  <div className="vpd-rate-row">
+                    <div className="vpd-rate-icon" style={{ background: '#eff6ff' }}><Percent size={14} color="#2563eb" /></div>
+                    <div style={{ flex: 1 }}>
+                      {editMode ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input type="number" min="0" max="100" step="0.01" className="vpd-edit-input" value={editGstRate} onChange={e => setEditGstRate(parseFloat(e.target.value) || 0)} style={{ width: 80, textAlign: 'right' }} />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>%</span>
+                        </div>
+                      ) : (
+                        <div className="vpd-rate-v">{gstRate}%</div>
+                      )}
+                      <div className="vpd-rate-l">GST Rate</div>
+                    </div>
                   </div>
-                </div>
+                )}
+
                 <div className="vpd-rate-row">
                   <div className="vpd-rate-icon" style={{ background: (editMode ? editDiscRate : discRate) > 0 ? '#fff7ed' : '#f8fafc' }}>
                     <Tag size={14} color={(editMode ? editDiscRate : discRate) > 0 ? '#ea580c' : '#94a3b8'} />
@@ -1865,351 +1598,32 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             </div>
           </div>
 
-          {/* ══════════ TWO-COLUMN BODY: Items LEFT + Quick Info RIGHT ══════════ */}
+          {/* ══════════ TWO-COLUMN BODY ══════════ */}
           <div className="vpd-body-wrap">
 
             {/* ── LEFT: Line Items ── */}
             <div className="vpd-body-left">
 
-              {/* ══════════ PROFORMA TYPE INDICATOR ══════════ */}
+              {/* Proforma type indicator */}
               {proforma.proforma_type && (
-                <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  marginBottom: 12,
-                  padding: '8px 14px',
-                  background: '#f0fdf4',
-                  border: '1.5px solid #bbf7d0',
-                  borderRadius: 20,
-                }}>
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: '#0d6360',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                  }}>
-                    Proforma Type
-                  </span>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: '#059669',
-                  }}>
-                    {proforma.proforma_type}
-                  </span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 14px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 20 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#0d6360', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Proforma Type</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>{proforma.proforma_type}</span>
                 </div>
               )}
 
-              <div className="vpd-sec-hdr">
-                <FileText size={15} color="#0f766e" />
-                Services &amp; Compliance Items
-                <span className="vpd-sec-badge">
-                  {editMode ? editItems.length : items.length} {(editMode ? editItems.length : items.length) === 1 ? 'item' : 'items'}
-                </span>
+              {/* ── Items table (delegated to ProformaTypeTable) ── */}
+              <ProformaTypeTable
+                isExecution={isExecution}
+                isRegulatory={isRegulatory}
+                editMode={editMode}
+                items={items}
+                editItems={editItems}
+                updateItem={updateItem}
+                removeItem={removeItem}
+                onAddItem={handleOpenAddSection}
+              />
 
-                {/* Add Item button — edit mode only */}
-                {editMode && (
-                  <button
-                    onClick={handleOpenAddSection}
-                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(15,118,110,.25)', transition: 'all .15s' }}
-                  >
-                    <Plus size={14} /> Add Item
-                  </button>
-                )}
-              </div>
-
-              {/* ── VIEW MODE TABLE ── */}
-              {!editMode && (items.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 8 }}>
-                  <FileText size={32} color="#e2e8f0" />
-                  <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No line items found</p>
-                </div>
-              ) : (
-                <div className="vpd-table-wrap">
-                  <table className="vpd-table">
-                    <thead>
-                      {isRegulatory ? (
-                        <tr>
-                          <th style={{ width: 32 }}>#</th>
-                          <th>Service Description</th>
-                          <th style={{ width: 110 }}>Sub-Category</th>
-                          <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
-                          <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
-                          <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy / Misc</th>
-                          <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                        </tr>
-                      ) : (
-                        <>
-                          <tr>
-                            <th rowSpan={2} style={{ width: 32 }}>#</th>
-                            <th rowSpan={2}>Service Description</th>
-                            <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
-                            <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
-                            <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
-                            <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
-                            <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                          </tr>
-                          <tr>
-                            <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                            <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
-                            <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
-                            <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
-                          </tr>
-                        </>
-                      )}
-                    </thead>
-                    {groups.map((grp, gi) => {
-                      const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
-                      const colSpan = isExecution ? 10 : 8;
-                      return (
-                        <tbody key={gi}>
-                          <tr className="vpd-cat-row">
-                            <td colSpan={colSpan}>
-                              <div className="vpd-cat-inner">
-                                <span className="vpd-cat-dot" />
-                                {grp.catName}
-                                <span className="vpd-cat-cnt">{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span>
-                              </div>
-                            </td>
-                          </tr>
-                          {grp.items.map((item, ii) => {
-                            const prof    = parseFloat(item.Professional_amount || 0);
-                            const qty     = parseInt(item.quantity) || 1;
-                            const total   = calcItemTotal(item);
-                            const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-                            const consultancy = item.consultancy_charges;
-                            const miscRaw = item.miscellaneous_amount;
-                            const consultancyStr = consultancy && String(consultancy).trim() ? String(consultancy).trim() : null;
-                            const miscStr = miscRaw && String(miscRaw).trim() && String(miscRaw).trim() !== '--' ? String(miscRaw).trim() : null;
-                            const { matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
-                            const itemSacCode = item.sac_code;
-                            const showExecBreakdown = hasExecutionRateBreakdown(item);
-                            return (
-                              <tr key={ii} className="vpd-row">
-                                <td className="vpd-row-idx">{ii + 1}</td>
-                                <td>
-                                  <div className="vpd-desc">{item.description || item.compliance_name || '—'}</div>
-                                  {isExecution && itemSacCode && (
-                                    <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
-                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
-                                    </div>
-                                  )}
-                                </td>
-                                <td>{subCat ? <span className="vpd-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                                <td style={{ textAlign: 'center' }}><span className="vpd-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                  {item.unit || '—'}
-                                </td>
-                                {isRegulatory ? (
-                                  <>
-                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                    <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                      {consultancyStr
-                                        ? isMiscNumeric(consultancyStr)
-                                          ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
-                                          : <span className="vpd-misc-note" title="Note — not in total">{consultancyStr}</span>
-                                        : miscStr
-                                          ? isMiscNumeric(miscStr)
-                                            ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(miscStr))}</span>
-                                            : <span className="vpd-misc-note" title="Note — not in total">{miscStr}</span>
-                                          : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                    </td>
-                                  </>
-                                ) : showExecBreakdown ? (
-                                  <>
-                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                      {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                    </td>
-                                    <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                      {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                    </td>
-                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                      {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                    </td>
-                                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
-                                      {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                    </td>
-                                  </>
-                                ) : (
-                                  <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
-                                    {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                )}
-                                <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
-                              </tr>
-                            );
-                          })}
-                          <tr className="vpd-cat-sub">
-                            <td colSpan={colSpan - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
-                          </tr>
-                        </tbody>
-                      );
-                    })}
-                  </table>
-                </div>
-              ))}
-
-              {/* ── EDIT MODE ── */}
-              {editMode && (
-                <div style={{ marginTop: 4 }}>
-                  {editItems.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0', gap: 10, background: '#f8fafc', borderRadius: 12, border: '1.5px dashed #e2e8f0' }}>
-                      <FileText size={32} color="#e2e8f0" />
-                      <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No items. Click "+ Add Item" above to get started.</p>
-                    </div>
-                  ) : (() => {
-                    const editGroups = {};
-                    editItems.forEach((it, globalIdx) => {
-                      const catId = it.compliance_category ?? 0;
-                      const key   = String(catId);
-                      if (!editGroups[key]) editGroups[key] = { catId, catName: COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`, rows: [] };
-                      editGroups[key].rows.push({ it, globalIdx });
-                    });
-
-                    return Object.values(editGroups).map((grp, gi) => {
-                      const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
-                      return (
-                        <div key={gi} style={{ marginBottom: 20 }}>
-                          {/* Category header */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: 'linear-gradient(135deg,#f0fdf4,#ecfdf5)', border: '1.5px solid #bbf7d0', borderRadius: '10px 10px 0 0', marginBottom: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#0d9488', display: 'inline-block', flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.08em' }}>{grp.catName}</span>
-                              <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8' }}>{grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}</span>
-                            </div>
-                            <span style={{ fontSize: 12, fontWeight: 800, color: '#0f766e' }}>Subtotal: ₹&nbsp;{fmtINR(grpEditTotal)}</span>
-                          </div>
-
-                          {/* Item cards */}
-                          <div style={{ border: '1.5px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-                            {grp.rows.map(({ it, globalIdx }, rowIdx) => (
-                              <div key={globalIdx} style={{ background: rowIdx % 2 === 0 ? '#fafffe' : '#f0fdf4', borderTop: rowIdx > 0 ? '1px solid #e8f5f0' : 'none', padding: '14px 16px' }}>
-
-                                {/* Item header row */}
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ width: 22, height: 22, borderRadius: 6, background: '#0f766e', color: '#fff', fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{globalIdx + 1}</span>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.06em' }}>Line Item</span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: 14, fontWeight: 800, color: '#0f766e' }}>₹&nbsp;{fmtINR(calcItemTotal(it))}</span>
-                                    <button onClick={() => removeItem(globalIdx)}
-                                      style={{ width: 28, height: 28, border: 'none', background: '#fef2f2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626', flexShrink: 0 }}
-                                      title="Remove item"><Trash2 size={13} /></button>
-                                  </div>
-                                </div>
-
-                                {/* Description full width */}
-                                <div style={{ marginBottom: 10 }}>
-                                  <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Description</label>
-                                  <textarea className="vpd-edit-input" value={it.description}
-                                    onChange={e => updateItem(globalIdx, 'description', e.target.value)}
-                                    rows={2} style={{ resize: 'vertical', minHeight: 44, fontSize: 13, width: '100%' }} placeholder="Service description…" />
-                                </div>
-
-                                {/* Qty + Unit row */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                                  <div>
-                                    <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Quantity</label>
-                                    <input type="number" min="1" className="vpd-edit-input" value={it.quantity}
-                                      onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
-                                      style={{ textAlign: 'center', width: '100%' }} />
-                                  </div>
-                                  <div>
-                                    <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Unit</label>
-                                    <input type="text" className="vpd-edit-input" value={it.unit || ''}
-                                      onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
-                                      placeholder="e.g. Nos, m, sqm"
-                                      style={{ textAlign: 'center', width: '100%' }} />
-                                  </div>
-                                </div>
-
-                                {isRegulatory ? (
-                                  /* Regulatory: Professional + Consultancy */
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                    <div>
-                                      <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Professional Amount (₹)</label>
-                                      <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                        value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                        onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                        placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Consultancy / Misc</label>
-                                      <input type="text" className="vpd-edit-input"
-                                        value={it.consultancy_charges ?? it.miscellaneous_amount ?? ''}
-                                        onChange={e => {
-                                          updateItem(globalIdx, 'consultancy_charges', e.target.value);
-                                          updateItem(globalIdx, 'miscellaneous_amount', e.target.value);
-                                        }}
-                                        placeholder="Amount or note"
-                                        style={{ textAlign: 'right', width: '100%', borderColor: (it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) ? '#fbbf24' : undefined }} />
-                                      {(it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) && (
-                                        <div style={{ fontSize: 10, color: '#d97706', marginTop: 3 }}>⚠ Note only — not included in calculation</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  /* Execution: Professional + Material Rate + Labour Rate + Material Amt + Labour Amt */
-                                  <>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 10 }}>
-                                      <div>
-                                        <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Professional Amount (₹)</label>
-                                        <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                          value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                          onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                          placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                      </div>
-                                    </div>
-                                    <div style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', padding: '10px 12px', marginTop: 2 }}>
-                                      <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Rate &amp; Amount Breakdown</div>
-                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                        <div>
-                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Material Rate (₹)</label>
-                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                            value={it.material_rate === 0 ? '' : it.material_rate}
-                                            onChange={e => updateItem(globalIdx, 'material_rate', parseFloat(e.target.value) || 0)}
-                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                        </div>
-                                        <div>
-                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Labour Rate (₹)</label>
-                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                            value={it.labour_rate === 0 ? '' : it.labour_rate}
-                                            onChange={e => updateItem(globalIdx, 'labour_rate', parseFloat(e.target.value) || 0)}
-                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                        </div>
-                                        <div>
-                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Material Amount (₹)</label>
-                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                            value={it.material_amount === 0 ? '' : it.material_amount}
-                                            onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
-                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                        </div>
-                                        <div>
-                                          <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Labour Amount (₹)</label>
-                                          <input type="number" min="0" step="0.01" className="vpd-edit-input"
-                                            value={it.labour_amount === 0 ? '' : it.labour_amount}
-                                            onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
-                                            placeholder="0.00" style={{ textAlign: 'right', width: '100%' }} />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
             </div>
 
             {/* ── RIGHT: Quick Info ── */}
@@ -2220,7 +1634,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
           {/* ══════════ FOOTER: SUMMARY + TOTALS ══════════ */}
           <div className="vpd-foot">
-            {/* Left — static summary (no editable fields here — edits are inline above) */}
+            {/* Left — static summary */}
             <div>
               <div className="vpd-sum-title">Proforma Summary</div>
               <div className="vpd-sum-grid">
@@ -2238,7 +1652,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Last Updated</span><span className="vpd-sum-val">{fmtDate(proforma.updated_at)}</span></div>
               </div>
 
-              {/* Execution-specific breakdown — matches quotation exactly */}
+              {/* Execution-specific breakdown */}
               {isExecution && items.length > 0 && !editMode && (
                 <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -2270,7 +1684,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               {proforma.terms && <div className="vpd-remarks"><div className="vpd-rem-title">Terms &amp; Conditions</div><p className="vpd-rem-text">{proforma.terms}</p></div>}
             </div>
 
-            {/* Right — totals (live in edit mode, static in view mode) */}
+            {/* Right — totals box */}
             <div>
               {editMode ? (
                 (() => {
@@ -2284,13 +1698,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                       <div className="vpd-tbox-title" style={{ color: '#065f46' }}>
                         Live Calculation
                         <span style={{ marginLeft: 6, fontSize: 9, background: '#059669', color: '#fff', padding: '2px 6px', borderRadius: 4 }}>EDIT MODE</span>
+                        {!isGSTApplicable && (
+                          <span style={{ marginLeft: 6, fontSize: 9, background: '#64748b', color: '#fff', padding: '2px 6px', borderRadius: 4 }}>NO GST</span>
+                        )}
                       </div>
                       <div className="vpd-trow"><span>Subtotal</span><span style={{ fontWeight: 700, color: '#1e293b' }}>₹&nbsp;{fmtINR(eSub)}</span></div>
                       {eDisc > 0 && <>
                         <div className="vpd-trow vpd-trow--disc"><span>Discount ({editDiscRate}%)</span><span style={{ fontWeight: 700 }}>−&nbsp;₹&nbsp;{fmtINR(eDisc)}</span></div>
                         <div className="vpd-trow vpd-trow--sub"><span>Taxable Amount</span><span>₹&nbsp;{fmtINR(eTax)}</span></div>
                       </>}
-                      {eGst > 0 && <div className="vpd-trow"><span>GST ({editGstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(eGst)}</span></div>}
+                      {isGSTApplicable && eGst > 0 && (
+                        <div className="vpd-trow"><span>GST ({editGstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(eGst)}</span></div>
+                      )}
                       <hr className="vpd-tdiv" />
                       <div className="vpd-grand" style={{ fontSize: 21 }}>
                         <span>Grand Total</span>
@@ -2388,12 +1807,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => setShowUpdateReasonModal(false)} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div
-              className="relative animate-scaleIn"
-              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Orange gradient header — matches quotation modal style */}
+            <div className="relative animate-scaleIn" style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
               <div style={{ background: 'linear-gradient(135deg,#b45309 0%,#d97706 45%,#f59e0b 100%)', padding: '20px 24px 18px', borderRadius: '20px 20px 0 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2405,25 +1819,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>Briefly describe what you are changing</div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }}
-                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', transition: 'background .15s' }}
-                  >
+                  <button onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }} style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', transition: 'background .15s' }}>
                     <X size={15} />
                   </button>
                 </div>
               </div>
-
-              {/* Body */}
               <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
-                {/* Info banner */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 18 }}>
                   <AlertCircle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
                   <p style={{ margin: 0, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
                     This reason will be recorded in the proforma history so the team can track what changed and why.
                   </p>
                 </div>
-
                 <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
                   Update Reason <span style={{ color: '#dc2626' }}>*</span>
                 </div>
@@ -2441,27 +1848,17 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                     <AlertCircle size={13} /> {updateReasonError}
                   </div>
                 )}
-
                 <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-                  <button
-                    className="vpd-btn-cancel"
-                    onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
+                  <button className="vpd-btn-cancel" onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }} disabled={saving}>Cancel</button>
                   <button
                     onClick={handleSaveUpdateConfirm}
                     disabled={saving || !updateReason.trim()}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', borderRadius: 9, border: 'none', background: saving || !updateReason.trim() ? '#d1d5db' : 'linear-gradient(135deg,#d97706,#f59e0b)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving || !updateReason.trim() ? 'not-allowed' : 'pointer', transition: 'all .15s', boxShadow: saving || !updateReason.trim() ? 'none' : '0 2px 8px rgba(217,119,6,.35)', fontFamily: 'inherit' }}
                   >
-                    {saving
-                      ? <><Loader2 size={13} className="vpd-spin" /> Saving…</>
-                      : <><Save size={13} /> Confirm & Save</>}
+                    {saving ? <><Loader2 size={13} className="vpd-spin" /> Saving…</> : <><Save size={13} /> Confirm & Save</>}
                   </button>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
@@ -2473,18 +1870,13 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => setShowRejectModal(false)} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
             <div className="relative bg-white" style={{ borderRadius: 20, padding: '28px 28px 24px', width: '100%', maxWidth: 440, boxShadow: '0 24px 64px rgba(0,0,0,0.24)', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
-
-              {/* Header */}
               <div className="vpd-modal-title">
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: '#fef2f2', border: '1.5px solid #fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <ThumbsDown size={18} color="#dc2626" />
                 </div>
                 Reject Proforma
               </div>
-              <p className="vpd-modal-sub">
-                Please provide a reason for rejection. This will be recorded and visible to the team.
-              </p>
-
+              <p className="vpd-modal-sub">Please provide a reason for rejection. This will be recorded and visible to the team.</p>
               <div className="vpd-modal-label">Rejection Reason <span style={{ color: '#dc2626' }}>*</span></div>
               <textarea
                 className="vpd-modal-textarea"
@@ -2498,26 +1890,12 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   <AlertCircle size={13} /> {rejectReasonError}
                 </div>
               )}
-
               <div className="vpd-modal-actions">
-                <button
-                  className="vpd-btn-cancel"
-                  onClick={() => { setShowRejectModal(false); setRejectReason(''); setRejectReasonError(''); }}
-                  disabled={rejecting}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="vpd-btn-reject"
-                  onClick={handleRejectSubmit}
-                  disabled={rejecting || !rejectReason.trim()}
-                >
-                  {rejecting
-                    ? <><Loader2 size={13} className="vpd-spin" /> Rejecting…</>
-                    : <><ThumbsDown size={13} /> Confirm Reject</>}
+                <button className="vpd-btn-cancel" onClick={() => { setShowRejectModal(false); setRejectReason(''); setRejectReasonError(''); }} disabled={rejecting}>Cancel</button>
+                <button className="vpd-btn-reject" onClick={handleRejectSubmit} disabled={rejecting || !rejectReason.trim()}>
+                  {rejecting ? <><Loader2 size={13} className="vpd-spin" /> Rejecting…</> : <><ThumbsDown size={13} /> Confirm Reject</>}
                 </button>
               </div>
-
             </div>
           </div>
         </div>
@@ -2526,19 +1904,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       {/* ══════════ GENERATE INVOICE MODAL ══════════ */}
       {showInvoiceModal && (
         <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
-          <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }}
-            onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }} />
+          <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpd_modal_in .32s cubic-bezier(.16,1,.3,1)' }}
-              onClick={e => e.stopPropagation()}>
+            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpd_modal_in .32s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
 
-              {/* Top accent bar */}
               <div style={{ height: 5, background: 'linear-gradient(90deg,#7c3aed,#6d28d9,#8b5cf6)' }} />
 
-              {/* ── SUCCESS STATE ── */}
               {invoiceSuccess ? (
                 <div style={{ padding: '36px 32px 28px', textAlign: 'center' }}>
-                  {/* Animated checkmark ring */}
                   <div style={{ position: 'relative', width: 80, height: 80, margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid #c4b5fd', animation: 'vqd_pulse_ring 1.8s ease-out infinite' }} />
                     <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg,#ede9fe,#ddd6fe)', border: '2px solid #c4b5fd', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(124,58,237,.2)' }}>
@@ -2546,14 +1919,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                     </div>
                   </div>
                   <div style={{ fontSize: 21, fontWeight: 800, color: '#1e293b', letterSpacing: '-.02em', marginBottom: 8 }}>Invoice Generated!</div>
-                  <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 6 }}>
-                    Your invoice has been successfully created and is ready to review.
-                  </div>
-                  {/* Invoice number chip */}
+                  <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 6 }}>Your invoice has been successfully created and is ready to review.</div>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#faf5ff', border: '1.5px solid #ddd6fe', borderRadius: 20, padding: '6px 16px', margin: '6px 0 8px', fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>
                     <Receipt size={13} /> {fmtInvNum(invoiceSuccess.invoice_number)}
                   </div>
-                  {/* Show advance deduction if applicable */}
                   {parseFloat(advanceAmount) > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'center', gap: 16, margin: '8px 0 16px', fontSize: 12, color: '#64748b' }}>
                       <span>Grand Total: <strong style={{ color: '#1e293b' }}>Rs. {fmtINR(invoiceSuccess.grand_total)}</strong></span>
@@ -2562,30 +1931,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                     </div>
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
-                    <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`, { state: { invoiceType: invoiceSuccess.invoice_type || (isExecution ? 'Execution Compliance' : 'Regulatory Compliance'), invoiceData: invoiceSuccess } }); }}
-                      style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}
-                    >
+                    <button onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate(`/invoices/${invoiceSuccess.id}`, { state: { invoiceType: invoiceSuccess.invoice_type || (isExecution ? 'Execution Compliance' : 'Regulatory Compliance'), invoiceData: invoiceSuccess } }); }} style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}>
                       <Receipt size={15} /> View Invoice
                     </button>
-                    <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate('/invoices'); }}
-                      style={{ width: '100%', padding: '12px 20px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12, color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                    >
-                      Go to Invoice List
-                    </button>
-                    <button
-                      onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); }}
-                      style={{ width: '100%', padding: '10px 20px', background: 'none', border: 'none', borderRadius: 12, color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-                    >
-                      Stay on this Proforma
-                    </button>
+                    <button onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); navigate('/invoices'); }} style={{ width: '100%', padding: '12px 20px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12, color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Go to Invoice List</button>
+                    <button onClick={() => { setShowInvoiceModal(false); setInvoiceSuccess(null); }} style={{ width: '100%', padding: '10px 20px', background: 'none', border: 'none', borderRadius: 12, color: '#94a3b8', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Stay on this Proforma</button>
                   </div>
                 </div>
               ) : (
-                /* ── INPUT STATE ── */
                 <div style={{ padding: '28px 28px 24px' }}>
-                  {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -2596,104 +1950,52 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                         <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{pNum}</div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => { if (!invoiceGenerating) setShowInvoiceModal(false); }}
-                      style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: invoiceGenerating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', opacity: invoiceGenerating ? 0.4 : 1 }}
-                    >
-                      <X size={15} />
+                    <button onClick={() => { if (!invoiceGenerating) setShowInvoiceModal(false); }} style={{ width: 30, height: 30, borderRadius: 8, background: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                      <X size={14} />
                     </button>
                   </div>
-
-                  {/* Proforma summary chip */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
-                    <CheckCircle size={15} color="#059669" style={{ flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>Approved Proforma</div>
-                      <div style={{ fontSize: 11, color: '#047857', marginTop: 1 }}>
-                        {pNum} · Grand Total: <strong>Rs. {fmtINR(proforma.grand_total || grandTotal)}</strong>
-                      </div>
+                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', marginBottom: 20, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Proforma Total</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>₹&nbsp;{fmtINR(grandTotal)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Invoice Type</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: isExecution ? '#7c3aed' : '#0369a1' }}>{isExecution ? 'Execution Compliance' : 'Regulatory Compliance'}</span>
                     </div>
                   </div>
-
-                  {/* Advance amount input */}
                   <div style={{ marginBottom: 20 }}>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
-                      Advance Amount (Rs.) <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— optional</span>
-                    </label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 6 }}>Advance Amount (₹) — Optional</label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00 — leave blank if no advance"
+                      type="number" min="0" step="0.01"
+                      placeholder="e.g. 50000"
                       value={advanceAmount}
                       onChange={e => { setAdvanceAmount(e.target.value); setInvoiceError(''); }}
-                      disabled={invoiceGenerating}
-                      style={{ width: '100%', padding: '10px 14px', border: `1.5px solid ${invoiceError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 14, fontFamily: 'inherit', color: '#1e293b', background: '#fff', outline: 'none', transition: 'border-color .15s', boxSizing: 'border-box' }}
-                      onFocus={e => { e.target.style.borderColor = '#7c3aed'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,.1)'; }}
-                      onBlur={e => { e.target.style.borderColor = invoiceError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                      style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                      onFocus={e => e.target.style.borderColor = '#7c3aed'}
+                      onBlur={e => e.target.style.borderColor = '#e2e8f0'}
                     />
-                    <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
-                      If provided, the advance will be deducted from the grand total and shown as the outstanding balance.
-                    </p>
+                    <p style={{ margin: '5px 0 0', fontSize: 11, color: '#94a3b8' }}>Leave blank if no advance has been paid.</p>
                   </div>
-
-                  {/* Live preview when advance is entered */}
-                  {advanceAmount && !isNaN(parseFloat(advanceAmount)) && parseFloat(advanceAmount) > 0 && (
-                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Payment Preview</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#475569' }}>
-                          <span>Grand Total</span>
-                          <span style={{ fontWeight: 700, color: '#1e293b' }}>Rs. {fmtINR(proforma.grand_total || grandTotal)}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#059669' }}>
-                          <span>Advance Paid</span>
-                          <span style={{ fontWeight: 700 }}>− Rs. {fmtINR(parseFloat(advanceAmount))}</span>
-                        </div>
-                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: '#dc2626' }}>
-                          <span>Outstanding Balance</span>
-                          <span>Rs. {fmtINR(Math.max(0, parseFloat(proforma.grand_total || grandTotal) - parseFloat(advanceAmount)))}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Error message */}
                   {invoiceError && (
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626', lineHeight: 1.5 }}>
-                      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <span>{typeof invoiceError === 'string' ? invoiceError : JSON.stringify(invoiceError)}</span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626' }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> {invoiceError}
                     </div>
                   )}
-
-                  {/* Action buttons */}
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <button
-                      onClick={() => { if (!invoiceGenerating) setShowInvoiceModal(false); }}
-                      disabled={invoiceGenerating}
-                      style={{ flex: 1, padding: '11px 16px', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: invoiceGenerating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: invoiceGenerating ? 0.5 : 1 }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleGenerateInvoice}
-                      disabled={invoiceGenerating}
-                      style={{ flex: 2, padding: '11px 16px', border: 'none', borderRadius: 10, background: invoiceGenerating ? '#a78bfa' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: invoiceGenerating ? 'not-allowed' : 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all .15s' }}
-                    >
-                      {invoiceGenerating
-                        ? <><Loader2 size={14} className="vpd-spin" /> Generating…</>
-                        : <><Receipt size={14} /> Generate Invoice</>}
+                    <button onClick={() => setShowInvoiceModal(false)} style={{ flex: 1, padding: '11px 16px', border: '2px solid #94a3b8', borderRadius: 10, background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+                    <button onClick={handleGenerateInvoice} disabled={invoiceGenerating} style={{ flex: 2, padding: '11px 16px', border: 'none', borderRadius: 10, background: invoiceGenerating ? '#d1d5db' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: invoiceGenerating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}>
+                      {invoiceGenerating ? <><Loader2 size={14} className="vpd-spin" /> Generating…</> : <><Receipt size={14} /> Generate Invoice</>}
                     </button>
                   </div>
                 </div>
               )}
-
             </div>
           </div>
         </div>
       )}
 
-      {/* ══════════ SCOPE OF WORK — PDF DOWNLOAD MODAL ══════════ */}
+      {/* ══════════ PDF DOWNLOAD MODAL ══════════ */}
       {showPdfModal && (
         <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
           <div
@@ -2702,182 +2004,113 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             onClick={() => !pdfLoading && setShowPdfModal(false)}
           />
           <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
-          <div
-            style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)', fontFamily: "'Outfit', sans-serif" }}
-            className="pointer-events-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* ── Gradient header — teal (matches every other modal in this system) ── */}
-            <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px' }}>
+            <div
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }}
+              className="pointer-events-auto"
+              onClick={e => e.stopPropagation()}
+            >
+            <div style={{ background: 'linear-gradient(135deg,#0c6e67,#0f766e,#0d9488)', padding: '18px 22px 16px', borderRadius: '20px 20px 0 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <FileSearch size={17} color="#fff" />
+                    <FileSearch size={18} color="#fff" />
                   </div>
                   <div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Download PDF</div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{pNum}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Generate Proforma PDF</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{pNum} · {companyName}</div>
                   </div>
                 </div>
-                <button
-                  onClick={() => !pdfLoading && setShowPdfModal(false)}
-                  style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
-                >
+                <button onClick={() => !pdfLoading && setShowPdfModal(false)} style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                   <X size={15} />
                 </button>
               </div>
             </div>
 
-            {/* ── Body ── */}
-            <div style={{ padding: '22px 24px 24px', background: '#fafafa', maxHeight: '70vh', overflowY: 'auto' }}>
-
-              {/* Info banner */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
-                <AlertCircle size={14} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
-                <p style={{ margin: 0, fontSize: 12, color: '#065f46', lineHeight: 1.6 }}>
-                  Fill in the details to be included in the PDF. These will appear in the generated proforma document.
-                </p>
-              </div>
-
-              {/* ── Shared field helper ── */}
+            <div style={{ padding: '20px 24px 24px' }}>
               {(() => {
-                const isConstructive = parseInt(proforma?.company) === 1;
+                const companyId      = parseInt(proforma?.company) || 0;
+                const isConstructive = companyId === 1;
 
-                const inputStyle = (err) => ({
-                  width: '100%', padding: '8px 11px',
-                  border: `1.5px solid ${err ? '#fca5a5' : '#e2e8f0'}`,
-                  borderRadius: 9, fontSize: 13, fontFamily: 'inherit',
-                  color: '#1e293b', outline: 'none',
-                  transition: 'border-color .15s, box-shadow .15s',
-                  boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
+                const fieldWrap  = { marginBottom: 14 };
+                const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 5 };
+                const inputStyle = () => ({
+                  width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9,
+                  fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                  background: pdfLoading ? '#f8fafc' : '#fff',
                 });
-
-                const labelStyle = {
-                  fontSize: 11, fontWeight: 700, color: '#475569',
-                  textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5,
-                };
-
-                const fieldWrap = { marginBottom: 13 };
-
-                const onFocus = (e) => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
-                const onBlur  = (e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; };
+                const onFocus = e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
+                const onBlur  = e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; };
 
                 return (
                   <>
-                    {/* ── Row: Company Name + Address ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                    {/* Common fields */}
+                    <div style={fieldWrap}>
+                      <div style={labelStyle}>Company Name <span style={{ color: '#dc2626' }}>*</span></div>
+                      <input type="text" placeholder="e.g. ABC Construction Pvt. Ltd." value={pdfCompanyName} onChange={e => setPdfCompanyName(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle(false), borderColor: pdfCompanyName === '' && pdfError ? '#fca5a5' : '#e2e8f0' }} />
+                    </div>
+                    <div style={fieldWrap}>
+                      <div style={labelStyle}>Address <span style={{ color: '#dc2626' }}>*</span></div>
+                      <input type="text" placeholder="e.g. 123 Main St, Mumbai" value={pdfAddress} onChange={e => { setPdfAddress(e.target.value); setPdfError(''); }} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle(false), borderColor: !pdfAddress.trim() && pdfError ? '#fca5a5' : '#e2e8f0' }} />
+                    </div>
+                    <div style={fieldWrap}>
+                      <div style={labelStyle}>GST No.</div>
+                      <input type="text" placeholder="e.g. 27AABCU9603R1ZX" value={pdfGstNo} onChange={e => setPdfGstNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
                       <div>
-                        <div style={labelStyle}>Company Name</div>
-                        <input type="text" placeholder="e.g. Constructive India Pvt. Ltd." value={pdfCompanyName}
-                          onChange={e => setPdfCompanyName(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
+                        <div style={labelStyle}>PO No.</div>
+                        <input type="text" placeholder="e.g. PO-2024-001" value={pdfPoNo} onChange={e => setPdfPoNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                       </div>
                       <div>
-                        <div style={labelStyle}>Address</div>
-                        <input type="text" placeholder="e.g. Mumbai, Maharashtra" value={pdfAddress}
-                          onChange={e => setPdfAddress(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
+                        <div style={labelStyle}>Schedule Date <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span></div>
+                        <input type="date" value={pdfScheduleDate} onChange={e => setPdfScheduleDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                       </div>
                     </div>
-
-                    {/* ── Row: GST No + SAC Code ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
-                      <div>
-                        <div style={labelStyle}>GST No</div>
-                        <input type="text" placeholder="e.g. 27AABCU9603R1ZX" value={pdfGstNo}
-                          onChange={e => setPdfGstNo(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                      <div>
-                        <div style={labelStyle}>SAC Code</div>
-                        <input type="text" placeholder="e.g. 998311" value={pdfSacCode}
-                          onChange={e => setPdfSacCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                    </div>
-
-                    {/* ── Row: PO No + Schedule Date ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
-                      <div>
-                        <div style={labelStyle}>PO No</div>
-                        <input type="text" placeholder="e.g. PO-2026-001" value={pdfPoNo}
-                          onChange={e => setPdfPoNo(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                      <div>
-                        <div style={labelStyle}>Schedule Date</div>
-                        <input type="date" value={pdfScheduleDate}
-                          onChange={e => setPdfScheduleDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                    </div>
-
-                    {/* ── Row: State + Code ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
                       <div>
                         <div style={labelStyle}>State</div>
-                        <input type="text" placeholder="e.g. Maharashtra" value={pdfState}
-                          onChange={e => setPdfState(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
+                        <input type="text" placeholder="e.g. Maharashtra" value={pdfState} onChange={e => setPdfState(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                       </div>
                       <div>
                         <div style={labelStyle}>Code</div>
-                        <input type="text" placeholder="e.g. MH" value={pdfCode}
-                          onChange={e => setPdfCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                          disabled={pdfLoading} style={inputStyle(false)} />
+                        <input type="text" placeholder="e.g. MH" value={pdfCode} onChange={e => setPdfCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                       </div>
                     </div>
 
-                    {/* ── Constructive India only extra fields ── */}
+                    {/* Constructive-only fields */}
                     {isConstructive && (
                       <>
-                        {/* Divider */}
-                        <div style={{ borderTop: '1.5px dashed #e2e8f0', margin: '4px 0 14px' }} />
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 12 }}>Constructive India Additional Details</div>
-
-                        {/* ── Row: Invoice Date + Work Order Date ── */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                        <div style={fieldWrap}>
+                          <div style={labelStyle}>SAC Code</div>
+                          <input type="text" placeholder="e.g. 998313" value={pdfSacCode} onChange={e => setPdfSacCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
                           <div>
                             <div style={labelStyle}>Invoice Date</div>
-                            <input type="date" value={pdfInvoiceDate}
-                              onChange={e => setPdfInvoiceDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                              disabled={pdfLoading} style={inputStyle(false)} />
+                            <input type="date" value={pdfInvoiceDate} onChange={e => setPdfInvoiceDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                           </div>
                           <div>
                             <div style={labelStyle}>Work Order Date</div>
-                            <input type="date" value={pdfWorkOrderDate}
-                              onChange={e => setPdfWorkOrderDate(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                              disabled={pdfLoading} style={inputStyle(false)} />
+                            <input type="date" value={pdfWorkOrderDate} onChange={e => setPdfWorkOrderDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                           </div>
                         </div>
-
-                        {/* ── Row: Valid From + Valid Till ── */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 13 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
                           <div>
                             <div style={labelStyle}>Valid From</div>
-                            <input type="date" value={pdfValidFrom}
-                              onChange={e => setPdfValidFrom(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                              disabled={pdfLoading} style={inputStyle(false)} />
+                            <input type="date" value={pdfValidFrom} onChange={e => setPdfValidFrom(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                           </div>
                           <div>
                             <div style={labelStyle}>Valid Till</div>
-                            <input type="date" value={pdfValidTill}
-                              onChange={e => setPdfValidTill(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                              disabled={pdfLoading} style={inputStyle(false)} />
+                            <input type="date" value={pdfValidTill} onChange={e => setPdfValidTill(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                           </div>
                         </div>
-
-                        {/* ── Vendor Code ── */}
                         <div style={fieldWrap}>
                           <div style={labelStyle}>Vendor Code</div>
-                          <input type="text" placeholder="e.g. VND-001" value={pdfVendorCode}
-                            onChange={e => setPdfVendorCode(e.target.value)} onFocus={onFocus} onBlur={onBlur}
-                            disabled={pdfLoading} style={inputStyle(false)} />
+                          <input type="text" placeholder="e.g. VND-001" value={pdfVendorCode} onChange={e => setPdfVendorCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
                         </div>
                       </>
                     )}
 
-                    {/* ── Scope of Work (always last, always required) ── */}
                     <div style={{ borderTop: '1.5px dashed #e2e8f0', margin: '4px 0 14px' }} />
                     <div style={fieldWrap}>
                       <div style={{ ...labelStyle, marginBottom: 6 }}>
@@ -2891,14 +2124,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                         onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
                         onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
                         disabled={pdfLoading}
-                        style={{
-                          width: '100%', padding: '10px 12px',
-                          border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`,
-                          borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
-                          color: '#1e293b', resize: 'vertical', minHeight: 100,
-                          outline: 'none', transition: 'border-color .15s, box-shadow .15s',
-                          boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff',
-                        }}
+                        style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', minHeight: 100, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff' }}
                       />
                       {scopeError && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
@@ -2910,7 +2136,6 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 );
               })()}
 
-              {/* PDF generation / API error */}
               {pdfError && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
                   <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -2921,82 +2146,44 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 </div>
               )}
 
-              {/* Action buttons */}
               <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => !pdfLoading && setShowPdfModal(false)}
-                  disabled={pdfLoading}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
-                >
+                <button onClick={() => !pdfLoading && setShowPdfModal(false)} disabled={pdfLoading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
                   Cancel
                 </button>
-                <button
-                  onClick={handleConfirmPdfDownload}
-                  disabled={pdfLoading}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
-                >
+                <button onClick={handleConfirmPdfDownload} disabled={pdfLoading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}>
                   {pdfLoading
                     ? <><Loader2 size={13} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Generating…</>
-                    : <><Download size={13} /> Generate &amp; Download</>
-                  }
+                    : <><Download size={13} /> Generate &amp; Download</>}
                 </button>
               </div>
-
             </div>
-          </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* ══════════ INVOICE ALREADY EXISTS TOAST ══════════ */}
       {invoiceModal.open && invoiceModal.alreadyExists && (
-        <div style={{
-          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
-          background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06)',
-          display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px',
-          maxWidth: 380, width: '100%',
-          animation: 'vpd_toast_in .3s cubic-bezier(.16,1,.3,1)',
-          borderLeft: '4px solid #7c3aed',
-          fontFamily: "'Outfit', sans-serif",
-        }}>
-          {/* Icon */}
+        <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 9999, background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.06)', display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', maxWidth: 380, width: '100%', animation: 'vpd_toast_in .3s cubic-bezier(.16,1,.3,1)', borderLeft: '4px solid #7c3aed', fontFamily: "'Outfit', sans-serif" }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: '#faf5ff', border: '1.5px solid #ddd6fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Receipt size={16} color="#7c3aed" />
           </div>
-          {/* Content */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Invoice Already Exists</div>
-            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 10 }}>
-              An invoice has already been generated for this proforma.
-            </div>
+            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 10 }}>An invoice has already been generated for this proforma.</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {invoiceModal.invoiceId && (
-                <button
-                  onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`, { state: { invoiceType: invoiceModal.invoiceType || '' } }); }}
-                  style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
-                >
+                <button onClick={() => { dismissInvoiceModal(); navigate(`/invoices/${invoiceModal.invoiceId}`, { state: { invoiceType: invoiceModal.invoiceType || '' } }); }} style={{ padding: '5px 12px', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <Receipt size={11} /> {invoiceModal.invoiceNum ? `View ${invoiceModal.invoiceNum}` : 'View Invoice'}
                 </button>
               )}
-              <button
-                onClick={() => { dismissInvoiceModal(); navigate('/invoices'); }}
-                style={{ padding: '5px 12px', background: '#7c3aed', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
-              >
+              <button onClick={() => { dismissInvoiceModal(); navigate('/invoices'); }} style={{ padding: '5px 12px', background: '#7c3aed', border: 'none', borderRadius: 7, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Receipt size={11} /> View Invoice List
               </button>
-              <button
-                onClick={dismissInvoiceModal}
-                style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Dismiss
-              </button>
+              <button onClick={dismissInvoiceModal} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Dismiss</button>
             </div>
           </div>
-          {/* Close X */}
-          <button
-            onClick={dismissInvoiceModal}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}
-          >
+          <button onClick={dismissInvoiceModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, flexShrink: 0, lineHeight: 1 }}>
             <X size={14} />
           </button>
         </div>
@@ -3010,6 +2197,33 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         </div>
       )}
 
+      {/* ── Company dropdown — fixed so it escapes overflow:hidden parents ── */}
+      {companyDropOpen && (
+        <div
+          ref={companyDropRef}
+          className="vpd-co-dropdown"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          <div className="vpd-co-dd-header">Select Company</div>
+          {QUOTATION_COMPANIES.map(co => {
+            const isActive = parseInt(editCompany) === co.id;
+            return (
+              <div
+                key={co.id}
+                className={`vpd-co-dd-item${isActive ? ' active' : ''}`}
+                onClick={() => { setEditCompany(co.id); setCompanyDropOpen(false); }}
+              >
+                {isActive
+                  ? <span className="co-check"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
+                  : <span className="co-dot" />
+                }
+                {co.name}
+                {co.id === 1 && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#2563eb', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '1px 6px' }}>GST</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

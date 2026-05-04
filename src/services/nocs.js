@@ -34,7 +34,7 @@ import api from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
+const ENABLE_SERVICE_LOGGING = import.meta.env.MODE === 'development';
 
 const serviceLogger = {
   log:   (...args) => ENABLE_SERVICE_LOGGING && console.log('[NOCs Service]', ...args),

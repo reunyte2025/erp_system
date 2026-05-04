@@ -114,8 +114,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
 
   // Draft helpers
   const DRAFT_KEY = 'purchase_order_draft';
-  const saveDraft  = (data) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch {} };
-  const clearDraft = ()     => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
+  const saveDraft  = (data) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch { /* local draft is optional */ } };
+  const clearDraft = ()     => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* local draft is optional */ } };
   const loadDraft  = ()     => { try { const d = localStorage.getItem(DRAFT_KEY); return d ? JSON.parse(d) : null; } catch { return null; } };
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   const [showSuccessModal,     setShowSuccessModal]     = useState(false);
   const [createdOrder,         setCreatedOrder]         = useState(null);
   const [deleteConfirm,        setDeleteConfirm]        = useState({ show: false, type: null, sectionIndex: null, itemIndex: null });
-  const [selectedCategoryType, setSelectedCategoryType] = useState(null);
+  const [, setSelectedCategoryType] = useState(null);
   const [categoryItemsMap,     setCategoryItemsMap]     = useState({});
   const [activeCategoryId,     setActiveCategoryId]     = useState(null);
   const [descriptionsCacheRef]                          = useState({ current: {} });
@@ -153,7 +153,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   const [descriptionSearch,    setDescriptionSearch]    = useState('');
   const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
   const [showSubComplianceDropdown, setShowSubComplianceDropdown] = useState(false);
-  const [sectionForm,          setSectionForm]          = useState({ category_id: null, category_name: '', items: [] });
+  const [, setSectionForm]          = useState({ category_id: null, category_name: '', items: [] });
   const [itemFormMap,          setItemFormMap]          = useState({});
   const [editingItemIndexMap,  setEditingItemIndexMap]  = useState({});
 
@@ -229,7 +229,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   // Auto-save draft
   useEffect(() => {
     saveDraft({ sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompanyId: selectedCompany?.id });
-  }, [sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompany]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompany]);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const fetchVendorsList = async () => {

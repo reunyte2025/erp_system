@@ -53,8 +53,24 @@ export const getProformas = async (params = {}) => {
   }
 };
 
-export const getProformaById = async (id) => {
+/**
+ * getProformaById
+ *
+ * Fetches a single proforma using the correct typed endpoint.
+ *
+ * @param {number|string} id            — Proforma ID
+ * @param {string}        [proformaType] — Optional: 'execution' or 'regulatory'
+ *                                         Pass this when you already know the type
+ *                                         (e.g. from the list API's proforma_type field)
+ *                                         to avoid an unnecessary extra request.
+ *                                         When omitted the function tries regulatory
+ *                                         first, then execution.
+ */
+export const getProformaById = async (id, proformaType) => {
   if (!id) throw new Error('Proforma ID is required');
+
+  // Normalise the hint so we can do simple string comparisons
+  const typeHint = String(proformaType || '').trim().toLowerCase();
 
   const tryEndpoint = async (endpoint) => {
     try {
@@ -67,13 +83,33 @@ export const getProformaById = async (id) => {
   };
 
   try {
-    serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}`);
+    serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}, type hint: "${typeHint}"`);
+
+    // ── Fast-path: caller already knows the type ──────────────────────────────
+    if (typeHint.includes('execution')) {
+      const result = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+      if (result) return result;
+      // Fallback (should never be needed) in case the hint was stale
+      const fallback = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+      if (fallback) return fallback;
+      throw new Error('Server error: 404');
+    }
+
+    if (typeHint.includes('regulatory')) {
+      const result = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+      if (result) return result;
+      // Fallback
+      const fallback = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+      if (fallback) return fallback;
+      throw new Error('Server error: 404');
+    }
+
+    // ── No hint: try regulatory first (most common), then execution ──────────
+    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+    if (regulatoryResult) return regulatoryResult;
 
     const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
     if (executionResult) return executionResult;
-
-    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
-    if (regulatoryResult) return regulatoryResult;
 
     throw new Error('Server error: 404');
   } catch (error) {
@@ -488,22 +524,26 @@ export const generateConstructiveProformaPdf = async (params, fileName = 'profor
 
     serviceLogger.log(`[Proforma Service] Generating Constructive India PDF for proforma ${params.id}`);
 
+    // Helper: send null for any blank/missing optional field so the backend
+    // knows to omit that field from the rendered PDF entirely.
+    const orNull = (v) => (v && String(v).trim() ? String(v).trim() : null);
+
     const payload = {
       id:              parseInt(params.id),
-      company_name:    params.company_name    || '',
-      address:         params.address         || '',
-      gst_no:          params.gst_no          || '',
-      scope_of_work:   params.scope_of_work.trim(),
-      sac_code:        params.sac_code        || '',
-      invoice_date:    params.invoice_date    || '',
-      work_order_date: params.work_order_date || '',
-      valid_from:      params.valid_from      || '',
-      valid_till:      params.valid_till      || '',
-      vendor_code:     params.vendor_code     || '',
-      po_no:           params.po_no           || '',
-      schedule_date:   params.schedule_date   || '',
-      state:           params.state           || '',
-      code:            params.code            || '',
+      company_name:    params.company_name    || '',   // required — always a string
+      address:         params.address         || '',   // required — always a string
+      scope_of_work:   params.scope_of_work.trim(),    // required — always a string
+      gst_no:          orNull(params.gst_no),
+      sac_code:        orNull(params.sac_code),
+      invoice_date:    orNull(params.invoice_date),
+      work_order_date: orNull(params.work_order_date),
+      valid_from:      orNull(params.valid_from),
+      valid_till:      orNull(params.valid_till),
+      vendor_code:     orNull(params.vendor_code),
+      po_no:           orNull(params.po_no),
+      schedule_date:   orNull(params.schedule_date),
+      state:           orNull(params.state),
+      code:            orNull(params.code),
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_CONSTRUCTIVE, payload, {
@@ -545,17 +585,21 @@ export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf'
 
     serviceLogger.log(`[Proforma Service] Generating Other Company PDF for proforma ${params.id}`);
 
+    // Helper: send null for any blank/missing optional field so the backend
+    // knows to omit that field from the rendered PDF entirely.
+    const orNull = (v) => (v && String(v).trim() ? String(v).trim() : null);
+
     const payload = {
       id:            parseInt(params.id),
-      company_name:  params.company_name  || '',
-      address:       params.address       || '',
-      gst_no:        params.gst_no        || '',
-      scope_of_work: params.scope_of_work.trim(),
-      po_no:         params.po_no         || '',
-      schedule_date: params.schedule_date || '',
-      sac_code:      params.sac_code      || '',
-      state:         params.state         || '',
-      code:          params.code          || '',
+      company_name:  params.company_name  || '',   // required — always a string
+      address:       params.address       || '',   // required — always a string
+      scope_of_work: params.scope_of_work.trim(),  // required — always a string
+      gst_no:        orNull(params.gst_no),
+      po_no:         orNull(params.po_no),
+      schedule_date: orNull(params.schedule_date),
+      sac_code:      orNull(params.sac_code),
+      state:         orNull(params.state),
+      code:          orNull(params.code),
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_OTHER, payload, {
@@ -711,7 +755,7 @@ export const getProformaStats = async (params = {}) => {
       status: 'success',
       data: { total: 0, draft: 0, under_review: 0, verified: 0 },
     };
-  } catch (error) {
+  } catch {
     return {
       status: 'success',
       data: { total: 0, draft: 0, under_review: 0, verified: 0 },

@@ -241,18 +241,6 @@ const columns = [
       const iconConfig    = getStatusIconConfig(row);
       const IconComponent = iconConfig.icon; // always FileText
 
-      const formatProformaNumber = (number) => {
-        if (!number) return `PF-2026-${String(row.id || '00000').padStart(5, '0')}`;
-        if (String(number).startsWith('PF-')) return number;
-        const numStr = String(number);
-        if (numStr.length >= 8) {
-          const year = numStr.substring(0, 4);
-          const rest = numStr.substring(4);
-          return `PF-${year}-${rest.padStart(5, '0')}`;
-        }
-        return `PF-2026-${String(number).padStart(5, '0')}`;
-      };
-
       return (
         <div className="flex items-center gap-3">
           {/* Left icon — always same document icon, color reflects status */}
@@ -261,7 +249,7 @@ const columns = [
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-gray-900 text-sm">
-              {formatProformaNumber(row.proforma_number)}
+              {row.proforma_number || `#${row.id}`}
             </div>
             <div className="text-xs text-gray-500">
               {formatTimestamp(row.created_at || row.date)}

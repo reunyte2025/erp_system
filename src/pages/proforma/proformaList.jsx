@@ -2,12 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  FileEdit, FileText, X, CheckCircle,
-  Loader2, ChevronRight, Search, Filter as FilterIcon, User, Briefcase, Hash, Building2
+  FileEdit, FileText, X,
+  Loader2, Search, Filter as FilterIcon, User, Briefcase, Hash, Building2
 } from 'lucide-react';
 import { getProformas, getProformaStats, deleteProformaById } from '../../services/proforma';
-import { getClients } from '../../services/clients';
-import { getQuotations, QUOTATION_COMPANIES, getQuotationCompanyName } from '../../services/quotation';
+import { QUOTATION_COMPANIES, getQuotationCompanyName } from '../../services/quotation';
 import { useRole } from '../../components/RoleContext';
 import proformaConfig, { getColumns, isProformaDeleted } from './proforma.config';
 import DynamicList from '../../components/DynamicList/DynamicList';
@@ -81,39 +80,6 @@ const StatCard = ({ icon, count, label, subLabel, bgColor }) => (
     </div>
   </div>
 );
-
-// ============================================================================
-// SUCCESS MODAL
-// ============================================================================
-
-const SuccessModal = ({ isOpen, onClose, onProceed }) => {
-  useEffect(() => {
-    return undefined;
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
-      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" style={{ position: 'fixed', width: '100vw', height: '100vh' }} />
-      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
-          <div className="mb-6 flex justify-center">
-            <div className="w-20 h-20 bg-teal-100 rounded-full flex items-center justify-center animate-bounce">
-              <CheckCircle className="w-12 h-12 text-teal-600" />
-            </div>
-          </div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">Successfully</h3>
-          <p className="text-xl font-semibold text-gray-800 mb-8">Created Proforma</p>
-          <div className="space-y-3">
-            <button onClick={onProceed} className="w-full px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-all duration-200 font-medium">View Proforma</button>
-            <button onClick={onClose} className="w-full px-6 py-3 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium">Skip</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // DELETE CONFIRM MODAL
@@ -282,285 +248,6 @@ const FilterModal = ({ isOpen, onClose, onApply, currentFilters }) => {
               <FilterIcon className="w-4 h-4" />
               Apply Filters
             </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// SELECT CLIENT + QUOTATION MODAL (Combined, single card)
-// ============================================================================
-
-const SelectClientQuotationModal = ({ isOpen, onClose, onProceed, selectedCompanyId }) => {
-  const [step, setStep] = useState('client'); // 'client' | 'quotation'
-  const [clients, setClients] = useState([]);
-  const [quotations, setQuotations] = useState([]);
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [loadingQuotations, setLoadingQuotations] = useState(false);
-  const [selectedClient, setSelectedClient] = useState(null);
-  const [selectedQuotation, setSelectedQuotation] = useState(null);
-  const [clientSearch, setClientSearch] = useState('');
-  const [quotationSearch, setQuotationSearch] = useState('');
-
-  useEffect(() => {
-    if (isOpen) {
-      setStep('client');
-      setSelectedClient(null);
-      setSelectedQuotation(null);
-      setClientSearch('');
-      setQuotationSearch('');
-      fetchClients();
-    }
-    return undefined;
-  }, [isOpen]);
-
-  const fetchClients = async () => {
-    setLoadingClients(true);
-    try {
-      const response = await getClients({ page: 1, page_size: 100 });
-      if (response.status === 'success' && response.data) {
-        setClients(response.data.results || []);
-      }
-    } catch (err) {
-      logger.error('Failed to fetch clients:', err);
-    } finally {
-      setLoadingClients(false);
-    }
-  };
-
-  const fetchQuotations = async (clientId) => {
-    setLoadingQuotations(true);
-    try {
-      const response = await getQuotations({ page: 1, page_size: 100, client: clientId, company: selectedCompanyId });
-      if (response.status === 'success' && response.data) {
-        setQuotations(response.data.results || []);
-      }
-    } catch (err) {
-      logger.error('Failed to fetch quotations:', err);
-      setQuotations([]);
-    } finally {
-      setLoadingQuotations(false);
-    }
-  };
-
-  const handleClientSelect = (client) => {
-    setSelectedClient(client);
-    setSelectedQuotation(null);
-  };
-
-  const handleNextToQuotation = () => {
-    if (!selectedClient) return;
-    setStep('quotation');
-    fetchQuotations(selectedClient.id);
-  };
-
-  const handleBack = () => {
-    setStep('client');
-    setSelectedQuotation(null);
-  };
-
-  const handleProceed = () => {
-    if (selectedClient && selectedQuotation) {
-      onProceed(selectedClient, selectedQuotation);
-    }
-  };
-
-  const filteredClients = clients.filter(c => {
-    const name = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
-    const email = (c.email || '').toLowerCase();
-    return name.includes(clientSearch.toLowerCase()) || email.includes(clientSearch.toLowerCase());
-  });
-
-  const filteredQuotations = quotations.filter(q => {
-    const num = String(q.quotation_number || '').toLowerCase();
-    const notes = (q.notes || '').toLowerCase();
-    return num.includes(quotationSearch.toLowerCase()) || notes.includes(quotationSearch.toLowerCase());
-  });
-
-  const formatQNumber = (number) => {
-    if (!number) return 'N/A';
-    if (String(number).startsWith('QT-')) return number;
-    const s = String(number);
-    if (s.length >= 8) return `QT-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-    return `QT-2026-${String(number).padStart(5, '0')}`;
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[9999] pointer-events-none" style={{ position: 'fixed' }}>
-      <div className="absolute inset-0 bg-black/50 pointer-events-auto transition-opacity" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={onClose} />
-      <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn pointer-events-auto" onClick={e => e.stopPropagation()}>
-
-          {/* Header */}
-          <div className="bg-teal-700 text-white px-5 py-4 flex justify-between items-center">
-            <div className="flex items-center gap-2 font-medium">
-              <FileEdit size={18} />
-              <span>Add Proforma</span>
-            </div>
-            <button onClick={onClose} className="hover:bg-teal-600 p-1 rounded transition-colors">
-              <X size={20} />
-            </button>
-          </div>
-
-          {/* Step Indicator */}
-          <div className="flex items-center px-5 py-3 bg-teal-50 border-b border-teal-100">
-            <div className={`flex items-center gap-2 text-sm font-medium ${step === 'client' ? 'text-teal-700' : 'text-teal-400'}`}>
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === 'client' ? 'bg-teal-600 text-white' : 'bg-teal-200 text-teal-600'}`}>1</div>
-              Select Client
-            </div>
-            <ChevronRight className="w-4 h-4 text-teal-300 mx-2" />
-            <div className={`flex items-center gap-2 text-sm font-medium ${step === 'quotation' ? 'text-teal-700' : 'text-gray-400'}`}>
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === 'quotation' ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-500'}`}>2</div>
-              Select Quotation
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="p-5">
-            {step === 'client' ? (
-              <>
-                <p className="text-sm font-medium mb-1">Select Client</p>
-                <p className="text-xs text-gray-500 mb-3">Choose a client to create a proforma for</p>
-
-                {/* Selected client badge */}
-                {selectedClient && (
-                  <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-teal-50 rounded-lg border border-teal-200">
-                    <CheckCircle className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span className="text-sm font-medium text-teal-800">
-                      {selectedClient.first_name} {selectedClient.last_name}
-                    </span>
-                  </div>
-                )}
-
-                <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search by name or email..."
-                    value={clientSearch}
-                    onChange={e => setClientSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
-                  />
-                </div>
-
-                <div className="max-h-72 overflow-y-auto border border-gray-200 rounded-lg">
-                  {loadingClients ? (
-                    <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 text-teal-600 animate-spin" /></div>
-                  ) : filteredClients.length > 0 ? (
-                    filteredClients.map(client => (
-                      <div
-                        key={client.id}
-                        onClick={() => handleClientSelect(client)}
-                        className={`p-3 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors ${selectedClient?.id === client.id ? 'bg-teal-50' : ''}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm ${selectedClient?.id === client.id ? 'bg-teal-600' : 'bg-gray-400'}`}>
-                            {client.first_name?.[0]}{client.last_name?.[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{client.first_name} {client.last_name}</p>
-                            <p className="text-xs text-gray-500 truncate">{client.email}</p>
-                          </div>
-                          {selectedClient?.id === client.id && <CheckCircle className="w-5 h-5 text-teal-600 flex-shrink-0" />}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="py-8 text-center text-gray-500 text-sm">No clients found</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                    {selectedClient?.first_name?.[0]}{selectedClient?.last_name?.[0]}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{selectedClient?.first_name} {selectedClient?.last_name}</p>
-                    <p className="text-xs text-gray-500">{selectedClient?.email}</p>
-                  </div>
-                </div>
-
-                <p className="text-sm font-medium mb-1">Select Quotation</p>
-                <p className="text-xs text-gray-500 mb-3">Choose a quotation to generate proforma from</p>
-
-                <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search quotations..."
-                    value={quotationSearch}
-                    onChange={e => setQuotationSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
-                  />
-                </div>
-
-                <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
-                  {loadingQuotations ? (
-                    <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 text-teal-600 animate-spin" /></div>
-                  ) : filteredQuotations.length > 0 ? (
-                    filteredQuotations.map(q => (
-                      <div
-                        key={q.id}
-                        onClick={() => setSelectedQuotation(q)}
-                        className={`p-3 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors ${selectedQuotation?.id === q.id ? 'bg-teal-50' : ''}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${selectedQuotation?.id === q.id ? 'bg-teal-100' : 'bg-gray-100'}`}>
-                            <FileText className={`w-5 h-5 ${selectedQuotation?.id === q.id ? 'text-teal-600' : 'text-gray-500'}`} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900">{formatQNumber(q.quotation_number)}</p>
-                            <p className="text-xs text-gray-500">
-                              Rs. {Number(q.grand_total || 0).toLocaleString('en-IN')}
-                              {q.notes && ` · ${q.notes.substring(0, 20)}${q.notes.length > 20 ? '...' : ''}`}
-                            </p>
-                          </div>
-                          {selectedQuotation?.id === q.id && <CheckCircle className="w-5 h-5 text-teal-600 flex-shrink-0" />}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="py-8 text-center text-sm text-gray-500">
-                      <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                      No quotations found for this client
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex justify-between gap-2">
-            <button
-              onClick={step === 'client' ? onClose : handleBack}
-              className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium"
-            >
-              {step === 'client' ? 'Cancel' : 'Back'}
-            </button>
-            {step === 'client' ? (
-              <button
-                onClick={handleNextToQuotation}
-                disabled={!selectedClient}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedClient ? 'bg-teal-600 text-white hover:bg-teal-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                onClick={handleProceed}
-                disabled={!selectedQuotation}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedQuotation ? 'bg-teal-600 text-white hover:bg-teal-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-              >
-                Generate Proforma
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -751,9 +438,6 @@ export default function ProformaList() {
       ? String(savedCompany)
       : String(QUOTATION_COMPANIES[0]?.id || 1);
   });
-  const [showSelectModal, setShowSelectModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdProforma, _setCreatedProforma] = useState(null);
   const [stats, setStats] = useState({ total: 0, draft: 0, under_review: 0, verified: 0 });
 
   // Delete state
@@ -832,13 +516,6 @@ export default function ProformaList() {
 
   useEffect(() => { fetchProformas(); }, [fetchProformas]);
 
-  const handleAddProforma = () => setShowSelectModal(true);
-
-  const handleClientQuotationSelected = (client, quotation) => {
-    setShowSelectModal(false);
-    navigate('/proforma/form', { state: { selectedClient: client, selectedQuotation: quotation } });
-  };
-
   const handleSearch = (value) => { setSearchTerm(value); setCurrentPage(1); };
   const handlePageChange = (page) => setCurrentPage(page);
   const handleFilterToggle = () => setShowFilterModal(true);
@@ -849,16 +526,13 @@ export default function ProformaList() {
     lastFetchParams.current = null;
   };
 
+  // Pass proforma_type in navigation state so the detail page calls the
+  // correct typed endpoint (regulatory vs execution) immediately.
   const handleRowClick = (proforma) => {
     if (isProformaDeleted(proforma)) return;
-    navigate(`/proforma/${proforma.id}`);
-  };
-
-  const handleViewProforma = () => {
-    setShowSuccessModal(false);
-    if (createdProforma?.id) {
-      navigate(`/proforma/${createdProforma.id}`);
-    }
+    navigate(`/proforma/${proforma.id}`, {
+      state: { proformaType: proforma.proforma_type || '' },
+    });
   };
 
   const selectedCompany = QUOTATION_COMPANIES.find((company) => String(company.id) === String(selectedCompanyId)) || QUOTATION_COMPANIES[0];
@@ -967,19 +641,6 @@ export default function ProformaList() {
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
         deleting={deleting}
-      />
-
-      <SelectClientQuotationModal
-        isOpen={showSelectModal}
-        onClose={() => setShowSelectModal(false)}
-        onProceed={handleClientQuotationSelected}
-        selectedCompanyId={selectedCompanyId}
-      />
-
-      <SuccessModal
-        isOpen={showSuccessModal}
-        onClose={() => setShowSuccessModal(false)}
-        onProceed={handleViewProforma}
       />
 
       <FilterModal

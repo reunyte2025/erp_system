@@ -141,7 +141,7 @@ const formatDate = (dateString) => {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
     return `${day}-${month}-${year}`;
-  } catch (error) {
+  } catch {
     return "N/A";
   }
 };
@@ -180,7 +180,7 @@ const formatTimestamp = (dateString) => {
     hours = hours % 12 || 12;
 
     return `${dayName} ${day} ${month} ${year} ${hours}:${minutes} ${ampm}`;
-  } catch (error) {
+  } catch {
     return "";
   }
 };
@@ -349,25 +349,11 @@ const columns = [
       const iconConfig = getStatusIconConfig(status);
       const IconComponent = FileText; // always FileText, color reflects status
 
-      // Format quotation number from backend (numeric) to display format
-      const formatQuotationNumber = (number) => {
-        if (!number)
-          return `QT-2026-${String(row.id || "00000").padStart(5, "0")}`;
-
-        // If it's already formatted, return as is
-        if (String(number).startsWith("QT-")) return number;
-
-        // Convert numeric format to QT-YYYY-XXXXX
-        const numStr = String(number);
-        if (numStr.length >= 8) {
-          // Extract year and number parts from numeric format (e.g., 20260101234)
-          const year = numStr.substring(0, 4);
-          const rest = numStr.substring(4);
-          return `QT-${year}-${rest.padStart(5, "0")}`;
-        }
-
-        return `QT-2026-${String(number).padStart(5, "0")}`;
-      };
+      // Always render the quotation number exactly as the backend returns it.
+      // The backend is the sole source of truth — never construct or reformat it.
+      const displayNumber = row.quotation_number
+        ? String(row.quotation_number)
+        : `#${row.id}`;
 
       return (
         <div
@@ -384,7 +370,7 @@ const columns = [
             <div
               className={`font-semibold text-sm ${isQuotationDeleted(row) ? "text-gray-400 line-through" : "text-gray-900"}`}
             >
-              {formatQuotationNumber(row.quotation_number)}
+              {displayNumber}
             </div>
             <div className="text-xs text-gray-400">
               {formatTimestamp(row.created_at || row.date)}
