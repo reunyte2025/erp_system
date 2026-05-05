@@ -7,9 +7,9 @@ import {
   Tag, Percent, ChevronRight, ChevronDown, Mail, FileEdit,
   ThumbsUp, ThumbsDown, Receipt,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
-  Edit, X, Paperclip, FileSearch, Wrench,
+  Edit, X, FileSearch, Wrench,
 } from 'lucide-react';
-import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateConstructiveProformaPdf, generateOtherProformaPdf, sendProformaToClient } from '../../services/proforma';
+import { getProformaById, updateProformaFull, getComplianceByCategory, sendProformaForApproval, approveProforma, rejectProforma, generateConstructiveProformaPdf, generateOtherProformaPdf } from '../../services/proforma';
 import { createRegulatoryInvoice, createExecutionInvoice } from '../../services/invoices';
 import { getClientById } from '../../services/clients';
 import { getProjects } from '../../services/projects';
@@ -19,6 +19,7 @@ import api from '../../services/api';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import SendEmailModal from '../../components/SendEmailModal/SendEmailModal';
 
 // ─── Helpers & constants (from shared module) ────────────────────────────────
 import {
@@ -44,24 +45,30 @@ import ProformaTypeTable from './ProformaTypeTable';
 // Company IDs 2, 3, 4 are NOT GST applicable.
 const GST_APPLICABLE_COMPANY_ID = 1;
 
-// ─── Status config (with Lucide Icon refs, kept local so no React in helpers) ─
+// Actual backend status values from Proforma model:
+//   draft | sent | approved | rejected | expired
 const STATUS_CONFIG = {
-  '1':        { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':        { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':        { label: 'Approved',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '4':        { label: 'Rejected',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '5':        { label: 'Expired',           Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
-  'draft':    { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'sent':     { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'approved': { label: 'Approved',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'rejected': { label: 'Rejected',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'expired':  { label: 'Expired',           Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  'draft':             { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'sent':              { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'approved':          { label: 'Approved',          Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'rejected':          { label: 'Rejected',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'expired':           { label: 'Expired',           Icon: XCircle,     color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  // Human-readable display string alias
+  'sent for approval': { label: 'Sent for Approval', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
 };
 
-// getStatus with Icon — overrides the pure helper so Icon is available in JSX
+// getStatus with Icon — overrides the pure helper so Icon is available in JSX.
+// Accepts a raw status string OR a row/proforma object (checks status_display first).
 const getStatusWithIcon = (s) => {
-  const key = String(s || '');
-  return STATUS_CONFIG[key] || STATUS_CONFIG[key.toLowerCase()] || STATUS_CONFIG['1'];
+  if (s && typeof s === 'object') {
+    const display = String(s.status_display || '').toLowerCase().trim();
+    if (display && STATUS_CONFIG[display]) return STATUS_CONFIG[display];
+    const raw = String(s.status || '').toLowerCase().trim();
+    if (raw && STATUS_CONFIG[raw]) return STATUS_CONFIG[raw];
+    return STATUS_CONFIG['draft'];
+  }
+  const key = String(s || '').toLowerCase().trim();
+  return STATUS_CONFIG[key] || STATUS_CONFIG['draft'];
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -311,149 +318,6 @@ const QuickInfoCard = ({ proforma, client, project }) => {
   );
 };
 
-// ─── Send to Client Modal ─────────────────────────────────────────────────────
-
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-
-const SendToClientModal = ({ proforma, client, pNum, issuedDate, onClose }) => {
-  const defaultEmail   = client?.email || '';
-  const defaultSubject = `Proforma ${pNum}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-  const defaultBody    = `Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your proforma invoice ${pNum}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
-
-  const [email,   setEmail]   = useState(defaultEmail);
-  const [subject, setSubject] = useState(defaultSubject);
-  const [body,    setBody]    = useState(defaultBody);
-  const [extras,  setExtras]  = useState([]);
-  const [sending, setSending] = useState(false);
-  const [sent,    setSent]    = useState(false);
-  const [error,   setError]   = useState('');
-  const fileInputRef = useRef(null);
-
-  const totalExtraSize   = extras.reduce((s, f) => s + f.size, 0);
-  const estimatedPdfSize = 2 * 1024 * 1024;
-  const remainingBytes   = MAX_ATTACHMENT_BYTES - estimatedPdfSize - totalExtraSize;
-
-  const handleAddFiles = (e) => {
-    const newFiles = Array.from(e.target.files || []);
-    if (!newFiles.length) return;
-    const combined  = [...extras, ...newFiles];
-    const totalSize = combined.reduce((s, f) => s + f.size, 0) + estimatedPdfSize;
-    if (totalSize > MAX_ATTACHMENT_BYTES) { setError('Adding these files would exceed the 25 MB limit.'); return; }
-    setExtras(combined); setError(''); e.target.value = '';
-  };
-  const removeExtra = (idx) => setExtras(prev => prev.filter((_, i) => i !== idx));
-
-  const handleSend = async () => {
-    if (!email.trim()) { setError('Recipient email is required.'); return; }
-    if (!/\S+@\S+\.\S+/.test(email.trim())) { setError('Please enter a valid email address.'); return; }
-    setError(''); setSending(true);
-    try {
-      await sendProformaToClient({ proformaId: proforma.id, proformaNumber: pNum, issuedDate, recipientEmail: email.trim(), subject: subject.trim(), body: body.trim(), extraAttachments: extras });
-      setSent(true);
-    } catch (e) { setError(e.message || 'Failed to send email. Please try again.'); }
-    finally { setSending(false); }
-  };
-
-  const fmtSize = (bytes) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 20, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 520, overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }} onClick={e => e.stopPropagation()}>
-        <div style={{ height: 4, background: 'linear-gradient(90deg,#0f766e,#14b8a6)' }} />
-
-          {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Mail size={17} color="#fff" />
-              </div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Send to Client</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{pNum}</div>
-              </div>
-            </div>
-            <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <X size={15} />
-            </button>
-          </div>
-
-          {sent ? (
-            <div style={{ padding: '40px 24px', textAlign: 'center' }}>
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-                <CheckCircle size={28} color="#059669" />
-              </div>
-              <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
-              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-                Proforma <strong>{pNum}</strong> has been sent to<br /><strong>{email}</strong>
-              </div>
-              <button onClick={onClose} style={{ marginTop: 22, padding: '9px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Done</button>
-            </div>
-          ) : (
-            <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '75vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '9px 12px' }}>
-                <FileText size={14} color="#059669" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: '#15803d', fontWeight: 500 }}><strong>{pNum}.pdf</strong> will be automatically attached</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Recipient Email *</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor='#0f766e'} onBlur={e => e.target.style.borderColor='#e2e8f0'} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Subject</label>
-                <input type="text" value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor='#0f766e'} onBlur={e => e.target.style.borderColor='#e2e8f0'} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Message</label>
-                <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor='#0f766e'} onBlur={e => e.target.style.borderColor='#e2e8f0'} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em' }}>Additional Attachments</label>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>~{fmtSize(Math.max(0, remainingBytes))} remaining</span>
-                </div>
-                {extras.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
-                    {extras.map((f, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', border: '1px solid #e2e8f0' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <Paperclip size={12} color="#64748b" />
-                          <span style={{ fontSize: 12, color: '#334155', fontWeight: 500 }}>{f.name}</span>
-                          <span style={{ fontSize: 10, color: '#94a3b8' }}>({fmtSize(f.size)})</span>
-                        </div>
-                        <button onClick={() => removeExtra(i)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}><X size={13} /></button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1.5px dashed #cbd5e1', background: '#f8fafc', color: '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
-                  <Paperclip size={13} /> Add Attachment
-                </button>
-                <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
-                <p style={{ fontSize: 10, color: '#94a3b8', margin: '5px 0 0', textAlign: 'center' }}>Max total size: 25 MB (including PDF)</p>
-              </div>
-              {error && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 9, padding: '9px 12px' }}>
-                  <AlertCircle size={14} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span style={{ fontSize: 12, color: '#dc2626', lineHeight: 1.5 }}>{error}</span>
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 9, marginTop: 2 }}>
-                <button onClick={onClose} style={{ flex: 1, padding: 10, borderRadius: 10, border: '2px solid #94a3b8', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: 10, borderRadius: 10, background: sending ? '#94a3b8' : '#0f766e', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                  {sending ? <><Loader2 size={14} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
-                </button>
-              </div>
-            </div>
-          )}
-      </div>
-    </div>
-  );
-};
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -775,7 +639,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                             : '0.00',
         grand_total:      String(grand.toFixed(2)),
         reason:           updateReason.trim(),
-        status:           getProformaStatus() || 1,
+        status:           proforma?.status || 'draft',
         items:            editItems,
       };
 
@@ -831,16 +695,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   }, [onUpdateNavigation]);
 
   // ── Status helpers ───────────────────────────────────────────────────────────
-  const getProformaStatus = () => {
-    const raw = proforma?.status;
-    const n = parseInt(raw);
-    return isNaN(n) ? 0 : n;
-  };
   const getStatusDisplay = () => String(proforma?.status_display ?? '').toLowerCase().trim();
 
-  const isSent     = () => getProformaStatus() === 2 || getStatusDisplay() === 'sent';
-  const isApproved = () => getProformaStatus() === 3 || getStatusDisplay() === 'approved';
-  const isExpired  = () => getProformaStatus() === 5 || getStatusDisplay() === 'expired';
+  const isSent     = () => String(proforma?.status || '').toLowerCase() === 'sent'     || getStatusDisplay() === 'sent' || getStatusDisplay() === 'sent for approval';
+  const isApproved = () => String(proforma?.status || '').toLowerCase() === 'approved' || getStatusDisplay() === 'approved';
+  const isExpired  = () => String(proforma?.status || '').toLowerCase() === 'expired'  || getStatusDisplay() === 'expired';
   const isPendingApproval = () => isSent();
 
   const showApprovalToastMsg = (type) => {
@@ -853,7 +712,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setSendingForApproval(true);
     try {
       await sendProformaForApproval(proforma.id);
-      setProforma(prev => ({ ...prev, status: 2, status_display: 'Sent' }));
+      setProforma(prev => ({ ...prev, status: 'sent', status_display: 'Sent for Approval' }));
       showApprovalToastMsg('sent');
       try {
         const fresh = await getProformaById(proforma.id, proforma.proforma_type);
@@ -872,7 +731,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setApproving(true);
     try {
       await approveProforma(proforma.id);
-      setProforma(prev => ({ ...prev, status: 3, status_display: 'Approved' }));
+      setProforma(prev => ({ ...prev, status: 'approved', status_display: 'Approved' }));
       showApprovalToastMsg('approved');
       try {
         const fresh = await getProformaById(proforma.id, proforma.proforma_type);
@@ -892,7 +751,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setRejecting(true);
     try {
       await rejectProforma(proforma.id, rejectReason);
-      setProforma(prev => ({ ...prev, status: 4, status_display: 'Rejected' }));
+      setProforma(prev => ({ ...prev, status: 'rejected', status_display: 'Rejected' }));
       setShowRejectModal(false);
       setRejectReason('');
       showApprovalToastMsg('rejected');
@@ -1111,7 +970,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   if (!proforma)  return <ErrorView message="Proforma not available." onRetry={fetchData} onBack={() => navigate('/proforma')} />;
 
   // ── Derived values ──
-  const status     = getStatusWithIcon(proforma.status ?? proforma.status_display ?? 1);
+  const status     = getStatusWithIcon(proforma);
   const pNum       = fmtPNum(proforma.proforma_number);
 
   // ── Financial totals: always use the backend-computed values as source of truth.
@@ -1151,6 +1010,13 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         .vpd-root *{box-sizing:border-box;font-family:'Outfit',sans-serif}
+        .vpd-modal-textarea{font-family:'Outfit',sans-serif !important}
+        .vpd-modal-title{font-family:'Outfit',sans-serif !important}
+        .vpd-modal-sub{font-family:'Outfit',sans-serif !important}
+        .vpd-modal-label{font-family:'Outfit',sans-serif !important}
+        .vpd-modal-err{font-family:'Outfit',sans-serif !important}
+        .vpd-btn-cancel{font-family:'Outfit',sans-serif !important}
+        .vpd-btn-reject{font-family:'Outfit',sans-serif !important}
         @keyframes vpd_spin{to{transform:rotate(360deg)}}
         @keyframes vpd_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1765,15 +1631,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       </div>{/* end .vpd-root */}
 
       {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
-      {sendModal && (
-        <SendToClientModal
-          proforma={proforma}
-          client={client}
-          pNum={pNum}
-          issuedDate={fmtDate(proforma.issue_date || proforma.created_at)}
-          onClose={() => setSendModal(false)}
-        />
-      )}
+      <SendEmailModal
+        isOpen={sendModal}
+        onClose={() => setSendModal(false)}
+        title="Send Proforma to Client"
+        defaultRecipient={client?.email || ''}
+        defaultSubject={`Proforma ${pNum}${proforma.issue_date || proforma.created_at ? ` — Issued ${fmtDate(proforma.issue_date || proforma.created_at)}` : ''}`}
+        defaultBody={`Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your proforma invoice ${pNum}${proforma.issue_date || proforma.created_at ? `, issued on ${fmtDate(proforma.issue_date || proforma.created_at)}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\n${companyName}`}
+        onSuccess={() => setSendModal(false)}
+      />
 
       {/* ══════════ ADD COMPLIANCE MODAL ══════════ */}
       <AddComplianceModal
@@ -1804,10 +1670,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
       {/* ══════════ UPDATE REASON MODAL ══════════ */}
       {showUpdateReasonModal && (
-        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
+        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease', fontFamily: "'Outfit', sans-serif" }}>
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => setShowUpdateReasonModal(false)} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative animate-scaleIn" style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
+            <div className="relative animate-scaleIn" style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)', fontFamily: "'Outfit', sans-serif" }} onClick={e => e.stopPropagation()}>
               <div style={{ background: 'linear-gradient(135deg,#b45309 0%,#d97706 45%,#f59e0b 100%)', padding: '20px 24px 18px', borderRadius: '20px 20px 0 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1824,18 +1690,18 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   </button>
                 </div>
               </div>
-              <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+              <div style={{ padding: '22px 24px 24px', background: '#fafafa', fontFamily: "'Outfit', sans-serif" }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 18 }}>
                   <AlertCircle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ margin: 0, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+                  <p style={{ margin: 0, fontSize: 12, color: '#92400e', lineHeight: 1.6, fontFamily: "'Outfit', sans-serif" }}>
                     This reason will be recorded in the proforma history so the team can track what changed and why.
                   </p>
                 </div>
-                <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: "'Outfit', sans-serif" }}>
                   Update Reason <span style={{ color: '#dc2626' }}>*</span>
                 </div>
                 <textarea
-                  style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${updateReasonError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', minHeight: 96, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: '#fff' }}
+                  style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${updateReasonError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: "'Outfit', sans-serif", color: '#1e293b', resize: 'vertical', minHeight: 96, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: '#fff' }}
                   placeholder="e.g. Corrected GST rate from 18% to 12%, added new compliance item per client request..."
                   value={updateReason}
                   onChange={e => { setUpdateReason(e.target.value); setUpdateReasonError(''); }}
@@ -1844,16 +1710,16 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                   autoFocus
                 />
                 {updateReasonError && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 6, fontWeight: 500 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 6, fontWeight: 500, fontFamily: "'Outfit', sans-serif" }}>
                     <AlertCircle size={13} /> {updateReasonError}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-                  <button className="vpd-btn-cancel" onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }} disabled={saving}>Cancel</button>
+                  <button className="vpd-btn-cancel" style={{ fontFamily: "'Outfit', sans-serif" }} onClick={() => { setShowUpdateReasonModal(false); setUpdateReason(''); setUpdateReasonError(''); }} disabled={saving}>Cancel</button>
                   <button
                     onClick={handleSaveUpdateConfirm}
                     disabled={saving || !updateReason.trim()}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', borderRadius: 9, border: 'none', background: saving || !updateReason.trim() ? '#d1d5db' : 'linear-gradient(135deg,#d97706,#f59e0b)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving || !updateReason.trim() ? 'not-allowed' : 'pointer', transition: 'all .15s', boxShadow: saving || !updateReason.trim() ? 'none' : '0 2px 8px rgba(217,119,6,.35)', fontFamily: 'inherit' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', borderRadius: 9, border: 'none', background: saving || !updateReason.trim() ? '#d1d5db' : 'linear-gradient(135deg,#d97706,#f59e0b)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving || !updateReason.trim() ? 'not-allowed' : 'pointer', transition: 'all .15s', boxShadow: saving || !updateReason.trim() ? 'none' : '0 2px 8px rgba(217,119,6,.35)', fontFamily: "'Outfit', sans-serif" }}
                   >
                     {saving ? <><Loader2 size={13} className="vpd-spin" /> Saving…</> : <><Save size={13} /> Confirm & Save</>}
                   </button>
@@ -1866,33 +1732,36 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
       {/* ══════════ REJECT MODAL ══════════ */}
       {showRejectModal && (
-        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
+        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease', fontFamily: "'Outfit', sans-serif" }}>
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => setShowRejectModal(false)} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative bg-white" style={{ borderRadius: 20, padding: '28px 28px 24px', width: '100%', maxWidth: 440, boxShadow: '0 24px 64px rgba(0,0,0,0.24)', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
-              <div className="vpd-modal-title">
+            <div className="relative bg-white" style={{ borderRadius: 20, padding: '28px 28px 24px', width: '100%', maxWidth: 440, boxShadow: '0 24px 64px rgba(0,0,0,0.24)', animation: 'vpd_modal_in .3s cubic-bezier(.16,1,.3,1)', fontFamily: "'Outfit', sans-serif" }} onClick={e => e.stopPropagation()}>
+              <div className="vpd-modal-title" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: '#fef2f2', border: '1.5px solid #fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <ThumbsDown size={18} color="#dc2626" />
                 </div>
                 Reject Proforma
               </div>
-              <p className="vpd-modal-sub">Please provide a reason for rejection. This will be recorded and visible to the team.</p>
-              <div className="vpd-modal-label">Rejection Reason <span style={{ color: '#dc2626' }}>*</span></div>
+              <p className="vpd-modal-sub" style={{ fontFamily: "'Outfit', sans-serif" }}>Please provide a reason for rejection. This will be recorded and visible to the team.</p>
+              <div className="vpd-modal-label" style={{ fontFamily: "'Outfit', sans-serif" }}>Rejection Reason <span style={{ color: '#dc2626' }}>*</span></div>
               <textarea
                 className="vpd-modal-textarea"
                 placeholder="e.g. Incorrect line items, amounts need revision..."
                 value={rejectReason}
                 onChange={e => { setRejectReason(e.target.value); setRejectReasonError(''); }}
+                onFocus={e => { e.target.style.borderColor = '#dc2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,.1)'; }}
+                onBlur={e => { e.target.style.borderColor = rejectReasonError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: '#1e293b' }}
                 autoFocus
               />
               {rejectReasonError && (
-                <div className="vpd-modal-err">
+                <div className="vpd-modal-err" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   <AlertCircle size={13} /> {rejectReasonError}
                 </div>
               )}
               <div className="vpd-modal-actions">
-                <button className="vpd-btn-cancel" onClick={() => { setShowRejectModal(false); setRejectReason(''); setRejectReasonError(''); }} disabled={rejecting}>Cancel</button>
-                <button className="vpd-btn-reject" onClick={handleRejectSubmit} disabled={rejecting || !rejectReason.trim()}>
+                <button className="vpd-btn-cancel" style={{ fontFamily: "'Outfit', sans-serif" }} onClick={() => { setShowRejectModal(false); setRejectReason(''); setRejectReasonError(''); }} disabled={rejecting}>Cancel</button>
+                <button className="vpd-btn-reject" style={{ fontFamily: "'Outfit', sans-serif" }} onClick={handleRejectSubmit} disabled={rejecting || !rejectReason.trim()}>
                   {rejecting ? <><Loader2 size={13} className="vpd-spin" /> Rejecting…</> : <><ThumbsDown size={13} /> Confirm Reject</>}
                 </button>
               </div>
@@ -1903,10 +1772,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
       {/* ══════════ GENERATE INVOICE MODAL ══════════ */}
       {showInvoiceModal && (
-        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease' }}>
+        <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vpd_overlay_in .2s ease', fontFamily: "'Outfit', sans-serif" }}>
           <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={() => { if (!invoiceGenerating) { setShowInvoiceModal(false); setInvoiceSuccess(null); } }} />
           <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpd_modal_in .32s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
+            <div className="relative bg-white" style={{ borderRadius: 24, width: '100%', maxWidth: 420, boxShadow: '0 40px 100px rgba(0,0,0,.24)', overflow: 'hidden', animation: 'vpd_modal_in .32s cubic-bezier(.16,1,.3,1)', fontFamily: "'Outfit', sans-serif" }} onClick={e => e.stopPropagation()}>
 
               <div style={{ height: 5, background: 'linear-gradient(90deg,#7c3aed,#6d28d9,#8b5cf6)' }} />
 
@@ -1965,17 +1834,17 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                     </div>
                   </div>
                   <div style={{ marginBottom: 20 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 6 }}>Advance Amount (₹) — Optional</label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 6, fontFamily: "'Outfit', sans-serif" }}>Advance Amount (₹) — Optional</label>
                     <input
                       type="number" min="0" step="0.01"
                       placeholder="e.g. 50000"
                       value={advanceAmount}
                       onChange={e => { setAdvanceAmount(e.target.value); setInvoiceError(''); }}
-                      style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                      style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: "'Outfit', sans-serif", boxSizing: 'border-box' }}
                       onFocus={e => e.target.style.borderColor = '#7c3aed'}
                       onBlur={e => e.target.style.borderColor = '#e2e8f0'}
                     />
-                    <p style={{ margin: '5px 0 0', fontSize: 11, color: '#94a3b8' }}>Leave blank if no advance has been paid.</p>
+                    <p style={{ margin: '5px 0 0', fontSize: 11, color: '#94a3b8', fontFamily: "'Outfit', sans-serif" }}>Leave blank if no advance has been paid.</p>
                   </div>
                   {invoiceError && (
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#dc2626' }}>
@@ -2026,16 +1895,16 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               </div>
             </div>
 
-            <div style={{ padding: '20px 24px 24px' }}>
+            <div style={{ padding: '20px 24px 24px', fontFamily: "'Outfit', sans-serif" }}>
               {(() => {
                 const companyId      = parseInt(proforma?.company) || 0;
                 const isConstructive = companyId === 1;
 
                 const fieldWrap  = { marginBottom: 14 };
-                const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 5 };
+                const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 5, fontFamily: "'Outfit', sans-serif" };
                 const inputStyle = () => ({
                   width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9,
-                  fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                  fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: "'Outfit', sans-serif", boxSizing: 'border-box',
                   background: pdfLoading ? '#f8fafc' : '#fff',
                 });
                 const onFocus = e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
@@ -2124,7 +1993,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                         onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
                         onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
                         disabled={pdfLoading}
-                        style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', minHeight: 100, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff' }}
+                        style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: "'Outfit', sans-serif", color: '#1e293b', resize: 'vertical', minHeight: 100, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff' }}
                       />
                       {scopeError && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>

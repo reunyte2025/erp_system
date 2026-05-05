@@ -57,22 +57,20 @@ export const SUB_COMPLIANCE_CATEGORIES = {
 // STATUS_CONFIG with Lucide Icon refs so this file stays zero-React.
 // Both consumer files use STATUS_CONFIG only for label / color / bg / border.
 
+// Actual backend status values from Invoice model:
+//   draft | sent | partial_paid | paid | cancelled
 export const STATUS_CONFIG = {
-  '1':                 { label: 'Draft',             color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':                 { label: 'Under Review',       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':                 { label: 'In Progress',        color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '4':                 { label: 'Placed Work-order',  color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '5':                 { label: 'Failed',             color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '6':                 { label: 'Cancelled',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'draft':             { label: 'Draft',             color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'under_review':      { label: 'Under Review',       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'in_progress':       { label: 'In Progress',        color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'placed_work_order': { label: 'Placed Work-order',  color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'verified':          { label: 'Verified',           color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'failed':            { label: 'Failed',             color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'pending':           { label: 'Pending',            color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'cancelled':         { label: 'Cancelled',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'canceled':          { label: 'Cancelled',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  // ── Actual backend status slugs ───────────────────────────────────────────
+  'draft':        { label: 'Draft',        color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'sent':         { label: 'Sent',         color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  'partial_paid': { label: 'Partial Paid', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'paid':         { label: 'Paid',         color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'cancelled':    { label: 'Cancelled',    color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'canceled':     { label: 'Cancelled',    color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+
+  // ── Human-readable display strings (status_display from API) ──────────────
+  'partial paid':  { label: 'Partial Paid', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'overdue':       { label: 'Overdue',      color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -111,9 +109,16 @@ export const isMiscNumeric = (v) => {
 };
 
 export const getStatus = (s) => {
-  const key = String(s || '');
-  const lower = key.toLowerCase();
-  return STATUS_CONFIG[key] || STATUS_CONFIG[lower] || STATUS_CONFIG['1'];
+  if (s && typeof s === 'object') {
+    // Try status_display first (backend may return "Overdue" etc.)
+    const display = String(s.status_display || '').toLowerCase().trim();
+    if (display && STATUS_CONFIG[display]) return STATUS_CONFIG[display];
+    const raw = String(s.status || '').toLowerCase().trim();
+    if (raw && STATUS_CONFIG[raw]) return STATUS_CONFIG[raw];
+    return STATUS_CONFIG['draft'];
+  }
+  const key = String(s || '').toLowerCase().trim();
+  return STATUS_CONFIG[key] || STATUS_CONFIG['draft'];
 };
 
 export const groupItemsByCategory = (items = []) => {

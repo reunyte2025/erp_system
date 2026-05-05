@@ -50,17 +50,16 @@ export const COMPLIANCE_GROUPS = {
 // own STATUS_CONFIG with Lucide Icon refs (so this file stays zero-React).
 // Both consumer files use STATUS_CONFIG only for label / color / bg / border.
 
+// Actual backend status values from Proforma model:
+//   draft | sent | approved | rejected | expired
 export const STATUS_CONFIG = {
-  '1':        { label: 'Draft',             color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':        { label: 'Sent for Approval', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':        { label: 'Approved',          color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '4':        { label: 'Rejected',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '5':        { label: 'Expired',           color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
-  'draft':    { label: 'Draft',             color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'sent':     { label: 'Sent for Approval', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'approved': { label: 'Approved',          color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'rejected': { label: 'Rejected',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'expired':  { label: 'Expired',           color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  'draft':             { label: 'Draft',             color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'sent':              { label: 'Sent for Approval', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'approved':          { label: 'Approved',          color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'rejected':          { label: 'Rejected',          color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'expired':           { label: 'Expired',           color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
+  // Human-readable display string alias
+  'sent for approval': { label: 'Sent for Approval', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
 };
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -102,8 +101,17 @@ export const isMiscNumeric = (v) => {
   return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
 };
 
-export const getStatus = (s) =>
-  STATUS_CONFIG[String(s || '').toLowerCase()] || STATUS_CONFIG['1'];
+export const getStatus = (s) => {
+  if (s && typeof s === 'object') {
+    const display = String(s.status_display || '').toLowerCase().trim();
+    if (display && STATUS_CONFIG[display]) return STATUS_CONFIG[display];
+    const raw = String(s.status || '').toLowerCase().trim();
+    if (raw && STATUS_CONFIG[raw]) return STATUS_CONFIG[raw];
+    return STATUS_CONFIG['draft'];
+  }
+  const key = String(s || '').toLowerCase().trim();
+  return STATUS_CONFIG[key] || STATUS_CONFIG['draft'];
+};
 
 export const groupItemsByCategory = (items = []) => {
   const groups = {};
