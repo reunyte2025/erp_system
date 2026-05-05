@@ -24,18 +24,6 @@ const getStatusColor = (index) => {
   return colors[index % colors.length];
 };
 
-const getStatusColorLight = (index) => {
-  const colors = [
-    'text-teal-700',
-    'text-orange-700',
-    'text-lime-700',
-    'text-green-700',
-    'text-yellow-700',
-    'text-emerald-700',
-  ];
-  return colors[index % colors.length];
-};
-
 const formatFullName = (firstName, lastName) => {
   const fullName = `${firstName || ''} ${lastName || ''}`.trim() || 'N/A';
   return fullName.length > 20 ? fullName.substring(0, 20) + '...' : fullName;

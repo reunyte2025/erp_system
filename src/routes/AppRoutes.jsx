@@ -3,7 +3,6 @@ import Login from '../pages/Login';
 import Quotations from '../pages/quotations/quotations';
 import QuotationsList from '../pages/quotations/quotationsList';
 import ViewQuotationDetails from '../pages/quotations/viewquotationdetails';
-import Proforma from '../pages/proforma/proforma';
 import ProformaList from '../pages/proforma/proformaList';
 import ViewProformaDetails from '../pages/proforma/viewproformadetails';
 import Invoices from '../pages/invoices/invoices';
@@ -207,19 +206,7 @@ export default function AppRoutes({
 
       {/* ==================================================================
           PROFORMA
-          IMPORTANT: /proforma/form  before  /proforma
           ================================================================== */}
-
-      <Route
-        path="/proforma/form"
-        element={
-          <ProtectedRoute isLoggedIn={isLoggedIn}>
-            <AuthenticatedLayout {...layoutProps}>
-              <Proforma />
-            </AuthenticatedLayout>
-          </ProtectedRoute>
-        }
-      />
 
       <Route
         path="/proforma/:id"

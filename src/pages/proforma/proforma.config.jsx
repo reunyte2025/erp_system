@@ -25,39 +25,32 @@ import { useState, useEffect, useRef } from 'react';
 // resolveStatus() handles all three so the badge is always correct.
 // ============================================================================
 
+// Actual backend status values from Proforma model:
+//   draft | sent | approved | rejected | expired
 const STATUS_MAP = {
-  // Numeric IDs
-  '1': { iconColor: 'text-blue-600',   iconBg: 'bg-blue-100/30',   emoji: '📄', text: 'Draft',             badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
-  '2': { iconColor: 'text-amber-500',  iconBg: 'bg-amber-100/30',  emoji: '📤', text: 'Sent for Approval', badgeBg: 'bg-amber-100',  badgeText: 'text-amber-700'  },
-  '3': { iconColor: 'text-green-600',  iconBg: 'bg-green-100/30',  emoji: '✅', text: 'Approved',          badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
-  '4': { iconColor: 'text-red-500',    iconBg: 'bg-red-100/30',    emoji: '❌', text: 'Rejected',          badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
-  '5': { iconColor: 'text-gray-400',   iconBg: 'bg-gray-100/30',   emoji: '⏰', text: 'Expired',           badgeBg: 'bg-gray-100',   badgeText: 'text-gray-600'   },
-
-  // Snake-case slugs → alias to numeric key
-  'draft':    '1',
-  'sent':     '2',
-  'approved': '3',
-  'rejected': '4',
-  'expired':  '5',
-
-  // Human-readable display strings (status_display field from API)
-  'sent for approval': '2',
+  'draft':             { iconColor: 'text-blue-600',   iconBg: 'bg-blue-100/30',   emoji: '📄', text: 'Draft',             badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
+  'sent':              { iconColor: 'text-amber-500',  iconBg: 'bg-amber-100/30',  emoji: '📤', text: 'Sent for Approval', badgeBg: 'bg-amber-100',  badgeText: 'text-amber-700'  },
+  'approved':          { iconColor: 'text-green-600',  iconBg: 'bg-green-100/30',  emoji: '✅', text: 'Approved',          badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
+  'rejected':          { iconColor: 'text-red-500',    iconBg: 'bg-red-100/30',    emoji: '❌', text: 'Rejected',          badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
+  'expired':           { iconColor: 'text-gray-400',   iconBg: 'bg-gray-100/30',   emoji: '⏰', text: 'Expired',           badgeBg: 'bg-gray-100',   badgeText: 'text-gray-600'   },
+  // Human-readable display string alias
+  'sent for approval': 'sent',
 };
 
 const resolveEntry = (key) => {
   const val = STATUS_MAP[key];
-  if (!val) return STATUS_MAP['1'];
-  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['1'];
+  if (!val) return STATUS_MAP['draft'];
+  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['draft'];
   return val;
 };
 
 const resolveStatus = (row) => {
-  if (!row) return STATUS_MAP['1'];
+  if (!row) return STATUS_MAP['draft'];
   const display = String(row.status_display || '').toLowerCase().trim();
   if (display && STATUS_MAP[display] !== undefined) return resolveEntry(display);
   const raw = String(row.status ?? '').toLowerCase().trim();
   if (raw && STATUS_MAP[raw] !== undefined) return resolveEntry(raw);
-  return STATUS_MAP['1'];
+  return STATUS_MAP['draft'];
 };
 
 // ============================================================================
@@ -144,10 +137,10 @@ const truncateText = (text, maxLength = 30) => {
  * same logic as isQuotationDeleted in quotation.config.jsx.
  */
 export const isProformaDeleted = (row) => {
-  const status = String(row.status ?? '').toLowerCase();
+  const status = String(row.status ?? '').toLowerCase().trim();
   return (
-    status === '5'       ||
-    status === 'deleted' ||
+    status === 'expired'  ||
+    status === 'deleted'  ||
     row.is_deleted === true  ||
     row.is_active  === false
   );
@@ -241,18 +234,6 @@ const columns = [
       const iconConfig    = getStatusIconConfig(row);
       const IconComponent = iconConfig.icon; // always FileText
 
-      const formatProformaNumber = (number) => {
-        if (!number) return `PF-2026-${String(row.id || '00000').padStart(5, '0')}`;
-        if (String(number).startsWith('PF-')) return number;
-        const numStr = String(number);
-        if (numStr.length >= 8) {
-          const year = numStr.substring(0, 4);
-          const rest = numStr.substring(4);
-          return `PF-${year}-${rest.padStart(5, '0')}`;
-        }
-        return `PF-2026-${String(number).padStart(5, '0')}`;
-      };
-
       return (
         <div className="flex items-center gap-3">
           {/* Left icon — always same document icon, color reflects status */}
@@ -261,7 +242,7 @@ const columns = [
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-gray-900 text-sm">
-              {formatProformaNumber(row.proforma_number)}
+              {row.proforma_number || `#${row.id}`}
             </div>
             <div className="text-xs text-gray-500">
               {formatTimestamp(row.created_at || row.date)}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   Plus, 
@@ -18,12 +18,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
-  Send,
-  Paperclip,
 } from "lucide-react";
-import { getClientById, updateClient, getClientProjects, getClientInvoices, toggleStarClient, sendClientEmail } from '../../services/clients';
+import { getClientById, updateClient, getClientProjects, getClientInvoices, toggleStarClient } from '../../services/clients';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import SendEmailModal from '../../components/SendEmailModal/SendEmailModal';
 
 
 /**
@@ -227,170 +226,6 @@ const PaginationBar = ({ currentPage, totalPages, totalItems, pageSize, onPrev, 
   );
 };
 
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-
-const SendClientEmailModal = ({ client, onClose }) => {
-  const defaultEmail = client?.email || "";
-
-  const [email, setEmail] = useState(defaultEmail);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [attachments, setAttachments] = useState([]);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
-  const fileInputRef = useRef(null);
-
-  const totalAttachmentSize = attachments.reduce((sum, file) => sum + (file.size || 0), 0);
-  const remainingBytes = MAX_ATTACHMENT_BYTES - totalAttachmentSize;
-
-  const fmtSize = (bytes) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const handleAddFiles = (e) => {
-    const newFiles = Array.from(e.target.files || []);
-    if (!newFiles.length) return;
-
-    const combined = [...attachments, ...newFiles];
-    const totalSize = combined.reduce((sum, file) => sum + (file.size || 0), 0);
-
-    if (totalSize > MAX_ATTACHMENT_BYTES) {
-      setError("Adding these files would exceed the 25 MB attachment limit.");
-      return;
-    }
-
-    setAttachments(combined);
-    setError("");
-    e.target.value = "";
-  };
-
-  const removeAttachment = (idx) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleSend = async () => {
-    if (!email.trim()) {
-      setError("Recipient email is required.");
-      return;
-    }
-    if (!/\S+@\S+\.\S+/.test(email.trim())) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-
-    setError("");
-    setSending(true);
-    try {
-      await sendClientEmail({
-        recipientEmail: email.trim(),
-        subject: subject.trim(),
-        body: body.trim(),
-        attachments,
-      });
-      setSent(true);
-    } catch (e) {
-      setError(e.message || "Failed to send email. Please try again.");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
-      <style>{`
-        @keyframes vqd_spin{to{transform:rotate(360deg)}}
-        @keyframes vqd_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
-      `}</style>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.22)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vqd_in .25s ease' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Mail size={17} color="#fff" />
-            </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Send Email</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
-                {`${client?.first_name || ''} ${client?.last_name || ''}`.trim() || 'Client'}
-              </div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-            <X size={15} />
-          </button>
-        </div>
-
-        {sent ? (
-          <div style={{ padding: '40px 24px', textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-              <CheckCircle size={28} color="#059669" />
-            </div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
-            <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-              Email has been sent to<br /><strong>{email}</strong>
-            </div>
-            <button onClick={onClose} style={{ marginTop: 22, padding: '9px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Done</button>
-          </div>
-        ) : (
-          <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Recipient Email *</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Subject</label>
-              <input type="text" value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 5 }}>Message</label>
-              <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #cbd5e1', fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = '#0f766e'} onBlur={e => e.target.style.borderColor = '#cbd5e1'} />
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.07em' }}>Additional Attachments</label>
-                <span style={{ fontSize: 10, color: '#94a3b8' }}>~{fmtSize(Math.max(0, remainingBytes))} remaining</span>
-              </div>
-              {attachments.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
-                  {attachments.map((file, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', border: '1px solid #cbd5e1' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <Paperclip size={12} color="#64748b" />
-                        <span style={{ fontSize: 12, color: '#334155', fontWeight: 500 }}>{file.name}</span>
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>({fmtSize(file.size)})</span>
-                      </div>
-                      <button onClick={() => removeAttachment(i)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}><X size={13} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1.5px dashed #94a3b8', background: '#f8fafc', color: '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
-                <Paperclip size={13} /> Add Attachment
-              </button>
-              <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
-              <p style={{ fontSize: 10, color: '#94a3b8', margin: '5px 0 0', textAlign: 'center' }}>Max total size: 25 MB</p>
-            </div>
-            {error && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 9, padding: '9px 12px' }}>
-                <AlertCircle size={14} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
-                <span style={{ fontSize: 12, color: '#dc2626', lineHeight: 1.5 }}>{error}</span>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 9, marginTop: 2 }}>
-              <button onClick={onClose} style={{ flex: 1, padding: 10, borderRadius: 10, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: 10, borderRadius: 10, background: sending ? '#94a3b8' : '#0f766e', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                {sending ? <><Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -411,7 +246,7 @@ export default function ClientProfile() {
   const [showSearch, setShowSearch] = useState(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-  const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
+  const [sendModal, setSendModal] = useState(false);
   
   const [projectSearchTerm, setProjectSearchTerm] = useState(""); // For projects/invoices search
 
@@ -549,7 +384,7 @@ export default function ClientProfile() {
       } else {
         setClientProjects([]);
       }
-    } catch (err) {
+    } catch {
       setProjectsError('Failed to load projects');
       setClientProjects([]);
     } finally {
@@ -576,7 +411,7 @@ export default function ClientProfile() {
       } else {
         setClientInvoices([]);
       }
-    } catch (err) {
+    } catch {
       setInvoicesError('Failed to load invoices');
       setClientInvoices([]);
     } finally {
@@ -712,7 +547,6 @@ export default function ClientProfile() {
   const state = client.state || '';
   const pincode = client.pincode || '';
   const gstNumber = client.gst_number || 'N/A';
-  const sacCode = client.sac_code || 'N/A';
   
   // Construct full address
   const fullAddress = [address, city, state, pincode]
@@ -856,7 +690,7 @@ export default function ClientProfile() {
 
             <div className="mt-3">
               <button
-                onClick={() => setIsSendEmailOpen(true)}
+                onClick={() => setSendModal(true)}
                 className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-600/25 transition-colors hover:bg-teal-700 active:bg-teal-800"
                 title="Send email"
               >
@@ -1384,12 +1218,14 @@ export default function ClientProfile() {
         </div>
       )}
 
-      {isSendEmailOpen && (
-        <SendClientEmailModal
-          client={client}
-          onClose={() => setIsSendEmailOpen(false)}
-        />
-      )}
+      <SendEmailModal
+        isOpen={sendModal}
+        onClose={() => setSendModal(false)}
+        title="Send Email to Client"
+        defaultRecipient={client?.email || ''}
+        defaultSubject=""
+        defaultBody=""
+      />
 
 
       {/* Smooth Animations */}

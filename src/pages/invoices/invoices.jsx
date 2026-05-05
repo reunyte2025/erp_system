@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
 import {
   FileText, Download, Send, Edit, Building2, MapPin, Mail, Phone,
   Clock, CheckCircle, User, ChevronDown, X,
@@ -11,17 +10,6 @@ import {
 // ============================================================================
 
 export default function Invoices({ onUpdateNavigation }) {
-  const location = useLocation();
-
-  // State passed from InvoicesList 3-step modal via navigate('/invoices/generate', { state: ... })
-  // TODO (backend): use selectedClient.id, selectedQuotation.id, selectedProforma.id
-  // to fetch or create the actual invoice via createInvoice() from services/invoices.js
-  const {
-    selectedClient    = null,
-    selectedQuotation = null,
-    selectedProforma  = null,
-  } = location.state || {};
-
   // Set breadcrumb so navbar shows "Invoices → Generate Invoice"
   useEffect(() => {
     if (onUpdateNavigation) {
@@ -32,7 +20,7 @@ export default function Invoices({ onUpdateNavigation }) {
     };
   }, [onUpdateNavigation]);
   
-  const [invoices, setInvoices] = useState([
+  const invoices = [
     {
       id: 1,
       number: 'IN-2026-02034',
@@ -90,12 +78,9 @@ export default function Invoices({ onUpdateNavigation }) {
         { title: 'Client Approved invoice Generated', date: '01-01-2026, 09:30 AM', user: 'Mr. ABC' }
       ]
     }
-  ]);
+  ];
 
-  const [selectedInvoice, setSelectedInvoice] = useState(invoices[0]);
-
-  const calculateSectionTotal = (section) =>
-    section.items.reduce((total, item) => total + item.amount, 0);
+  const [selectedInvoice] = useState(invoices[0]);
 
   const handleDownloadPDF = () => {
     // TODO: integrate with PDF generation / download API

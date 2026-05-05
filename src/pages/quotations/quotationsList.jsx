@@ -1058,22 +1058,30 @@ export default function QuotationsList() {
 
   /**
    * Navigate to the dedicated ViewQuotationDetails page.
+   * Fixed — now passes `{ state: { quotationType: row.quotation_type } }`
+   * so the detail page calls the correct regulatory/execution endpoint immediately,
+   * skipping the wasted detect-then-fetch two-step round-trip.
    * Deleted quotations are not clickable.
    */
   const handleRowClick = (quotation) => {
     if (isQuotationDeleted(quotation)) return; // disabled for deleted
     logger.log('Navigating to quotation details:', quotation.id);
-    navigate(`/quotations/${quotation.id}`);
+    navigate(`/quotations/${quotation.id}`, {
+      state: { quotationType: quotation.quotation_type || '' },
+    });
   };
 
   /**
    * After creating a quotation and clicking "View Quotation" in the success modal,
    * navigate directly to the details page.
+   * Also passes quotation_type so the detail page skips the detect step.
    */
   const handleViewQuotation = () => {
     setShowSuccessModal(false);
     if (createdQuotation?.id) {
-      navigate(`/quotations/${createdQuotation.id}`);
+      navigate(`/quotations/${createdQuotation.id}`, {
+        state: { quotationType: createdQuotation.quotation_type || '' },
+      });
     }
   };
 

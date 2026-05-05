@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Plus, User, ChevronDown, Trash2, Edit, FileText, Download, X, Loader2, AlertCircle, CheckCircle, Building2, ChevronRight } from 'lucide-react';
-import { createRegulatoryQuotation, createExecutionQuotation, updateQuotationFull, getComplianceByCategory, getSubComplianceCategories, generateQuotationPdf, QUOTATION_COMPANIES } from '../../services/quotation';
+import { createRegulatoryQuotation, createExecutionQuotation, updateQuotationFull, getComplianceByCategory, generateQuotationPdf, QUOTATION_COMPANIES } from '../../services/quotation';
 import { getClients, getClientProjects } from '../../services/clients';
 import api from '../../services/api';
 
@@ -303,13 +303,9 @@ const SuccessModal = ({ isOpen, onClose, onViewQuotation, quotationNumber, quota
 
   if (!isOpen) return null;
 
-  const fmtQNum = (n) => {
-    if (!n) return '';
-    if (String(n).startsWith('QT-')) return String(n);
-    const s = String(n);
-    if (s.length >= 8) return `QT-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
-    return `QT-2026-${String(n).padStart(5, '0')}`;
-  };
+  // Always display the quotation number exactly as the backend returned it.
+  // The backend is the sole source of truth — never construct or reformat it.
+  const fmtQNum = (n) => (n ? String(n) : '');
 
   const handleDownload = async () => {
     if (!quotationId) return;
@@ -428,11 +424,11 @@ export default function Quotations({ onUpdateNavigation }) {
   const DRAFT_KEY = 'quotation_draft';
 
   const saveDraft = (data) => {
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch {}
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch { /* local draft is optional */ }
   };
 
   const clearDraft = () => {
-    try { localStorage.removeItem(DRAFT_KEY); } catch {}
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* local draft is optional */ }
   };
 
   const loadDraft = () => {
@@ -614,7 +610,7 @@ export default function Quotations({ onUpdateNavigation }) {
     } else {
       setGstEnabled(true);
     }
-  }, [selectedCompany?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCompany?.id]);
 
   // Auto-save draft whenever key state changes
   useEffect(() => {
@@ -630,7 +626,7 @@ export default function Quotations({ onUpdateNavigation }) {
       discountType,
       discountValue,
     });
-  }, [sections, selectedClient, selectedProject, selectedCompany, sacCode, quotationNumber, gstEnabled, gstRate, discountType, discountValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, selectedClient, selectedProject, selectedCompany, sacCode, quotationNumber, gstEnabled, gstRate, discountType, discountValue]);
 
   const generateQuotationNumber = () => {
     const now = new Date();
@@ -781,7 +777,7 @@ export default function Quotations({ onUpdateNavigation }) {
         setComplianceDescriptions([]);
         setDescriptionMode("manual");
       }
-    } catch (err) {
+    } catch {
       descriptionsCacheRef.current[cacheKey] = [];
       setComplianceDescriptions([]);
       setDescriptionMode("manual");
@@ -1362,7 +1358,7 @@ export default function Quotations({ onUpdateNavigation }) {
 
     // For execution + regulatory-no-sub categories, fetch descriptions immediately
     if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
-      setActiveItemForm(prev => ({ ...BLANK_ITEM_FORM }));
+      setActiveItemForm({ ...BLANK_ITEM_FORM });
       fetchComplianceDescriptions(categoryId, null);
     } else {
       // For certificates, descriptions load when sub-category is picked
@@ -1462,7 +1458,8 @@ export default function Quotations({ onUpdateNavigation }) {
             }
             return {
               ...base,
-              unit:            String(item.unit || '').trim() || 'N/A',
+              // Empty unit → null so the detail page shows "—" instead of "N/A"
+              unit:            String(item.unit || '').trim() || null,
               sac_code:        String(item.item_sac_code || '').trim(),
               Professional_amount: profRate.toFixed(2),
               material_rate:   parseFloat(matRate.toFixed(2)),
@@ -1480,7 +1477,8 @@ export default function Quotations({ onUpdateNavigation }) {
             const item_total = parseFloat(((Professional_amount + miscNumericValue) * quantity).toFixed(2));
             return {
               ...base,
-              unit:                    String(item.unit || '').trim() || 'N/A',
+              // Empty unit → null so the detail page shows "—" instead of "N/A"
+              unit:                    String(item.unit || '').trim() || null,
               // Backend field renamed: miscellaneous_amount → consultancy_charges
               consultancy_charges:     rawMisc || '0.00',
               Professional_amount:     Professional_amount.toFixed(2),
@@ -1609,15 +1607,11 @@ export default function Quotations({ onUpdateNavigation }) {
           });
           if (msgs.length) friendlyMsg = msgs.join(' • ');
         }
-      } catch {}
+      } catch { /* API error parsing is best-effort */ }
       setError(friendlyMsg);
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleBackToQuotations = () => {
-    navigate('/quotations');
   };
 
   const filteredClients = clients.filter(client => {
@@ -1637,7 +1631,7 @@ export default function Quotations({ onUpdateNavigation }) {
     } else {
       setClientProjects([]);
     }
-  }, [selectedClient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedClient?.id]);
 
   // ============================================================================
   // MODAL COMPUTED VARIABLES (avoids IIFE-in-JSX parse errors)

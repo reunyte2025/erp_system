@@ -53,8 +53,24 @@ export const getProformas = async (params = {}) => {
   }
 };
 
-export const getProformaById = async (id) => {
+/**
+ * getProformaById
+ *
+ * Fetches a single proforma using the correct typed endpoint.
+ *
+ * @param {number|string} id            — Proforma ID
+ * @param {string}        [proformaType] — Optional: 'execution' or 'regulatory'
+ *                                         Pass this when you already know the type
+ *                                         (e.g. from the list API's proforma_type field)
+ *                                         to avoid an unnecessary extra request.
+ *                                         When omitted the function tries regulatory
+ *                                         first, then execution.
+ */
+export const getProformaById = async (id, proformaType) => {
   if (!id) throw new Error('Proforma ID is required');
+
+  // Normalise the hint so we can do simple string comparisons
+  const typeHint = String(proformaType || '').trim().toLowerCase();
 
   const tryEndpoint = async (endpoint) => {
     try {
@@ -67,13 +83,33 @@ export const getProformaById = async (id) => {
   };
 
   try {
-    serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}`);
+    serviceLogger.log(`[Proforma Service] Fetching proforma ID: ${id}, type hint: "${typeHint}"`);
+
+    // ── Fast-path: caller already knows the type ──────────────────────────────
+    if (typeHint.includes('execution')) {
+      const result = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+      if (result) return result;
+      // Fallback (should never be needed) in case the hint was stale
+      const fallback = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+      if (fallback) return fallback;
+      throw new Error('Server error: 404');
+    }
+
+    if (typeHint.includes('regulatory')) {
+      const result = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+      if (result) return result;
+      // Fallback
+      const fallback = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+      if (fallback) return fallback;
+      throw new Error('Server error: 404');
+    }
+
+    // ── No hint: try regulatory first (most common), then execution ──────────
+    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+    if (regulatoryResult) return regulatoryResult;
 
     const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
     if (executionResult) return executionResult;
-
-    const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
-    if (regulatoryResult) return regulatoryResult;
 
     throw new Error('Server error: 404');
   } catch (error) {
@@ -488,22 +524,26 @@ export const generateConstructiveProformaPdf = async (params, fileName = 'profor
 
     serviceLogger.log(`[Proforma Service] Generating Constructive India PDF for proforma ${params.id}`);
 
+    // Helper: send null for any blank/missing optional field so the backend
+    // knows to omit that field from the rendered PDF entirely.
+    const orNull = (v) => (v && String(v).trim() ? String(v).trim() : null);
+
     const payload = {
       id:              parseInt(params.id),
-      company_name:    params.company_name    || '',
-      address:         params.address         || '',
-      gst_no:          params.gst_no          || '',
-      scope_of_work:   params.scope_of_work.trim(),
-      sac_code:        params.sac_code        || '',
-      invoice_date:    params.invoice_date    || '',
-      work_order_date: params.work_order_date || '',
-      valid_from:      params.valid_from      || '',
-      valid_till:      params.valid_till      || '',
-      vendor_code:     params.vendor_code     || '',
-      po_no:           params.po_no           || '',
-      schedule_date:   params.schedule_date   || '',
-      state:           params.state           || '',
-      code:            params.code            || '',
+      company_name:    params.company_name    || '',   // required — always a string
+      address:         params.address         || '',   // required — always a string
+      scope_of_work:   params.scope_of_work.trim(),    // required — always a string
+      gst_no:          orNull(params.gst_no),
+      sac_code:        orNull(params.sac_code),
+      invoice_date:    orNull(params.invoice_date),
+      work_order_date: orNull(params.work_order_date),
+      valid_from:      orNull(params.valid_from),
+      valid_till:      orNull(params.valid_till),
+      vendor_code:     orNull(params.vendor_code),
+      po_no:           orNull(params.po_no),
+      schedule_date:   orNull(params.schedule_date),
+      state:           orNull(params.state),
+      code:            orNull(params.code),
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_CONSTRUCTIVE, payload, {
@@ -545,17 +585,21 @@ export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf'
 
     serviceLogger.log(`[Proforma Service] Generating Other Company PDF for proforma ${params.id}`);
 
+    // Helper: send null for any blank/missing optional field so the backend
+    // knows to omit that field from the rendered PDF entirely.
+    const orNull = (v) => (v && String(v).trim() ? String(v).trim() : null);
+
     const payload = {
       id:            parseInt(params.id),
-      company_name:  params.company_name  || '',
-      address:       params.address       || '',
-      gst_no:        params.gst_no        || '',
-      scope_of_work: params.scope_of_work.trim(),
-      po_no:         params.po_no         || '',
-      schedule_date: params.schedule_date || '',
-      sac_code:      params.sac_code      || '',
-      state:         params.state         || '',
-      code:          params.code          || '',
+      company_name:  params.company_name  || '',   // required — always a string
+      address:       params.address       || '',   // required — always a string
+      scope_of_work: params.scope_of_work.trim(),  // required — always a string
+      gst_no:        orNull(params.gst_no),
+      po_no:         orNull(params.po_no),
+      schedule_date: orNull(params.schedule_date),
+      sac_code:      orNull(params.sac_code),
+      state:         orNull(params.state),
+      code:          orNull(params.code),
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_OTHER, payload, {
@@ -572,134 +616,6 @@ export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf'
   }
 };
 
-/**
- * Send a proforma to a client via email with the PDF attached.
- * Mirrors sendQuotationToClient in quotation.js exactly.
- *
- * @param {Object} params
- * @param {number} params.proformaId          - Proforma ID
- * @param {string} params.proformaNumber      - Proforma number for display / filename
- * @param {string} params.issuedDate          - Issued date for email body
- * @param {string} params.recipientEmail      - Recipient email address
- * @param {string} params.subject             - Email subject
- * @param {string} params.body                - Email body
- * @param {Array<File>} params.extraAttachments - Additional files to attach (optional)
- * @returns {Promise<Object>} Email sending response
- * @throws {Error} If email sending fails
- */
-export const sendProformaToClient = async ({
-  proformaId,
-  proformaNumber,
-  issuedDate,
-  recipientEmail,
-  subject,
-  body,
-  extraAttachments = [],
-}) => {
-  try {
-    if (!proformaId)     throw new Error('Proforma ID is required');
-    if (!recipientEmail) throw new Error('Recipient email is required');
-
-    serviceLogger.log(`[Proforma Service] Sending proforma ${proformaId} to ${recipientEmail}`);
-
-    // Step 1 — Generate the PDF blob
-    const pdfResponse = await api.get('/proformas/generate_pdf/', {
-      params: {
-        id:            parseInt(proformaId),
-        scope_of_work: 'As per scope discussed.',
-      },
-      responseType: 'blob',
-    });
-
-    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
-    const pdfFile = new File(
-      [pdfBlob],
-      `${proformaNumber || `Proforma_${proformaId}`}.pdf`,
-      { type: 'application/pdf' },
-    );
-
-    // Step 2 — Validate total attachment size
-    const MAX_BYTES = 25 * 1024 * 1024;
-    const allFiles  = [pdfFile, ...extraAttachments];
-    const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
-    if (totalSize > MAX_BYTES) {
-      throw new Error(
-        `Total attachment size (${(totalSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 25 MB limit.`,
-      );
-    }
-
-    // Step 3 — Build email content
-    const autoSubject =
-      subject ||
-      `Proforma ${proformaNumber}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-
-    const autoBody =
-      body ||
-      `Dear Client,\n\nPlease find attached your proforma invoice ${proformaNumber}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
-
-    // Step 4 — Build FormData and POST to send_email
-    const formData = new FormData();
-    formData.append('subject',    autoSubject);
-    formData.append('recipients', recipientEmail);
-    formData.append('body',       autoBody);
-    allFiles.forEach((file) => formData.append('attachments', file));
-
-    serviceLogger.log('[Proforma Service] Sending email with PDF attachment…');
-
-    const response = await api.post('/notifications/send_email/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-
-    serviceLogger.log('[Proforma Service] Email sent successfully');
-    return response.data;
-
-  } catch (error) {
-    const responseData = error.response?.data;
-    let errorMessage   = '';
-
-    if (error.response?.status === 400) {
-      const errors =
-        responseData?.errors && typeof responseData.errors === 'object'
-          ? responseData.errors
-          : responseData && typeof responseData === 'object'
-            ? responseData
-            : {};
-
-      const missingSubject     = Array.isArray(errors.subject)     && errors.subject.length     > 0;
-      const missingBody        = Array.isArray(errors.body)        && errors.body.length        > 0;
-      const missingAttachments = Array.isArray(errors.attachments) && errors.attachments.length > 0;
-      const invalidRecipients  = Array.isArray(errors.recipients)  && errors.recipients.length  > 0;
-
-      const missingParts = [];
-      if (missingSubject)     missingParts.push('a subject');
-      if (missingBody)        missingParts.push('a message');
-      if (missingAttachments) missingParts.push('at least one attachment');
-
-      const joinNatural = (parts) => {
-        if (parts.length === 0) return '';
-        if (parts.length === 1) return parts[0];
-        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-        return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
-      };
-
-      if (invalidRecipients) {
-        errorMessage = 'Please enter a valid recipient email address before sending.';
-      } else if (missingParts.length > 0) {
-        errorMessage = `Please add ${joinNatural(missingParts)} before sending the email.`;
-      } else if (responseData?.message || responseData?.detail) {
-        errorMessage = responseData.message || responseData.detail;
-      } else {
-        errorMessage = 'Please check the email details and try again.';
-      }
-    } else {
-      errorMessage = normalizeError(error);
-    }
-
-    serviceLogger.error('[Proforma Service] sendProformaToClient failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
 export const getProformaStats = async (params = {}) => {
   try {
     const response = await getProformas({ page: 1, page_size: 1, ...params });
@@ -711,7 +627,7 @@ export const getProformaStats = async (params = {}) => {
       status: 'success',
       data: { total: 0, draft: 0, under_review: 0, verified: 0 },
     };
-  } catch (error) {
+  } catch {
     return {
       status: 'success',
       data: { total: 0, draft: 0, under_review: 0, verified: 0 },
@@ -817,5 +733,4 @@ export default {
   sendProformaForApproval,
   approveProforma,
   rejectProforma,
-  sendProformaToClient,
 };

@@ -10,7 +10,7 @@ import api, { normalizeError } from './api';
 // CONFIGURATION
 // ============================================================================
 
-const ENABLE_SERVICE_LOGGING = process.env.NODE_ENV === 'development';
+const ENABLE_SERVICE_LOGGING = import.meta.env.MODE === 'development';
 
 const serviceLogger = {
   log: (...args) => {
@@ -36,8 +36,6 @@ const ENDPOINTS = {
   UPDATE_EXECUTION:  '/quotations/update_execution_quotation/', // PUT – Execution
   DELETE_BY_ID:      '/quotations/delete_quotation/',
   GENERATE_PDF:      '/quotations/generate_pdf/',
-  // Non-quotation helpers kept for side features
-  SEND_EMAIL:        '/notifications/send_email/',
   GET_ALL_PROJECTS:  '/projects/get_all_Project/',
   GET_USER:          '/users/get_user/',
 };
@@ -560,85 +558,6 @@ export const generateQuotationPdf = async (id, { company_name = '', address = ''
 };
 
 // ============================================================================
-// EMAIL
-// ============================================================================
-
-export const sendQuotationToClient = async ({
-  quotationId, quotationNumber, issuedDate,
-  recipientEmail, subject, body, extraAttachments = [],
-}) => {
-  try {
-    if (!quotationId)    throw new Error('Quotation ID is required');
-    if (!recipientEmail) throw new Error('Recipient email is required');
-    serviceLogger.log(`Sending quotation ${quotationId} to ${recipientEmail}`);
-
-    const pdfResponse = await api.post(
-      ENDPOINTS.GENERATE_PDF, {}, { params: { id: quotationId }, responseType: 'blob' }
-    );
-    const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
-    const pdfFile = new File(
-      [pdfBlob],
-      `${quotationNumber || `Quotation_${quotationId}`}.pdf`,
-      { type: 'application/pdf' }
-    );
-
-    const MAX_BYTES = 25 * 1024 * 1024;
-    const allFiles  = [pdfFile, ...extraAttachments];
-    const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
-    if (totalSize > MAX_BYTES) {
-      throw new Error(
-        `Total attachment size (${(totalSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 25 MB limit.`
-      );
-    }
-
-    const autoSubject = subject ||
-      `Quotation ${quotationNumber}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-    const autoBody    = body ||
-      `Dear Client,\n\nPlease find attached your quotation ${quotationNumber}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
-
-    const formData = new FormData();
-    formData.append('subject',    autoSubject);
-    formData.append('recipients', recipientEmail);
-    formData.append('body',       autoBody);
-    allFiles.forEach((file) => formData.append('attachments', file));
-
-    serviceLogger.log('Sending email with attachment...');
-    const response = await api.post(ENDPOINTS.SEND_EMAIL, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    serviceLogger.log('Email sent successfully');
-    return response.data;
-
-  } catch (error) {
-    const responseData = error.response?.data;
-    let errorMessage   = '';
-    if (error.response?.status === 400) {
-      const errors = responseData?.errors && typeof responseData.errors === 'object'
-        ? responseData.errors
-        : (responseData && typeof responseData === 'object' ? responseData : {});
-      const missingParts = [];
-      if (Array.isArray(errors.subject)     && errors.subject.length)     missingParts.push('a subject');
-      if (Array.isArray(errors.body)        && errors.body.length)        missingParts.push('a message');
-      if (Array.isArray(errors.attachments) && errors.attachments.length) missingParts.push('at least one attachment');
-      if (Array.isArray(errors.recipients)  && errors.recipients.length) {
-        errorMessage = 'Please enter a valid recipient email address before sending.';
-      } else if (missingParts.length > 0) {
-        const join = (p) =>
-          p.length === 1 ? p[0] : p.length === 2 ? `${p[0]} and ${p[1]}` :
-            `${p.slice(0, -1).join(', ')}, and ${p[p.length - 1]}`;
-        errorMessage = `Please add ${join(missingParts)} before sending the email.`;
-      } else {
-        errorMessage = responseData?.message || responseData?.detail || 'Please check the email details and try again.';
-      }
-    } else {
-      errorMessage = normalizeError(error);
-    }
-    serviceLogger.error('sendQuotationToClient failed:', errorMessage);
-    throw new Error(errorMessage);
-  }
-};
-
-// ============================================================================
 // COMPLIANCE
 // ============================================================================
 
@@ -768,7 +687,6 @@ export default {
   getSubComplianceCategories,
   getAllCompliance,
   generateQuotationPdf,
-  sendQuotationToClient,
   getUserById,
   getAllProjects,
 };

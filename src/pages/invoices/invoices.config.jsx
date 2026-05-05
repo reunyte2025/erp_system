@@ -25,47 +25,38 @@ import { useState, useEffect, useRef } from 'react';
 // resolveStatus() handles all three so the badge is always correct.
 // ============================================================================
 
+// Actual backend status values from Invoice model:
+//   draft | sent | partial_paid | paid | cancelled
+// The API may also return status_display: "Overdue" for expired unpaid invoices.
 const STATUS_MAP = {
-  // Numeric IDs
-  '1': { iconColor: 'text-blue-600',    iconBg: 'bg-blue-100/30',    emoji: '📄', text: 'Draft',             badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
-  '2': { iconColor: 'text-yellow-600',  iconBg: 'bg-yellow-100/30',  emoji: '🔍', text: 'Under Review',      badgeBg: 'bg-yellow-100', badgeText: 'text-yellow-700' },
-  '3': { iconColor: 'text-yellow-600',  iconBg: 'bg-yellow-100/30',  emoji: '🕐', text: 'In Progress',       badgeBg: 'bg-yellow-100', badgeText: 'text-yellow-700' },
-  '4': { iconColor: 'text-green-600',   iconBg: 'bg-green-100/30',   emoji: '✅', text: 'Placed Work-order', badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
-  '5': { iconColor: 'text-red-600',     iconBg: 'bg-red-100/30',     emoji: '❌', text: 'Failed',            badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
-  '6': { iconColor: 'text-red-600',     iconBg: 'bg-red-100/30',     emoji: '🚫', text: 'Cancelled',         badgeBg: 'bg-red-100',    badgeText: 'text-red-700'   },
+  // Slug → config
+  'draft':        { iconColor: 'text-slate-500',  iconBg: 'bg-slate-100/30',  emoji: '📄', text: 'Draft',        badgeBg: 'bg-slate-100',  badgeText: 'text-slate-700'  },
+  'sent':         { iconColor: 'text-blue-600',   iconBg: 'bg-blue-100/30',   emoji: '📤', text: 'Sent',         badgeBg: 'bg-blue-100',   badgeText: 'text-blue-700'   },
+  'partial_paid': { iconColor: 'text-amber-600',  iconBg: 'bg-amber-100/30',  emoji: '⏳', text: 'Partial Paid', badgeBg: 'bg-amber-100',  badgeText: 'text-amber-700'  },
+  'paid':         { iconColor: 'text-green-600',  iconBg: 'bg-green-100/30',  emoji: '✅', text: 'Paid',         badgeBg: 'bg-green-100',  badgeText: 'text-green-700'  },
+  'cancelled':    { iconColor: 'text-red-500',    iconBg: 'bg-red-100/30',    emoji: '🚫', text: 'Cancelled',    badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
+  'canceled':     'cancelled',
 
-  // Snake-case slugs → alias to numeric key
-  'draft':             '1',
-  'pending':           '2',
-  'under_review':      '2',
-  'in_progress':       '3',
-  'verified':          '4',
-  'placed_work_order': '4',
-  'failed':            '5',
-  'cancelled':         '6',
-  'canceled':          '6',
-
-  // Human-readable display strings (status_display field from API)
-  'under review':      '2',
-  'in progress':       '3',
-  'placed work-order': '4',
-  'placed work order': '4',
+  // Human-readable display strings (status_display from API)
+  'partial paid': 'partial_paid',
+  'overdue':      { iconColor: 'text-red-600',    iconBg: 'bg-red-100/30',    emoji: '🔴', text: 'Overdue',      badgeBg: 'bg-red-100',    badgeText: 'text-red-700'    },
 };
 
 const resolveEntry = (key) => {
   const val = STATUS_MAP[key];
-  if (!val) return STATUS_MAP['1'];
-  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['1'];
+  if (!val) return STATUS_MAP['draft'];
+  if (typeof val === 'string') return STATUS_MAP[val] || STATUS_MAP['draft'];
   return val;
 };
 
 const resolveStatus = (row) => {
-  if (!row) return STATUS_MAP['1'];
+  if (!row) return STATUS_MAP['draft'];
+  // Try status_display first — backend can return "Overdue" for expired invoices
   const display = String(row.status_display || '').toLowerCase().trim();
   if (display && STATUS_MAP[display] !== undefined) return resolveEntry(display);
   const raw = String(row.status ?? '').toLowerCase().trim();
   if (raw && STATUS_MAP[raw] !== undefined) return resolveEntry(raw);
-  return STATUS_MAP['1'];
+  return STATUS_MAP['draft'];
 };
 
 // ============================================================================
@@ -146,10 +137,9 @@ const truncateText = (text, maxLength = 30) => {
  */
 export const isInvoiceCancelled = (row) => {
   if (!row) return false;
-  const status = String(row.status ?? '').toLowerCase();
-  const display = String(row.status_display ?? '').toLowerCase();
+  const status  = String(row.status ?? '').toLowerCase().trim();
+  const display = String(row.status_display ?? '').toLowerCase().trim();
   return (
-    status  === '6'          ||
     status  === 'cancelled'  ||
     status  === 'canceled'   ||
     display === 'cancelled'  ||

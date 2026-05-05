@@ -5,7 +5,7 @@ import {
   CheckCircle, Clock, Send, FileText, XCircle,
   Building2, User, MapPin, Hash, Calendar,
   Tag, Percent, ChevronRight, Mail, Receipt,
-  Briefcase, ShoppingCart, Users, X, Paperclip, Truck,
+  Briefcase, ShoppingCart, Users, X, Truck,
   DollarSign, FileEdit, ChevronDown, Search, FileSearch,
 } from 'lucide-react';
 import {
@@ -29,318 +29,56 @@ import { useRole } from '../../components/RoleContext';
 import api from '../../services/api';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import SendEmailModal from '../../components/SendEmailModal/SendEmailModal';
+import InvoiceTypeTable from './InvoiceTypeTable';
+import {
+  fmtInvNum,
+  fmtINR,
+  fmtDate,
+  groupItemsByCategory,
+  calcItemUnitAmount,
+  numberToWords,
+  normalizeInvoiceType,
+  detectInvoiceTypeFromData,
+} from '../../services/invoiceHelpers';
 
-// ─── Constants ──────────────────────────────────────────────────────────────────
+// ─── Status config (with Lucide Icon refs — kept here because invoiceHelpers.js is zero-React) ──
 
-// Regulatory invoice categories (from quotation/proforma flow)
-const REGULATORY_COMPLIANCE_CATEGORIES = {
-  1: 'Construction Certificate',
-  2: 'Occupational Certificate',
-  3: 'Water Main Commissioning',
-  4: 'STP Commissioning',
-};
-
-// Execution & Purchase Order invoice categories
-const EXECUTION_COMPLIANCE_CATEGORIES = {
-  5: 'Water Connection',
-  6: 'SWD Line Work',
-  7: 'Sewer/Drainage Line Work',
-};
-
-// Merged map for display
-const COMPLIANCE_CATEGORIES = {
-  ...REGULATORY_COMPLIANCE_CATEGORIES,
-  ...EXECUTION_COMPLIANCE_CATEGORIES,
-};
-
-const SUB_COMPLIANCE_CATEGORIES = {
-  0: { id: 0, name: 'Default' },
-  1: { id: 1, name: 'Plumbing Compliance' },
-  2: { id: 2, name: 'PCO Compliance' },
-  3: { id: 3, name: 'General Compliance' },
-  4: { id: 4, name: 'Road Setback Handing over' },
-  5: { id: 5, name: 'Internal Water Main' },
-  6: { id: 6, name: 'Permanent Water Connection' },
-  7: { id: 7, name: 'Pipe Jacking Method' },
-  8: { id: 8, name: 'HDD Method' },
-  9: { id: 9, name: 'Open Cut Method' },
-};
-
+// Actual backend status values from Invoice model:
+//   draft | sent | partial_paid | paid | cancelled
+// status_display can also be "Overdue" for expired unpaid invoices (from track_invoice).
 const STATUS_CONFIG = {
-  '1':                 { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  '2':                 { label: 'Under Review',       Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '3':                 { label: 'In Progress',        Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  '4':                 { label: 'Placed Work-order',  Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  '5':                 { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  '6':                 { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'draft':             { label: 'Draft',             Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  'under_review':      { label: 'Under Review',       Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'in_progress':       { label: 'In Progress',        Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'placed_work_order': { label: 'Placed Work-order',  Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'verified':          { label: 'Verified',           Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
-  'failed':            { label: 'Failed',             Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'pending':           { label: 'Pending',            Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-  'cancelled':         { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-  'canceled':          { label: 'Cancelled',          Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'draft':        { label: 'Draft',        Icon: FileText,    color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+  'sent':         { label: 'Sent',         Icon: Send,        color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  'partial_paid': { label: 'Partial Paid', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'paid':         { label: 'Paid',         Icon: CheckCircle, color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+  'cancelled':    { label: 'Cancelled',    Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  'canceled':     { label: 'Cancelled',    Icon: XCircle,     color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  // status_display overrides
+  'partial paid': { label: 'Partial Paid', Icon: Clock,       color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+  'overdue':      { label: 'Overdue',      Icon: AlertCircle, color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-
-const fmtInvNum = (n) => {
-  if (!n) return '—';
-  return String(n);
-};
-
-const fmtINR = (v) => {
-  const n = parseFloat(v) || 0;
-  // Always show 2 decimal places to preserve amounts like 61,371.80
-  return new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-};
-
-const fmtDate = (ds) => {
-  if (!ds) return '—';
-  try { return new Date(ds).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-  catch { return '—'; }
-};
-
-const isMiscNumeric = (v) => {
-  if (v === '' || v == null) return false;
-  const s = String(v).trim();
-  return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
-};
-
-const getStatus = (s) => {
-  const key = String(s || '');
-  const lower = key.toLowerCase();
-  return STATUS_CONFIG[key] || STATUS_CONFIG[lower] || STATUS_CONFIG['1'];
-};
-
-const groupItemsByCategory = (items = []) => {
-  const groups = {};
-  items.forEach((item) => {
-    const catId = item.compliance_category ?? item.category ?? null;
-    const key = catId != null ? String(catId) : 'other';
-    if (!groups[key]) {
-      groups[key] = {
-        catId,
-        catName: catId != null ? (COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`) : 'Other Services',
-        items: [],
-      };
-    }
-    groups[key].items.push(item);
-  });
-  return Object.values(groups);
-};
-
-const calcItemTotal = (item) => {
-  const qty  = parseInt(item.quantity) || 1;
-  const prof = parseFloat(item.Professional_amount) || 0;
-
-  const isExecItem = (
-    item.material_rate   != null ||
-    item.labour_rate     != null ||
-    item.material_amount != null ||
-    item.labour_amount   != null
-  );
-
-  if (isExecItem) {
-    // material_amount / labour_amount are server-computed aggregate totals (rate × qty).
-    // Professional_amount is per-unit — must be multiplied by qty separately.
-    const matAmt  = parseFloat(item.material_amount) || 0;
-    const labAmt  = parseFloat(item.labour_amount)   || 0;
-    const matRate = parseFloat(item.material_rate)   || 0;
-    const labRate = parseFloat(item.labour_rate)     || 0;
-    if (matAmt > 0 || labAmt > 0) {
-      return parseFloat((matAmt + labAmt + prof * qty).toFixed(2));
-    }
-    // Fallback: all fields are per-unit
-    return parseFloat(((matRate + labRate + prof) * qty).toFixed(2));
+// Local getStatus override that also resolves Lucide Icon refs.
+// Accepts a raw status string OR a row object (checks status_display first, then status).
+const getStatusWithIcon = (s) => {
+  if (s && typeof s === 'object') {
+    const display = String(s.status_display || '').toLowerCase().trim();
+    if (display && STATUS_CONFIG[display]) return STATUS_CONFIG[display];
+    const raw = String(s.status || '').toLowerCase().trim();
+    if (raw && STATUS_CONFIG[raw]) return STATUS_CONFIG[raw];
+    return STATUS_CONFIG['draft'];
   }
-
-  // Regulatory: both per-unit fees × qty
-  const consultancy = (() => {
-    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw == null || raw === '') return 0;
-    const n = parseFloat(String(raw).trim());
-    return isNaN(n) ? 0 : n;
-  })();
-  return parseFloat(((prof + consultancy) * qty).toFixed(2));
-};
-
-/**
- * Returns the PER-UNIT amount for one piece of a line item.
- * Used in the PDF modal checklist so lineTotal = unitAmt × selectedQty is always correct.
- *
- * EXECUTION items  → mat_rate + lab_rate + Professional_amount  (all per-unit)
- *   Fallback when rates absent: (matAmt + labAmt) / qty + prof
- * REGULATORY items → Professional_amount + consultancy_charges  (both already per-unit)
- */
-const calcItemUnitAmount = (item) => {
-  const qty  = parseInt(item.quantity) || 1;
-  const prof = parseFloat(item.Professional_amount) || 0;
-
-  const isExecItem = (
-    item.material_rate   != null ||
-    item.labour_rate     != null ||
-    item.material_amount != null ||
-    item.labour_amount   != null
-  );
-
-  if (isExecItem) {
-    const matRate = parseFloat(item.material_rate) || 0;
-    const labRate = parseFloat(item.labour_rate)   || 0;
-    if (matRate > 0 || labRate > 0) {
-      return parseFloat((matRate + labRate + prof).toFixed(2));
-    }
-    const matAmt = parseFloat(item.material_amount) || 0;
-    const labAmt = parseFloat(item.labour_amount)   || 0;
-    return parseFloat(((matAmt + labAmt) / qty + prof).toFixed(2));
-  }
-
-  const consultancy = (() => {
-    const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw == null || raw === '') return 0;
-    const n = parseFloat(String(raw).trim());
-    return isNaN(n) ? 0 : n;
-  })();
-  return parseFloat((prof + consultancy).toFixed(2));
-};
-
-function numberToWords(n) {
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const convert = (num) => {
-    if (num === 0) return '';
-    if (num < 20) return ones[num] + ' ';
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '') + ' ';
-    if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred ' + convert(num % 100);
-    if (num < 100000) return convert(Math.floor(num / 1000)) + 'Thousand ' + convert(num % 1000);
-    if (num < 10000000) return convert(Math.floor(num / 100000)) + 'Lakh ' + convert(num % 100000);
-    return convert(Math.floor(num / 10000000)) + 'Crore ' + convert(n % 10000000);
-  };
-  const int = Math.floor(Math.abs(n));
-  const dec = Math.round((Math.abs(n) - int) * 100);
-  let str = convert(int).trim() || 'Zero';
-  if (dec > 0) str += ` and ${convert(dec).trim()} Paise`;
-  return str;
-}
-
-/**
- * Determine compliance type from items
- * Returns: 'certificates' | 'execution' | 'mixed' | 'none'
- */
-const getComplianceType = (items = []) => {
-  const hasCerts = items.some(it => [1, 2].includes(it.compliance_category));
-  const hasExec = items.some(it => [3, 4].includes(it.compliance_category));
-  
-  if (hasCerts && hasExec) return 'mixed';
-  if (hasCerts) return 'certificates';
-  if (hasExec) return 'execution';
-  return 'none';
-};
-
-/**
- * Get display text for compliance type
- */
-const getComplianceTypeLabel = (items = []) => {
-  const type = getComplianceType(items);
-  switch (type) {
-    case 'certificates':
-      return 'Certificates (Construction & Occupational)';
-    case 'execution':
-      return 'Execution (Water Main & STP)';
-    case 'mixed':
-      return 'Mixed Compliance (Certificates & Execution)';
-    default:
-      return 'No Compliance Items';
-  }
-};
-
-/**
- * Check if invoice has Execution compliance items (categories 3 or 4)
- */
-const hasExecutionCompliance = (items = []) => {
-  return items.some(it => [3, 4].includes(it.compliance_category));
-};
-
-const normalizeInvoiceType = (value = '') => {
-  const t = String(value || '').toLowerCase().trim();
-  if (!t) return '';
-  if (t.includes('vendor') || t.includes('purchase')) return 'vendor';
-  if (t.includes('execution')) return 'execution';
-  if (t.includes('regulatory')) return 'regulatory';
-  return '';
-};
-
-/**
- * Detect the true invoice type from response data using STRUCTURAL validation.
- *
- * WHY NOT trust invoice_type string alone:
- *   The backend's /get_purchase_order_invoice/ endpoint may return data for
- *   ANY invoice ID (not just vendor invoices), with invoice_type = "Vendor
- *   Compliance". Trusting that string causes execution invoices to be
- *   misidentified. We must cross-check the structural fields instead.
- *
- * Rule priority (most reliable → least reliable):
- *   1. vendor field is non-null  →  vendor
- *   2. client field is non-null  →  check items for rate breakdown to distinguish
- *      execution (has material_rate/labour_rate) from regulatory (does not)
- *   3. invoice_type string       →  only used when structural fields are absent
- *      (e.g., both client and vendor are null/undefined in response)
- */
-const detectInvoiceTypeFromData = (invoiceData = {}) => {
-  // ── Structural check 1: vendor field present and non-null → vendor invoice ─
-  // A true vendor/PO invoice will always have a non-null vendor field.
-  if (invoiceData?.vendor != null && invoiceData.vendor !== '') return 'vendor';
-
-  // ── Structural check 2: client field present and non-null → client invoice ─
-  if (invoiceData?.client != null && invoiceData.client !== '') {
-    // Distinguish execution vs regulatory by items
-    if (Array.isArray(invoiceData?.items)) {
-      const hasRateBreakdown = invoiceData.items.some((item) =>
-        (item?.material_rate != null && parseFloat(item.material_rate) !== 0) ||
-        (item?.labour_rate   != null && parseFloat(item.labour_rate)   !== 0) ||
-        (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
-        (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
-      );
-      if (hasRateBreakdown) return 'execution';
-    }
-    return 'regulatory';
-  }
-
-  // ── Structural check 3: vendor_name set but vendor ID null ─────────────────
-  if (invoiceData?.vendor_name) return 'vendor';
-
-  // ── Fallback: trust invoice_type string only when structural fields absent ──
-  // This handles edge cases where the response omits client/vendor entirely.
-  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
-  if (normalizedType) return normalizedType;
-
-  // ── Last resort: items analysis without client/vendor context ──────────────
-  if (Array.isArray(invoiceData?.items)) {
-    const hasRateBreakdown = invoiceData.items.some((item) =>
-      (item?.material_rate   != null && parseFloat(item.material_rate)   !== 0) ||
-      (item?.labour_rate     != null && parseFloat(item.labour_rate)     !== 0) ||
-      (item?.material_amount != null && parseFloat(item.material_amount) !== 0) ||
-      (item?.labour_amount   != null && parseFloat(item.labour_amount)   !== 0)
-    );
-    if (hasRateBreakdown) return 'execution'; // default to execution not vendor when ambiguous
-  }
-
-  return '';
+  const key = String(s || '').toLowerCase().trim();
+  return STATUS_CONFIG[key] || STATUS_CONFIG['draft'];
 };
 
 // ─── Sub-components ──────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => {
-  const { Icon } = status;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: status.color, background: status.bg, border: `1px solid ${status.border}`, fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 20 }}>
-      <Icon size={11} /> {status.label}
+      <status.Icon size={11} /> {status.label}
     </span>
   );
 };
@@ -348,7 +86,7 @@ const StatusPill = ({ status }) => {
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
     <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-      <Icon size={10} /> {label}
+      {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
       {value || '—'}
@@ -510,7 +248,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
             </div>
           </div>
 
-          {/* Financial Rates */}
+          {/* Applied Rates */}
           <div style={{ borderRadius: 12, border: '1.5px solid #e8ecf2', overflow: 'hidden' }}>
             <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
               <div style={{ width: 22, height: 22, borderRadius: 7, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -519,16 +257,24 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
               <span style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.1em' }}>Applied Rates</span>
             </div>
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {[
-                { label: 'GST Rate',  value: `${parseFloat(invoice.gst_rate || 0)}%`,      color: '#2563eb' },
-                { label: 'Discount',  value: parseFloat(invoice.discount_rate || 0) > 0 ? `${parseFloat(invoice.discount_rate)}%` : 'Nil', color: '#ea580c' },
-                { label: 'SAC Code',  value: invoice.sac_code || '—',                       color: '#0f766e' },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color }}>{value}</span>
-                </div>
-              ))}
+              {(() => {
+                const cardGstApplicable = parseInt(invoice.company) === 1;
+                const cardGstRate  = parseFloat(invoice.gst_rate || 0);
+                const cardDiscRate = parseFloat(invoice.discount_rate || 0);
+                const rows = [];
+                // GST row: ONLY shown for company ID 1 (Constructive India)
+                if (cardGstApplicable) {
+                  rows.push({ label: 'GST Rate', value: `${cardGstRate}%`, color: '#2563eb' });
+                }
+                rows.push({ label: 'Discount', value: cardDiscRate > 0 ? `${cardDiscRate}%` : 'Nil', color: '#ea580c' });
+                rows.push({ label: 'SAC Code', value: invoice.sac_code || '—', color: '#0f766e' });
+                return rows.map(({ label, value, color }) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color }}>{value}</span>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
 
@@ -588,145 +334,6 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
           </div>
         );
       })()}
-    </div>
-  );
-};
-
-// ─── Send to Client Modal ────────────────────────────────────────────────────────
-
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-
-const SendToClientModal = ({ invoice, client, invNum, issuedDate, onClose }) => {
-  const defaultEmail   = client?.email || '';
-  const defaultSubject = `Invoice ${invNum}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-  const defaultBody    = `Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your invoice ${invNum}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and make the payment at the earliest convenience.\n\nBest regards,\nERP System`;
-
-  const [email,   setEmail]   = useState(defaultEmail);
-  const [subject, setSubject] = useState(defaultSubject);
-  const [body,    setBody]    = useState(defaultBody);
-  const [extras,  setExtras]  = useState([]);
-  const [sending, setSending] = useState(false);
-  const [sent,    setSent]    = useState(false);
-  const [error,   setError]   = useState('');
-  const fileInputRef = useRef(null);
-
-  const handleAddFiles = (e) => {
-    const newFiles = Array.from(e.target.files || []);
-    if (!newFiles.length) return;
-    const combined  = [...extras, ...newFiles];
-    const totalSize = combined.reduce((s, f) => s + f.size, 0) + 2 * 1024 * 1024;
-    if (totalSize > MAX_ATTACHMENT_BYTES) { setError('Adding these files would exceed the 25 MB limit.'); return; }
-    setExtras(combined); setError(''); e.target.value = '';
-  };
-  const removeExtra = (idx) => setExtras(prev => prev.filter((_, i) => i !== idx));
-
-  const handleSend = async () => {
-    if (!email.trim()) { setError('Recipient email is required.'); return; }
-    if (!/\S+@\S+\.\S+/.test(email.trim())) { setError('Please enter a valid email address.'); return; }
-    setError(''); setSending(true);
-    try {
-      await new Promise(r => setTimeout(r, 900));
-      setSent(true);
-    } catch (e) { setError(e.message || 'Failed to send email. Please try again.'); }
-    finally { setSending(false); }
-  };
-
-  const fmtSize = (bytes) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  return (
-    <div className="fixed inset-0 z-[10000]" style={{ position: 'fixed', overflow: 'hidden', animation: 'vid_overlay_in .2s ease' }}>
-      <div className="absolute inset-0 bg-black/50" style={{ position: 'fixed', width: '100vw', height: '100vh' }} onClick={onClose} />
-      <div className="relative z-10 flex items-center justify-center p-4" style={{ height: '100vh' }}>
-        <div className="relative bg-white" style={{ borderRadius: 18, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.24)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", animation: 'vid_modal_in .3s cubic-bezier(.16,1,.3,1)' }} onClick={e => e.stopPropagation()}>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 16px', borderBottom: '1.5px solid #f0f4f8' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Mail size={17} color="#fff" />
-              </div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Send to Client</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{invNum}</div>
-              </div>
-            </div>
-            <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <X size={15} />
-            </button>
-          </div>
-
-          {sent ? (
-            <div style={{ padding: '40px 24px', textAlign: 'center' }}>
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-                <CheckCircle size={28} color="#059669" />
-              </div>
-              <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
-              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-                Invoice <strong>{invNum}</strong> has been sent to<br /><strong>{email}</strong>
-              </div>
-              <button onClick={onClose} style={{ marginTop: 22, padding: '9px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Done</button>
-            </div>
-          ) : (
-            <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '9px 12px' }}>
-                <FileText size={14} color="#059669" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: '#065f46', fontWeight: 500 }}>Invoice PDF will be automatically attached to this email.</span>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>To</label>
-                <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} placeholder="client@example.com"
-                  style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>Subject</label>
-                <input type="text" value={subject} onChange={e => setSubject(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>Message</label>
-                <textarea value={body} onChange={e => setBody(e.target.value)} rows={5}
-                  style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>Extra Attachments</label>
-                  <button onClick={() => fileInputRef.current?.click()}
-                    style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#0f766e', background: 'none', border: 'none', cursor: 'pointer', padding: '3px 7px', borderRadius: 6 }}>
-                    <Paperclip size={12} /> Add File
-                  </button>
-                  <input type="file" multiple ref={fileInputRef} onChange={handleAddFiles} style={{ display: 'none' }} />
-                </div>
-                {extras.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {extras.map((f, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                        <Paperclip size={12} color="#64748b" />
-                        <span style={{ flex: 1, fontSize: 12, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{fmtSize(f.size)}</span>
-                        <button onClick={() => removeExtra(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', padding: 2 }}><X size={13} /></button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {error && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 9, padding: '8px 12px', fontSize: 12, color: '#dc2626', fontWeight: 500 }}>
-                  <AlertCircle size={13} /> {error}
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 9, marginTop: 2 }}>
-                <button onClick={onClose} style={{ flex: 1, padding: 10, borderRadius: 10, border: '2px solid #94a3b8', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: 10, borderRadius: 10, background: sending ? '#94a3b8' : '#0f766e', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-                  {sending ? <><Loader2 size={14} style={{ animation: 'vid_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 };
@@ -791,30 +398,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const preferredInvoiceType = normalizeInvoiceType(
     location.state?.invoiceType || location.state?.invoiceData?.invoice_type
   );
-
-  // Scroll lock when send modal is open
-  useEffect(() => {
-    if (sendModal) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [sendModal]);
 
   useEffect(() => {
     onUpdateNavigation?.({ breadcrumbs: ['Invoices', 'Invoice Details'] });
@@ -940,7 +523,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           const all = pr?.data?.results || pr?.results || [];
           const found = all.find(proj => String(proj.id) === String(resolvedProjectId));
           if (found) setProject(found);
-        } catch {}
+        } catch { /* project details are optional */ }
       }
 
       if (isPoInvoice) {
@@ -1032,7 +615,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           try {
             const cr = await getClientById(resolvedClientId);
             if (cr.status === 'success' && cr.data) setClient(cr.data);
-          } catch {}
+          } catch { /* quotation details are optional */ }
         }
       }
 
@@ -1044,7 +627,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             const u = ur.data.data;
             setCreatedByName(`${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || '');
           }
-        } catch {}
+        } catch { /* client details are optional */ }
       }
 
       setTimeout(() => setVisible(true), 60);
@@ -1296,43 +879,81 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   if (!invoice)   return <ErrorView message="Invoice not available." onRetry={fetchData} onBack={() => navigate('/invoices')} />;
 
   // ── Derived values ────────────────────────────────────────────────────────────
-  const statusKey  = String(invoice.status_display || invoice.status || '1').toLowerCase();
-  const status     = getStatus(statusKey !== '' ? statusKey : (invoice.status ?? 1));
+  // Status resolution priority:
+  //   1. status_display string from backend (e.g. "Overdue", "Partial Paid") → lowercase key
+  //   2. status slug from backend (e.g. "draft", "sent", "partial_paid", "paid", "cancelled")
+  //   3. fallback to 'draft'
+  const statusDisplayRaw = String(invoice.status_display || '').trim();
+  const statusRaw        = String(invoice.status || '').trim();
+  // Pass the full invoice object so getStatusWithIcon can check both fields
+  const status     = getStatusWithIcon(invoice);
   const isCancelled = (
-    String(invoice.status) === '6' ||
-    statusKey === 'cancelled' ||
-    statusKey === 'canceled' ||
+    statusRaw.toLowerCase()        === 'cancelled' ||
+    statusRaw.toLowerCase()        === 'canceled'  ||
+    statusDisplayRaw.toLowerCase() === 'cancelled' ||
+    statusDisplayRaw.toLowerCase() === 'canceled'  ||
     invoice.is_cancelled === true
   );
-  const invNum     = fmtInvNum(invoice.invoice_number);
-  const subtotal   = parseFloat(invoice.total_amount  || 0);
-  const gstRate    = parseFloat(invoice.gst_rate      || 0);
-  const discRate   = parseFloat(invoice.discount_rate || 0);
-  const discAmt    = parseFloat(((subtotal * discRate) / 100).toFixed(2));
-  const taxable    = parseFloat((subtotal - discAmt).toFixed(2));
-  const gstAmt     = parseFloat(((taxable * gstRate) / 100).toFixed(2));
-  // Always use grand_total from API — it's the authoritative value including all server-side rounding
-  const grandTotal = parseFloat(invoice.grand_total || invoice.total_outstanding || (taxable + gstAmt));
-  const items      = invoice.items || [];
-  const groups     = groupItemsByCategory(items);
-  const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
 
-  // Detect vendor invoice: has vendor field (generated from a Purchase Order)
-  // The backend returns vendor/vendor_name instead of client/client_name for PO invoices
-  const isVendorInvoice = Boolean(invoice.vendor) ||
+  // Invoice number is ALWAYS the backend-generated value — never constructed on the frontend.
+  // fmtInvNum returns String(n) exactly as received, or '—' if absent.
+  const invNum = fmtInvNum(invoice.invoice_number);
+
+  // ── Items / groups — must be defined FIRST so all downstream logic can use them ──
+  const items    = invoice.items || [];
+  const groups   = groupItemsByCategory(items);
+  const totalQty = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
+
+  // ── Financial values ──────────────────────────────────────────────────────────
+  const subtotal = parseFloat(invoice.total_amount  || 0);
+  const gstRate  = parseFloat(invoice.gst_rate      || 0);
+  const discRate = parseFloat(invoice.discount_rate || 0);
+  const discAmt  = parseFloat(((subtotal * discRate) / 100).toFixed(2));
+  const taxable  = parseFloat((subtotal - discAmt).toFixed(2));
+
+  // ── Invoice type detection ───────────────────────────────────────────────────
+  // Detect vendor invoice: has vendor field (generated from a Purchase Order).
+  // The backend returns vendor/vendor_name instead of client/client_name for PO invoices.
+  const isVendorInvoice  = Boolean(invoice.vendor) ||
     String(invoice.invoice_type || '').toLowerCase().includes('purchase order') ||
     String(invoice.invoice_type || '').toLowerCase().includes('vendor');
 
-  // Detect invoice type from invoice_type field (authoritative) with item-level fallback
-  const invoiceTypeRaw   = String(invoice.invoice_type || '').toLowerCase();
-  const isPurchaseOrder  = isVendorInvoice || invoiceTypeRaw.includes('purchase order') || invoiceTypeRaw.includes('vendor');
-  const isExecution      = !isPurchaseOrder && (invoiceTypeRaw.includes('execution') || items.some(it => [5, 6, 7].includes(Number(it.compliance_category))));
-  // Regulatory = everything that is neither Execution nor PO (i.e. categories 1-4 / proforma flow)
-  const isRegulatory     = !isPurchaseOrder && !isExecution;
+  const invoiceTypeRaw  = String(invoice.invoice_type || '').toLowerCase();
+  const isPurchaseOrder = isVendorInvoice ||
+    invoiceTypeRaw.includes('purchase order') ||
+    invoiceTypeRaw.includes('vendor');
+
+  // isExecution: NOT a PO invoice AND (type string says "execution" OR any item is
+  // in execution categories 5/6/7). items is already defined above — safe to use.
+  const isExecution = !isPurchaseOrder && (
+    invoiceTypeRaw.includes('execution') ||
+    items.some(it => [5, 6, 7].includes(Number(it.compliance_category)))
+  );
+  // Regulatory = everything that is neither Execution nor PO (categories 1–4 / proforma flow)
 
   // PO invoices share the material/labour column layout with Execution invoices
-  const hasRateColumns   = isExecution || isPurchaseOrder;
+  const hasRateColumns = isExecution || isPurchaseOrder;
 
+  // ── GST applicability — identical rule to quotation and proforma detail pages ──
+  // Only Company ID 1 (Constructive India) is GST applicable.
+  // Companies 2, 3, 4 are NOT GST applicable — gstAmt must always be 0 for them,
+  // regardless of whatever gst_rate the backend may have stored.
+  const isGSTApplicable = parseInt(invoice.company) === CONSTRUCTIVE_INDIA_COMPANY_ID;
+
+  // For non-GST companies, force gstAmt to 0 so it is never shown or added to totals.
+  const gstAmt = isGSTApplicable
+    ? parseFloat(((taxable * gstRate) / 100).toFixed(2))
+    : 0;
+
+  // Grand total:
+  //   • For GST-applicable companies: prefer backend grand_total; fall back to taxable + gstAmt.
+  //   • For non-GST companies: always use taxable (gstAmt is 0; ignore any backend grand_total
+  //     that may incorrectly include GST for these companies).
+  const grandTotal = isGSTApplicable
+    ? parseFloat(invoice.grand_total ? invoice.grand_total : (taxable + gstAmt).toFixed(2))
+    : taxable;
+
+  // ── Display names ─────────────────────────────────────────────────────────────
   const billedToName = isPurchaseOrder
     ? (invoice.vendor_name || `Vendor #${invoice.vendor}`)
     : client
@@ -1343,9 +964,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           ? `Client #${invoice.client}`
           : '—';
 
-  // Keep clientName alias for legacy usage (SendToClientModal etc.)
-  const clientName = billedToName;
-
   const projName = project
     ? (project.name || project.title || `Project #${invoice.project}`)
     : invoice.project_name
@@ -1354,23 +972,25 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         ? `Project #${invoice.project}`
         : '—';
 
-  const projLoc = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
+  const projLoc     = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
   const companyName = invoice.company_name || getQuotationCompanyName(invoice.company) || 'ERP System';
+
+  // ── Execution cost breakdown totals (only shown for execution/PO layouts) ────
   const totalProfessionalAmount = items.reduce((sum, item) => {
-    const qty = parseInt(item.quantity) || 1;
+    const qty          = parseInt(item.quantity) || 1;
     const professional = parseFloat(item.Professional_amount || 0) || 0;
     return sum + (professional * qty);
   }, 0);
   const totalMaterialAmount = items.reduce((sum, item) => {
-    const qty = parseInt(item.quantity) || 1;
+    const qty           = parseInt(item.quantity) || 1;
     const materialAmount = parseFloat(item.material_amount);
-    const materialRate = parseFloat(item.material_rate || 0) || 0;
+    const materialRate   = parseFloat(item.material_rate || 0) || 0;
     return sum + (Number.isFinite(materialAmount) ? materialAmount : materialRate * qty);
   }, 0);
   const totalLabourAmount = items.reduce((sum, item) => {
-    const qty = parseInt(item.quantity) || 1;
+    const qty          = parseInt(item.quantity) || 1;
     const labourAmount = parseFloat(item.labour_amount);
-    const labourRate = parseFloat(item.labour_rate || 0) || 0;
+    const labourRate   = parseFloat(item.labour_rate || 0) || 0;
     return sum + (Number.isFinite(labourAmount) ? labourAmount : labourRate * qty);
   }, 0);
 
@@ -1378,6 +998,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+        *{box-sizing:border-box}
+        input,textarea,select,button{font-family:'Outfit',sans-serif}
         .vid-root *{box-sizing:border-box;font-family:'Outfit',sans-serif}
         @keyframes vid_spin{to{transform:rotate(360deg)}}
         @keyframes vid_in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
@@ -1619,7 +1241,15 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                   <div className="vid-co-sub">Professional Services</div>
                 </div>
               </div>
-              <StatusPill status={status} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <StatusPill status={status} />
+                {invoice.invoice_type && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, letterSpacing: '0.03em' }}>
+                    {isPurchaseOrder ? <Truck size={11} /> : isExecution ? <Briefcase size={11} /> : <FileText size={11} />}
+                    {invoice.invoice_type}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="vid-hdr-r">
               <div className="vid-doc-label">Tax Invoice</div>
@@ -1640,6 +1270,14 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <MetaBlock icon={Tag}      label="SAC Code"    value={invoice.sac_code} accent />
             <div className="vid-meta-sep" />
             <MetaBlock icon={Hash}     label="Invoice No." value={invNum} accent />
+            <div className="vid-meta-sep" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: isPurchaseOrder ? '#fff7ed' : isExecution ? '#f5f3ff' : '#f0f9ff', border: `1.5px solid ${isPurchaseOrder ? '#fed7aa' : isExecution ? '#ddd6fe' : '#bae6fd'}`, color: isPurchaseOrder ? '#c2410c' : isExecution ? '#7c3aed' : '#0369a1', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20 }}>
+                {isPurchaseOrder ? <Truck size={10} /> : isExecution ? <Briefcase size={10} /> : <FileText size={10} />}
+                {isPurchaseOrder ? 'Purchase Order' : isExecution ? 'Execution' : 'Regulatory'}
+              </span>
+            </div>
             {createdByName && (
               <>
                 <div className="vid-meta-sep" />
@@ -1688,10 +1326,19 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <div className="vid-party vid-party--rates">
               <div className="vid-plabel">Applied Rates</div>
               <div className="vid-rates-list">
-                <div className="vid-rate-row">
-                  <div className="vid-rate-icon" style={{ background: '#eff6ff' }}><Percent size={14} color="#2563eb" /></div>
-                  <div><div className="vid-rate-v">{gstRate}%</div><div className="vid-rate-l">GST Rate</div></div>
-                </div>
+                {/* GST Rate row: ONLY shown for Company ID 1 (Constructive India).
+                    Companies 2, 3, 4 are not GST-applicable — this row is hidden entirely. */}
+                {isGSTApplicable && (
+                  <div className="vid-rate-row">
+                    <div className="vid-rate-icon" style={{ background: '#eff6ff' }}>
+                      <Percent size={14} color="#2563eb" />
+                    </div>
+                    <div>
+                      <div className="vid-rate-v">{gstRate}%</div>
+                      <div className="vid-rate-l">GST Rate</div>
+                    </div>
+                  </div>
+                )}
                 <div className="vid-rate-row">
                   <div className="vid-rate-icon" style={{ background: discRate > 0 ? '#fff7ed' : '#f8fafc' }}>
                     <Tag size={14} color={discRate > 0 ? '#ea580c' : '#94a3b8'} />
@@ -1747,122 +1394,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <span className="vid-sec-badge">{items.length} {items.length === 1 ? 'item' : 'items'}</span>
               </div>
 
-              <div className="vid-table-wrap">
-                {items.length === 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 8 }}>
-                    <FileText size={32} color="#e2e8f0" />
-                    <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No line items found</p>
-                  </div>
-                ) : (
-                  <table className="vid-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 32 }}>#</th>
-                        <th>Description</th>
-                        <th style={{ width: 80 }}>Sub-Category</th>
-                        {hasRateColumns && <th style={{ width: 70 }}>Unit</th>}
-                        <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-                        {hasRateColumns ? (
-                          <>
-                            <th style={{ width: 115, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Material Amt (₹)</th>
-                            <th style={{ width: 115, textAlign: 'right' }}>Labour Amt (₹)</th>
-                          </>
-                        ) : (
-                          <th style={{ width: 130, textAlign: 'right' }}>Consultancy</th>
-                        )}
-                        <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-                        <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-                      </tr>
-                    </thead>
-                    {groups.map((grp, gi) => {
-                      // #, Description, Sub-Category, [Unit], Qty,
-                      // [Mat.Rate, Lab.Rate, Mat.Amt, Lab.Amt] OR [Consultancy],
-                      // Professional, Item Total
-                      const colSpanCount = hasRateColumns ? 11 : 7;
-                      const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
-                      return (
-                        <tbody key={gi}>
-                          <tr className="vid-cat-row">
-                            <td colSpan={colSpanCount}>
-                              <div className="vid-cat-inner">
-                                <span className="vid-cat-dot" />
-                                {grp.catName}
-                                <span className="vid-cat-cnt">{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span>
-                              </div>
-                            </td>
-                          </tr>
-                          {grp.items.map((item, ii) => {
-                            const prof    = parseFloat(item.Professional_amount || 0);
-                            const qty     = parseInt(item.quantity) || 1;
-                            const total   = calcItemTotal(item);
-                            const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
-
-                            if (hasRateColumns) {
-                              // Execution & Purchase Order columns:
-                              // Mat. Rate | Lab. Rate | Material Amt | Labour Amt | Professional | Total
-                              const matRate = parseFloat(item.material_rate)   || 0;
-                              const labRate = parseFloat(item.labour_rate)     || 0;
-                              const matAmt  = parseFloat(item.material_amount) || 0;
-                              const labAmt  = parseFloat(item.labour_amount)   || 0;
-                              return (
-                                <tr key={ii} className="vid-row">
-                                  <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
-                                  <td><div className="vid-desc">{item.description || '—'}</div></td>
-                                  <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                                  <td style={{ fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
-                                  <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                    {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                  </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
-                                </tr>
-                              );
-                            }
-
-                            // Regulatory columns: Consultancy, Professional, Total
-                            const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
-                            const consultancyStr = consultancyRaw && String(consultancyRaw).trim() && String(consultancyRaw).trim() !== '--'
-                              ? String(consultancyRaw).trim() : null;
-                            return (
-                              <tr key={ii} className="vid-row">
-                                <td style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#d1d5db' }}>{ii + 1}</td>
-                                <td><div className="vid-desc">{item.description || '—'}</div></td>
-                                <td>{subCat ? <span className="vid-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
-                                <td style={{ textAlign: 'center' }}><span className="vid-qty-badge">{qty}</span></td>
-                                <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                  {consultancyStr
-                                    ? isMiscNumeric(consultancyStr)
-                                      ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
-                                      : <span className="vid-misc-note" title="Note — not in total">{consultancyStr}</span>
-                                    : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(total)}</td>
-                              </tr>
-                            );
-                          })}
-                          <tr className="vid-cat-sub">
-                            <td colSpan={colSpanCount - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpTotal)}</td>
-                          </tr>
-                        </tbody>
-                      );
-                    })}
-                  </table>
-                )}
-              </div>
+              {/* ══════════ ITEMS TABLE — delegated to InvoiceTypeTable ══════════ */}
+              <InvoiceTypeTable
+                isExecution={isExecution}
+                isPurchaseOrder={isPurchaseOrder}
+                items={items}
+              />
             </div>
 
             {/* RIGHT: Quick Info Card */}
@@ -1878,6 +1415,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
           {/* ══════════ FOOTER: SUMMARY + TOTALS ══════════ */}
           <div className="vid-foot">
+            {/* Left — static summary */}
             <div>
               <div className="vid-sum-title">Invoice Summary</div>
               <div className="vid-sum-grid">
@@ -1889,31 +1427,61 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <div className="vid-sum-item"><span className="vid-sum-lbl">{isPurchaseOrder ? 'Vendor' : 'Client'}</span><span className="vid-sum-val">{billedToName}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Project</span><span className="vid-sum-val">{projName}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Company</span><span className="vid-sum-val">{companyName}</span></div>
+                {createdByName && <div className="vid-sum-item"><span className="vid-sum-lbl">Prepared By</span><span className="vid-sum-val">{createdByName}</span></div>}
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Issue Date</span><span className="vid-sum-val">{fmtDate(invoice.issue_date || invoice.created_at)}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Last Updated</span><span className="vid-sum-val">{fmtDate(invoice.updated_at)}</span></div>
-                {createdByName && <div className="vid-sum-item"><span className="vid-sum-lbl">Prepared By</span><span className="vid-sum-val">{createdByName}</span></div>}
               </div>
-              {hasRateColumns && (
-                <div style={{ marginTop: 18, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 12 }}>
-                    {isPurchaseOrder ? 'Purchase Order Cost Breakdown' : 'Execution Cost Breakdown'}
+
+              {/* Execution / Vendor cost breakdown — matches proforma style */}
+              {hasRateColumns && items.length > 0 && (
+                <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Briefcase size={11} /> {isPurchaseOrder ? 'Purchase Order Cost Breakdown' : 'Execution Cost Breakdown'}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                    <div className="vid-sum-item">
-                      <span className="vid-sum-lbl">Professional Amount</span>
-                      <span className="vid-sum-val">₹ {fmtINR(totalProfessionalAmount)}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Professional</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>₹&nbsp;{fmtINR(totalProfessionalAmount)}</div>
                     </div>
-                    <div className="vid-sum-item">
-                      <span className="vid-sum-lbl">Material Amount</span>
-                      <span className="vid-sum-val">₹ {fmtINR(totalMaterialAmount)}</span>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Material</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>₹&nbsp;{fmtINR(totalMaterialAmount)}</div>
                     </div>
-                    <div className="vid-sum-item">
-                      <span className="vid-sum-lbl">Labour Amount</span>
-                      <span className="vid-sum-val">₹ {fmtINR(totalLabourAmount)}</span>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Labour</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>₹&nbsp;{fmtINR(totalLabourAmount)}</div>
                     </div>
                   </div>
                 </div>
               )}
+
+              {/* Payment summary — shown when any payment has been recorded */}
+              {(parseFloat(invoice.paid_amount || 0) > 0 || parseFloat(invoice.advance_amount || 0) > 0) && (
+                <div style={{ marginTop: 14, padding: '12px 14px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>💳 Payment Summary</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {parseFloat(invoice.advance_amount || 0) > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Advance Paid</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#059669', marginTop: 2 }}>₹&nbsp;{fmtINR(parseFloat(invoice.advance_amount))}</div>
+                      </div>
+                    )}
+                    {parseFloat(invoice.paid_amount || 0) > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Paid</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#059669', marginTop: 2 }}>₹&nbsp;{fmtINR(parseFloat(invoice.paid_amount))}</div>
+                      </div>
+                    )}
+                    {parseFloat(invoice.unpaid_amount || 0) > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Outstanding</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#dc2626', marginTop: 2 }}>₹&nbsp;{fmtINR(parseFloat(invoice.unpaid_amount))}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {invoice.notes && (
                 <div style={{ marginTop: 18 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 6 }}>Notes</div>
@@ -1922,16 +1490,19 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               )}
             </div>
 
-            {/* Totals */}
+            {/* Right — totals box */}
             <div>
               <div className="vid-tbox">
                 <div className="vid-tbox-title">Amount Due</div>
                 <div className="vid-trow"><span>Subtotal</span><span style={{ fontWeight: 700, color: '#1e293b' }}>₹&nbsp;{fmtINR(subtotal)}</span></div>
                 {discAmt > 0 && <>
                   <div className="vid-trow vid-trow--disc"><span>Discount ({discRate}%)</span><span style={{ fontWeight: 700 }}>−&nbsp;₹&nbsp;{fmtINR(discAmt)}</span></div>
-                  <div className="vid-trow" style={{ color: '#94a3b8', fontSize: 12 }}><span>Taxable Amount</span><span>₹&nbsp;{fmtINR(taxable)}</span></div>
+                  <div className="vid-trow vid-trow--sub"><span>Taxable Amount</span><span>₹&nbsp;{fmtINR(taxable)}</span></div>
                 </>}
-                {gstAmt > 0 && <div className="vid-trow"><span>GST ({gstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(gstAmt)}</span></div>}
+                {/* GST row: ONLY shown for Company ID 1 (Constructive India) and only when > 0 */}
+                {isGSTApplicable && gstAmt > 0 && (
+                  <div className="vid-trow"><span>GST ({gstRate}%)</span><span style={{ fontWeight: 700, color: '#1e293b' }}>+&nbsp;₹&nbsp;{fmtINR(gstAmt)}</span></div>
+                )}
                 <hr className="vid-tdiv" />
                 <div className="vid-grand"><span>Grand Total</span><span>₹&nbsp;{fmtINR(grandTotal)}</span></div>
                 <div className="vid-words"><strong style={{ color: '#94a3b8', fontStyle: 'normal' }}>In words: </strong>{numberToWords(grandTotal)} Rupees only</div>
@@ -1943,7 +1514,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 className="vid-dl-btn"
                 onClick={handleOpenPaymentPdf}
                 disabled={paymentPdfLoading}
-                style={{ marginTop: 8 }}
+                style={{ marginTop: 8, background: 'linear-gradient(135deg,#0d9488,#0891b2)' }}
               >
                 {paymentPdfLoading ? <><Loader2 size={15} className="vid-spin" /> Generating…</> : <><Receipt size={15} /> Payment Received PDF</>}
               </button>
@@ -1965,16 +1536,16 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
       </div>{/* end .vid-root */}
 
-      {/* ══════════ SEND TO CLIENT MODAL ══════════ */}
-      {sendModal && (
-        <SendToClientModal
-          invoice={invoice}
-          client={client}
-          invNum={invNum}
-          issuedDate={fmtDate(invoice.issue_date || invoice.created_at)}
-          onClose={() => setSendModal(false)}
-        />
-      )}
+      {/* ══════════ SEND TO CLIENT / VENDOR MODAL ══════════ */}
+      <SendEmailModal
+        isOpen={sendModal}
+        onClose={() => setSendModal(false)}
+        title={isPurchaseOrder ? 'Send Invoice to Vendor' : 'Send Invoice to Client'}
+        defaultRecipient={isPurchaseOrder ? (invoice.vendor_email || '') : (client?.email || '')}
+        defaultSubject={`Invoice ${invNum}${invoice.issue_date || invoice.created_at ? ` — Issued ${fmtDate(invoice.issue_date || invoice.created_at)}` : ''}`}
+        defaultBody={`Dear ${billedToName},\n\nPlease find attached your invoice ${invNum}${invoice.issue_date || invoice.created_at ? `, issued on ${fmtDate(invoice.issue_date || invoice.created_at)}` : ''}.\n\nKindly review the details and make the payment at the earliest convenience.\n\nBest regards,\n${companyName}`}
+        onSuccess={() => setSendModal(false)}
+      />
 
       {/* ═══════════ CREATE PURCHASE ORDER MODAL ═══════════ */}
       {showCreatePOModal && (() => {
@@ -2164,8 +1735,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           modalInvoiceTypeRaw.includes('execution') ||
           allItems.some(it => [5, 6, 7].includes(Number(it.compliance_category)))
         );
-        const modalIsRegulatory   = !isPurchaseOrder && !modalIsExecution;
-
         // ── Selected Items Total (uses correct per-unit helper) ──
         const selectedTotal = parseFloat(
           Object.values(pdfItemSelections)
@@ -2308,9 +1877,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                       });
 
                     // Flat ordered list used only for border-bottom logic
-                    const flatOrdered = checklistGroups.flatMap(g => g.items);
-                    const totalFlat   = flatOrdered.length;
-
                     return (
                       <div style={{ marginBottom: 20 }}>
                         {/* Header row */}
@@ -2429,87 +1995,51 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                                       {/* Checkbox */}
                                       <div
                                         onClick={() => setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, selected: !sel.selected } }))}
-                                        style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${sel.selected ? '#0f766e' : '#d1d5db'}`, background: sel.selected ? '#0f766e' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 2, transition: 'all .12s' }}
+                                        style={{
+                                          width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 2,
+                                          border: `2px solid ${sel.selected ? '#0f766e' : '#cbd5e1'}`,
+                                          background: sel.selected ? '#0f766e' : '#fff',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          cursor: 'pointer', transition: 'all .12s',
+                                        }}
                                       >
                                         {sel.selected && (
-                                          <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
-                                            <path d="M1 4.5L4 7.5L10 1.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                            <path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                                           </svg>
                                         )}
                                       </div>
 
-                                      {/* Description + sub-category + per-type rate chips */}
+                                      {/* Item info */}
                                       <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3 }}>
-                                          {item.description || `Item #${itemIdx + 1}`}
+                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3, transition: 'color .1s' }}>
+                                          {item.description || '—'}
                                         </div>
-
-                                        {/* Sub-category badge */}
-                                        {item.sub_compliance_category != null && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] && (
-                                          <span style={{ fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 7px', borderRadius: 20, border: '1px solid #e2e8f0', fontWeight: 600, display: 'inline-block', marginBottom: 4 }}>
-                                            {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category].name}
-                                          </span>
-                                        )}
-
-                                        {/* Execution / Vendor: mat / lab / prof — shows per-unit rate AND dynamic total for selected qty */}
-                                        {showExecBreakdown && (
-                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
-                                            {matRatePerUnit > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
-                                                Mat: ₹{fmtINR(matRatePerUnit)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#0369a1', fontWeight: 700 }}> = ₹{fmtINR(dynamicMatAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
-                                            {labRatePerUnit > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#7c3aed' : '#d1d5db', fontWeight: 600 }}>
-                                                Lab: ₹{fmtINR(labRatePerUnit)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#7c3aed', fontWeight: 700 }}> = ₹{fmtINR(dynamicLabAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
-                                            {prof > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
-                                                Prof: ₹{fmtINR(prof)}/unit
-                                                {selQty > 1 && sel.selected && (
-                                                  <span style={{ color: '#0f766e', fontWeight: 700 }}> = ₹{fmtINR(dynamicProfAmt)}</span>
-                                                )}
-                                              </span>
-                                            )}
+                                        {showExecBreakdown ? (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 11, color: '#64748b' }}>
+                                            {matRatePerUnit > 0 && <span>Mat: ₹{fmtINR(dynamicMatAmt)}</span>}
+                                            {labRatePerUnit > 0 && <span>Lab: ₹{fmtINR(dynamicLabAmt)}</span>}
+                                            {prof > 0 && <span>Prof: ₹{fmtINR(dynamicProfAmt)}</span>}
                                           </div>
-                                        )}
-
-                                        {/* Regulatory: consultancy + prof per-unit */}
-                                        {!showExecBreakdown && !itemIsExec && (
-                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 2 }}>
-                                            {consultancyNum > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0369a1' : '#d1d5db', fontWeight: 600 }}>
-                                                Consultancy: ₹{fmtINR(consultancyNum)}/unit
-                                              </span>
-                                            )}
-                                            {prof > 0 && (
-                                              <span style={{ fontSize: 10, color: sel.selected ? '#0f766e' : '#d1d5db', fontWeight: 600 }}>
-                                                Professional: ₹{fmtINR(prof)}/unit
-                                              </span>
-                                            )}
+                                        ) : (
+                                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                                            Prof: ₹{fmtINR(prof * selQty)}
+                                            {consultancyNum > 0 && <span style={{ marginLeft: 10 }}>Cons: ₹{fmtINR(consultancyNum * selQty)}</span>}
                                           </div>
                                         )}
                                       </div>
 
-                                      {/* Quantity input + line total */}
-                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                      {/* Qty + Line total */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>QTY</span>
+                                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>Qty</span>
                                           <input
                                             type="number"
                                             min={1}
                                             max={sel.maxQty}
                                             value={sel.quantity}
-                                            disabled={!sel.selected || pdfLoading}
+                                            disabled={!sel.selected}
                                             onChange={e => {
-                                              // Allow free typing (including clearing with backspace)
                                               const raw = e.target.value;
                                               if (raw === '' || raw === '-') {
                                                 setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: raw } }));

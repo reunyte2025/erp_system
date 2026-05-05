@@ -46,6 +46,101 @@ const COMPANIES = [
 ];
 
 // ============================================================================
+// SUB-COMPLIANCE DROPDOWN COMPONENT (matches quotation.jsx design)
+// ============================================================================
+
+const SubComplianceDropdown = ({ value, options = [], onChange, placeholder = 'Select sub-compliance category' }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const containerRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  React.useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
+
+  const filtered = options.filter(item => item.name.toLowerCase().includes(search.toLowerCase()));
+  const selected = options.find(item => item.id === value);
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
+      >
+        <span className={selected ? 'text-gray-900' : 'text-gray-500'}>
+          {selected ? selected.name : placeholder}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-lg shadow-xl border border-gray-200 z-[99999] overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-gray-50">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length > 0 ? (
+              filtered.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onChange(item.id);
+                    setIsOpen(false);
+                    setSearch('');
+                  }}
+                  className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 text-sm ${
+                    value === item.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900 font-medium">{item.name}</span>
+                    {value === item.id && (
+                      <div className="w-5 h-5 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p>No sub-compliance found</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // SUCCESS MODAL
 // ============================================================================
 
@@ -114,8 +209,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
 
   // Draft helpers
   const DRAFT_KEY = 'purchase_order_draft';
-  const saveDraft  = (data) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch {} };
-  const clearDraft = ()     => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
+  const saveDraft  = (data) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch { /* local draft is optional */ } };
+  const clearDraft = ()     => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* local draft is optional */ } };
   const loadDraft  = ()     => { try { const d = localStorage.getItem(DRAFT_KEY); return d ? JSON.parse(d) : null; } catch { return null; } };
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -143,7 +238,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   const [showSuccessModal,     setShowSuccessModal]     = useState(false);
   const [createdOrder,         setCreatedOrder]         = useState(null);
   const [deleteConfirm,        setDeleteConfirm]        = useState({ show: false, type: null, sectionIndex: null, itemIndex: null });
-  const [selectedCategoryType, setSelectedCategoryType] = useState(null);
+  const [, setSelectedCategoryType] = useState(null);
   const [categoryItemsMap,     setCategoryItemsMap]     = useState({});
   const [activeCategoryId,     setActiveCategoryId]     = useState(null);
   const [descriptionsCacheRef]                          = useState({ current: {} });
@@ -152,8 +247,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   const [descriptionMode,      setDescriptionMode]      = useState('dropdown');
   const [descriptionSearch,    setDescriptionSearch]    = useState('');
   const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
-  const [showSubComplianceDropdown, setShowSubComplianceDropdown] = useState(false);
-  const [sectionForm,          setSectionForm]          = useState({ category_id: null, category_name: '', items: [] });
+  const [descSelectedFromDropdown, setDescSelectedFromDropdown] = useState(false);
+  const [, setSectionForm]          = useState({ category_id: null, category_name: '', items: [] });
   const [itemFormMap,          setItemFormMap]          = useState({});
   const [editingItemIndexMap,  setEditingItemIndexMap]  = useState({});
 
@@ -229,7 +324,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   // Auto-save draft
   useEffect(() => {
     saveDraft({ sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompanyId: selectedCompany?.id });
-  }, [sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompany]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sections, sacCode, gstEnabled, gstRate, discountType, discountValue, selectedCompany]);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const fetchVendorsList = async () => {
@@ -279,7 +374,6 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
       if (!e.target.closest('.project-dropdown'))     setShowProjectDropdown(false);
       if (!e.target.closest('.company-dropdown'))     setShowCompanyDropdown(false);
       if (!e.target.closest('.description-dropdown')) setShowDescriptionDropdown(false);
-      if (!e.target.closest('.sub-compliance-dropdown')) setShowSubComplianceDropdown(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -397,7 +491,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     if (editIdx !== null) { setActiveItems(prev => prev.map((item, i) => i === editIdx ? newItem : item)); setActiveEditingIndex(null); }
     else { setActiveItems(prev => [...prev, newItem]); }
     setActiveItemForm({ ...BLANK_ITEM_FORM, sub_compliance_id: itemForm.sub_compliance_id });
-    setDescriptionSearch(''); setShowDescriptionDropdown(false);
+    setDescriptionSearch(''); setShowDescriptionDropdown(false); setDescSelectedFromDropdown(false);
   };
 
   const handleEditItem = (index) => {
@@ -416,6 +510,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
       labour_amount:      parseFloat(item.labour_amount)   || 0,
     });
     setActiveEditingIndex(index);
+    setDescSelectedFromDropdown(true);
     fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
   };
 
@@ -553,8 +648,9 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
       if (prev[categoryId]) return prev;
       return { ...prev, [categoryId]: { items: [], category_name: COMPLIANCE_CATEGORIES[categoryId]?.shortName || '' } };
     });
-    setComplianceDescriptions([]); setDescriptionMode('dropdown'); setDescriptionSearch(''); setShowDescriptionDropdown(false); setShowSubComplianceDropdown(false);
+    setComplianceDescriptions([]); setDescriptionMode('dropdown'); setDescriptionSearch(''); setShowDescriptionDropdown(false);
     setActiveItemForm({ ...BLANK_ITEM_FORM });
+    setDescSelectedFromDropdown(false);
     fetchComplianceDescriptions(categoryId, null);
   };
 
@@ -563,7 +659,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     setSectionForm({ category_id: null, category_name: '', items: [] });
     setCategoryItemsMap({}); setActiveCategoryId(null); setItemFormMap({}); setEditingItemIndexMap({});
     setEditingSection(null);
-    setComplianceDescriptions([]); setDescriptionMode('dropdown'); setDescriptionSearch(''); setShowDescriptionDropdown(false);
+    setComplianceDescriptions([]); setDescriptionMode('dropdown'); setDescriptionSearch(''); setShowDescriptionDropdown(false); setDescSelectedFromDropdown(false);
     setSelectedCategoryType(null);
   };
 
@@ -604,7 +700,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
             ...(isEditMode && item._itemId ? { id: item._itemId } : {}),
             description,
             quantity,
-            unit:                    String(item.unit || '').trim() || 'N/A',
+            unit:                    String(item.unit || '').trim() || null,
             sac_code:                String(item.item_sac_code || '').trim(),
             Professional_amount:     profRate.toFixed(2),
             material_rate:           matRate.toFixed(2),
@@ -737,7 +833,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         if (modalEditingItemIndex !== null) { setActiveItems(prev => prev.map((it, i) => i === modalEditingItemIndex ? newItem : it)); modalSetEditingIdx(null); }
         else { setActiveItems(prev => [...prev, newItem]); }
         modalSetItemForm({ ...BLANK_ITEM_FORM, sub_compliance_id: f.sub_compliance_id });
-        setDescriptionSearch(''); setShowDescriptionDropdown(false);
+        setDescriptionSearch(''); setShowDescriptionDropdown(false); setDescSelectedFromDropdown(false);
       }
     : handleAddItem;
   const modalEditItem = isEditSectionMode
@@ -752,6 +848,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
           labour_rate: parseFloat(item.labour_rate) || 0, labour_amount: parseFloat(item.labour_amount) || 0,
         });
         modalSetEditingIdx(index);
+        setDescSelectedFromDropdown(true);
         fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
       }
     : handleEditItem;
@@ -785,18 +882,64 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                   <Building2 className="w-6 h-6 text-white" />
                 </div>
 
+                {/* COMPANY DROPDOWN — leftmost, like quotations.jsx */}
+                <div className="company-dropdown relative">
+                  <button
+                    onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                    className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors group"
+                  >
+                    <div className="text-left">
+                      <div className="flex items-center gap-1.5">
+                        <h2 className="text-base font-semibold text-gray-900">
+                          {selectedCompany ? selectedCompany.name : 'Select Company'}
+                        </h2>
+                        <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {selectedCompany ? 'Issuing company' : 'Click to select company'}
+                      </p>
+                    </div>
+                  </button>
+
+                  {showCompanyDropdown && (
+                    <div className="absolute left-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Select Company</p>
+                      </div>
+                      <div className="py-1">
+                        {COMPANIES.map((co) => (
+                          <button
+                            key={co.id}
+                            onClick={() => { setSelectedCompany(co); setShowCompanyDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 flex items-center justify-between ${selectedCompany?.id === co.id ? 'bg-teal-50' : ''}`}
+                          >
+                            <span className="text-sm font-medium text-gray-900">{co.name}</span>
+                            {selectedCompany?.id === co.id && (
+                              <div className="w-5 h-5 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+
                 {/* VENDOR DROPDOWN */}
                 <div className="vendor-dropdown relative">
                   <button onClick={() => setShowVendorDropdown(!showVendorDropdown)}
-                    className="flex items-center gap-3 hover:bg-gray-50 rounded-lg px-3 py-2 -ml-3 transition-colors group">
+                    className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors group">
                     <div className="text-left">
-                      <div className="flex items-center gap-2">
-                        <h1 className="text-lg font-semibold text-gray-900">
+                      <div className="flex items-center gap-1.5">
+                        <h1 className="text-base font-semibold text-gray-900">
                           {selectedVendor ? (selectedVendor.name || selectedVendor.company_name) : 'Select Vendor'}
                         </h1>
                         <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
                       </div>
-                      <p className="text-sm text-gray-500">{selectedVendor?.email || 'Click to select a vendor'}</p>
+                      <p className="text-xs text-gray-500">{selectedVendor?.email || 'Click to select a vendor'}</p>
                     </div>
                   </button>
 
@@ -812,7 +955,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                       <div className="max-h-64 overflow-y-auto">
                         {filteredVendors.length > 0 ? filteredVendors.map(vendor => (
                           <button key={vendor.id} onClick={() => { setSelectedVendor(vendor); setShowVendorDropdown(false); setVendorSearch(''); }}
-                            className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 ${selectedVendor?.id === vendor.id ? 'bg-teal-50' : ''}`}>
+                            className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 ${selectedVendor?.id === vendor.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0"><User className="w-4 h-4 text-teal-600" /></div>
                               <div className="flex-1 min-w-0">
@@ -883,28 +1026,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                 )}
               </div>
 
-              {/* Right: Company + SAC Code + Submit */}
+              {/* Right: SAC Code + Submit */}
               <div className="flex items-center gap-3">
-                {/* COMPANY DROPDOWN */}
-                <div className="company-dropdown relative">
-                  <button onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
-                    className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-                    <Building2 className="w-4 h-4 text-gray-400" />
-                    <span className="font-medium text-gray-700">{selectedCompany?.name || 'Select Company'}</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                  </button>
-                  {showCompanyDropdown && (
-                    <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                      {COMPANIES.map(co => (
-                        <button key={co.id} onClick={() => { setSelectedCompany(co); setShowCompanyDropdown(false); }}
-                          className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-teal-50 ${selectedCompany?.id === co.id ? 'bg-teal-50 text-teal-700 font-semibold' : 'text-gray-700'}`}>
-                          {co.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-medium text-gray-600 whitespace-nowrap">SAC Code <span className="text-red-500">*</span></label>
                   <input type="text" value={sacCode} onChange={e => setSacCode(e.target.value)} placeholder="e.g. 998313" required
@@ -1030,56 +1153,105 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
 
           {/* Right Column — Order Summary */}
           <div className="lg:col-span-4">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 sticky top-4">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-6">Order Summary</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                    <span className="text-sm text-gray-600">Sub Total</span>
-                    <span className="text-sm font-semibold text-gray-900">Rs. {calculateSubTotal().toLocaleString('en-IN')}</span>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 sticky top-4 overflow-hidden">
+              {/* Summary header */}
+              <div className="px-5 py-4 bg-gradient-to-r from-teal-600 to-teal-500 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">Order Summary</h3>
+                  <p className="text-teal-100 text-xs mt-0.5">{selectedCompany?.name || 'No company selected'}</p>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-1">
+                {/* Sub Total Row */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <span className="text-sm text-gray-500 font-medium">Sub Total</span>
+                  <span className="text-sm font-semibold text-gray-900">Rs. {calculateSubTotal().toLocaleString('en-IN')}</span>
+                </div>
+
+                {/* GST Section */}
+                <div className="py-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 font-medium">GST</span>
+                      {selectedCompany?.id !== 1 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400 uppercase tracking-wide">Non-GST</span>
+                      )}
+                    </div>
+                    {selectedCompany?.id === 1 ? (
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={gstEnabled} onChange={e => setGstEnabled(e.target.checked)} className="sr-only peer" />
+                        <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-500"></div>
+                      </label>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">Not applicable</span>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                    <span className="text-sm text-gray-600">% GST</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={gstEnabled} onChange={e => setGstEnabled(e.target.checked)} className="sr-only peer" />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
-                    </label>
-                  </div>
-                  {gstEnabled && (
-                    <div className="space-y-2 pb-4 border-b border-gray-200">
+                  {selectedCompany?.id === 1 && gstEnabled && (
+                    <div className="mt-2.5 bg-teal-50 rounded-xl px-3 py-2.5 space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm text-gray-600">Rate (%)</label>
-                        <input type="number" value={gstRate} onChange={e => setGstRate(parseFloat(e.target.value) || 0)} className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-right" />
+                        <label className="text-xs text-teal-700 font-medium">Rate (%)</label>
+                        <input type="number" value={gstRate} onChange={e => setGstRate(parseFloat(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 text-xs border border-teal-200 rounded-lg text-right bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Amount</span>
-                        <span className="text-sm font-semibold text-gray-900">Rs. {calculateGST().toLocaleString('en-IN')}</span>
+                        <span className="text-xs text-teal-600">Amount</span>
+                        <span className="text-xs font-bold text-teal-700">Rs. {calculateGST().toLocaleString('en-IN')}</span>
                       </div>
                     </div>
                   )}
-                  <div className="space-y-2 pb-4 border-b border-gray-200">
-                    <div className="flex items-center justify-between"><span className="text-sm text-gray-600">🎁 Discount</span></div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-gray-600">Rate (%)</label>
-                      <input type="number" value={discountValue === 0 ? '' : discountValue} onChange={e => setDiscountValue(parseFloat(e.target.value) || 0)} placeholder="0" className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-right" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Amount</span>
-                      <span className="text-sm font-semibold text-gray-900">Rs. {calculateDiscount().toLocaleString('en-IN')}</span>
-                    </div>
+                </div>
+
+                {/* Discount Section */}
+                <div className="py-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <span className="text-sm text-gray-500 font-medium flex items-center gap-1.5"><span>🎁</span> Discount</span>
                   </div>
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-base font-semibold text-gray-900">Grand Total</span>
-                    <span className="text-lg font-bold text-teal-600">Rs. {calculateGrandTotal().toLocaleString('en-IN')}</span>
+                  <div className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-gray-600 font-medium">Rate (%)</label>
+                      <input type="number" value={discountValue === 0 ? '' : discountValue} onChange={e => setDiscountValue(parseFloat(e.target.value) || 0)} placeholder="0"
+                        className="w-16 px-2 py-1 text-xs border border-gray-200 rounded-lg text-right bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Amount</span>
+                      <span className="text-xs font-bold text-gray-700">Rs. {calculateDiscount().toLocaleString('en-IN')}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="flex items-center gap-2 text-teal-600 mb-4"><FileText className="w-4 h-4" /><span className="text-sm font-semibold">Quick Info</span></div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between"><span className="text-gray-600">Company</span><span className="font-medium text-gray-900">{selectedCompany?.name || '—'}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-gray-600">Compliances</span><span className="font-medium text-gray-900">{sections.length}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-gray-600">Total Items</span><span className="font-medium text-gray-900">{sections.reduce((sum, s) => sum + s.items.length, 0)}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-gray-600">Total Qty</span><span className="font-medium text-gray-900">{sections.reduce((sum, s) => sum + s.items.reduce((is, i) => is + i.quantity, 0), 0)}</span></div>
+
+                {/* Grand Total */}
+                <div className="pt-3">
+                  <div className="bg-gradient-to-r from-teal-50 to-teal-100/60 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-800">Grand Total</span>
+                    <span className="text-lg font-extrabold text-teal-600 tracking-tight">Rs. {calculateGrandTotal().toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Info */}
+              <div className="px-5 pb-5">
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center gap-2 text-teal-600 mb-3">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span className="text-xs font-bold uppercase tracking-wide">Quick Info</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{sections.length}</div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Compliances</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{sections.reduce((sum, s) => sum + s.items.length, 0)}</div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Items</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{sections.reduce((sum, s) => sum + s.items.reduce((is, i) => is + (parseInt(i.quantity) || 0), 0), 0)}</div>
+                      <div className="text-[10px] text-gray-400 font-medium mt-0.5 uppercase tracking-wide">Qty</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1172,7 +1344,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                         )}
                       </div>
                       {modalEditingItemIndex !== null && (
-                        <button onClick={() => { modalSetEditingIdx(null); modalSetItemForm({ ...BLANK_ITEM_FORM }); }} className="text-xs text-amber-600 hover:text-amber-800 font-medium">Cancel edit</button>
+                        <button onClick={() => { modalSetEditingIdx(null); modalSetItemForm({ ...BLANK_ITEM_FORM }); setDescSelectedFromDropdown(false); }} className="text-xs text-amber-600 hover:text-amber-800 font-medium">Cancel edit</button>
                       )}
                     </div>
 
@@ -1180,57 +1352,31 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
 
                       {/* Sub-compliance dropdown (for cats with sub-options) */}
                       {subOptions.length > 0 && (
-                        <div className="sub-compliance-dropdown">
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Sub-Compliance Category <span className="text-red-400">*</span></label>
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setShowSubComplianceDropdown(prev => !prev)}
-                              className="w-full px-3 py-2.5 border border-teal-500 ring-2 ring-teal-200 rounded-lg focus:outline-none text-sm bg-white text-left flex items-center justify-between transition-colors">
-                              <span className={modalItemForm.sub_compliance_id ? 'text-gray-900' : 'text-gray-400'}>
-                                {modalItemForm.sub_compliance_id
-                                  ? (subOptions.find(s => s.id === modalItemForm.sub_compliance_id)?.name || 'Select sub-compliance category')
-                                  : 'Select sub-compliance category'}
-                              </span>
-                              <ChevronDown className={'w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ' + (showSubComplianceDropdown ? 'rotate-180' : '')} />
-                            </button>
-                            {showSubComplianceDropdown && (
-                              <div className="absolute left-0 top-full mt-1 w-full bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden" style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
-                                <div
-                                  onClick={() => {
-                                    modalSetItemForm(prev => ({ ...prev, sub_compliance_id: null, compliance_name: '' }));
-                                    setDescriptionSearch(''); setShowDescriptionDropdown(false);
-                                    fetchComplianceDescriptions(activeCategoryId, null);
-                                    setShowSubComplianceDropdown(false);
-                                  }}
-                                  className="px-4 py-2.5 text-sm text-gray-500 cursor-pointer hover:bg-gray-50 border-b border-gray-100">
-                                  Select sub-compliance category
-                                </div>
-                                {subOptions.map(sub => (
-                                  <div
-                                    key={sub.id}
-                                    onClick={() => {
-                                      modalSetItemForm(prev => ({ ...prev, sub_compliance_id: sub.id, compliance_name: '' }));
-                                      setDescriptionSearch(''); setShowDescriptionDropdown(false);
-                                      fetchComplianceDescriptions(activeCategoryId, sub.id);
-                                      setShowSubComplianceDropdown(false);
-                                    }}
-                                    className={'px-4 py-2.5 text-sm cursor-pointer transition-colors ' + (modalItemForm.sub_compliance_id === sub.id ? 'bg-blue-600 text-white font-medium' : 'text-gray-800 hover:bg-gray-50')}>
-                                    {sub.name}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Sub-Compliance Category <span className="text-red-400">*</span>
+                          </label>
+                          <SubComplianceDropdown
+                            value={modalItemForm.sub_compliance_id}
+                            options={subOptions}
+                            onChange={(id) => {
+                              modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
+                              setDescriptionSearch('');
+                              setShowDescriptionDropdown(false);
+                              setDescSelectedFromDropdown(false);
+                              fetchComplianceDescriptions(activeCategoryId, id);
+                            }}
+                            placeholder="Select sub-compliance category"
+                          />
                         </div>
                       )}
 
                       {/* Description */}
-                      <div className="relative" style={{ paddingBottom: showDescriptionDropdown ? '300px' : '0', transition: 'padding-bottom 0.15s ease' }}>
+                      <div className="relative">
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description <span className="text-red-400">*</span></label>
                           {complianceDescriptions.length > 0 && (
-                            <button type="button" onClick={() => { setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown'); modalSetItemForm(prev => ({ ...prev, compliance_name: '' })); }}
+                            <button type="button" onClick={() => { setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown'); modalSetItemForm(prev => ({ ...prev, compliance_name: '' })); setDescSelectedFromDropdown(false); }}
                               className="text-xs text-teal-600 hover:text-teal-700 font-medium">
                               {descriptionMode === 'dropdown' ? '+ Type manually' : '← Pick from list'}
                             </button>
@@ -1240,16 +1386,39 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                           <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin text-teal-500" />Loading descriptions...</div>
                         ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
                           <div className="description-dropdown relative w-full">
-                            <button type="button"
-                              onClick={() => setShowDescriptionDropdown(prev => !prev)}
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white text-left flex items-center justify-between">
-                              <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-400'}>
-                                {modalItemForm.compliance_name || 'Select a description…'}
-                              </span>
-                              <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
-                            </button>
+                            {/* Chip + textarea when selected from dropdown */}
+                            {modalItemForm.compliance_name && descSelectedFromDropdown && !showDescriptionDropdown ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg">
+                                  <div className="w-4 h-4 rounded-full bg-teal-500 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                  </div>
+                                  <span className="text-xs font-semibold text-teal-700 flex-1 truncate">Selected from list — edit below if needed</span>
+                                  <button type="button" onClick={() => setShowDescriptionDropdown(true)} className="text-xs text-teal-600 hover:text-teal-800 font-semibold underline underline-offset-2 flex-shrink-0">Change</button>
+                                </div>
+                                <textarea
+                                  value={modalItemForm.compliance_name}
+                                  onChange={e => modalSetItemForm(prev => ({ ...prev, compliance_name: e.target.value.slice(0, DESCRIPTION_MAX_LENGTH) }))}
+                                  rows={3}
+                                  autoFocus
+                                  className="w-full px-3 py-2.5 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none bg-white shadow-sm"
+                                  placeholder="Edit the description as needed…"
+                                />
+                              </div>
+                            ) : !descSelectedFromDropdown || showDescriptionDropdown ? (
+                              <button type="button"
+                                onClick={() => setShowDescriptionDropdown(prev => !prev)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
+                                <span className={modalItemForm.compliance_name ? 'text-gray-900' : 'text-gray-500'}>
+                                  {modalItemForm.compliance_name
+                                    ? (modalItemForm.compliance_name.length > 65 ? modalItemForm.compliance_name.substring(0, 65) + '...' : modalItemForm.compliance_name)
+                                    : 'Select a description'}
+                                </span>
+                                <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDescriptionDropdown ? 'rotate-180' : ''}`} />
+                              </button>
+                            ) : null}
                             {showDescriptionDropdown && (
-                              <div className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden" style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
+                              <div className="w-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mt-1.5" style={{ zIndex: 99999 }} onMouseDown={e => e.preventDefault()}>
                                 <div className="px-3 pt-3 pb-2">
                                   <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -1269,7 +1438,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                                       const isSelected = modalItemForm.compliance_name === desc.compliance_description;
                                       return (
                                         <button key={desc.id} type="button"
-                                          onClick={() => { modalSetItemForm(prev => ({ ...prev, compliance_name: sanitizeDescription(desc.compliance_description) })); setShowDescriptionDropdown(false); setDescriptionSearch(''); }}
+                                          onClick={() => { modalSetItemForm(prev => ({ ...prev, compliance_name: sanitizeDescription(desc.compliance_description) })); setDescSelectedFromDropdown(true); setShowDescriptionDropdown(false); setDescriptionSearch(''); }}
                                           className={`w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 transition-colors flex items-start gap-3 ${isSelected ? 'bg-teal-50' : 'bg-white hover:bg-teal-600'} group`}>
                                           <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold mt-0.5 transition-colors ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-teal-500 group-hover:text-white'}`}>{idx + 1}</span>
                                           <span className={`flex-1 text-sm leading-snug transition-colors ${isSelected ? 'text-teal-800 font-medium' : 'text-gray-700 group-hover:text-white'}`}>{desc.compliance_description}</span>
@@ -1291,14 +1460,14 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                         ) : (
                           <textarea value={modalItemForm.compliance_name} onChange={e => modalSetItemForm(prev => ({ ...prev, compliance_name: e.target.value.slice(0, DESCRIPTION_MAX_LENGTH) }))}
                             placeholder={complianceDescriptions.length === 0 && !complianceDescLoading ? 'No presets — type your own description' : 'Enter service description'}
-                            rows="2" maxLength={DESCRIPTION_MAX_LENGTH} className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none" />
+                            rows={3} maxLength={DESCRIPTION_MAX_LENGTH} className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none" />
                         )}
                       </div>
 
                       {/* Row 1: Unit + SAC Code */}
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit <span className="text-red-400">*</span></label>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Unit <span className="normal-case font-normal text-gray-400 text-xs">(optional)</span></label>
                           <input type="text" value={modalItemForm.unit}
                             onChange={e => modalSetItemForm(prev => ({ ...prev, unit: e.target.value }))}
                             placeholder="e.g. m, nos, RM, RMT"

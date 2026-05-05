@@ -237,7 +237,7 @@ const Toast = ({ message, onClose }) => {
 const DetailRow = ({ icon: Icon, label, value, mono, iconClass = 'text-teal-500', iconBgClass = 'bg-teal-50 border-teal-100' }) => (
   <div className="flex items-center gap-4 py-3.5 border-b border-gray-100 last:border-0">
     <div className={`w-9 h-9 rounded-xl border flex items-center justify-center flex-shrink-0 ${iconBgClass}`}>
-      <Icon className={`w-4 h-4 ${iconClass}`} />
+      {Icon && <Icon className={`w-4 h-4 ${iconClass}`} />}
     </div>
     <div className="min-w-0 flex-1">
       <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>

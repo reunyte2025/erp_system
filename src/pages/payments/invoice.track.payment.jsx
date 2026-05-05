@@ -6,7 +6,7 @@ import {
   User, FileText, X, IndianRupee, TrendingUp,
   Clock, RefreshCw, BadgeCheck, Banknote,
 } from 'lucide-react';
-import { getInvoiceById, getInvoiceByIdTyped, trackInvoice, updateInvoiceAdvance } from '../../services/invoices';
+import { getInvoiceByIdTyped, trackInvoice, updateInvoiceAdvance } from '../../services/invoices';
 import { getPaymentsByInvoice, createPayment, updatePayment } from '../../services/payments';
 import DynamicList from '../../components/DynamicList/DynamicList';
 import trackPaymentConfig from './config.invoice.track.payment';
@@ -37,7 +37,7 @@ const fmtDate = (ds) => {
   } catch { return '—'; }
 };
 
-const fmtDateTime = (ds) => {
+const FMT_DATE_TIME = (ds) => {
   if (!ds) return '—';
   try {
     return new Date(ds).toLocaleString('en-IN', {
@@ -541,14 +541,14 @@ const UpdateAdvanceModal = ({ invoice, currentAdvance, onClose, onSuccess }) => 
 
 // ─── Summary Card ─────────────────────────────────────────────────────────────
 
-const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon, accent, actionMenu }) => (
+const SummaryCard = ({ label, value, sub, iconColor, iconBg, Icon: IconComponent, accent, actionMenu }) => (
   <div style={{
     background: '#fff', borderRadius: 14, border: `1.5px solid ${accent || '#d1d5db'}`,
     padding: '18px 20px', flex: 1, minWidth: 160, position: 'relative',
   }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
       <div style={{ width: 36, height: 36, borderRadius: 9, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Icon size={17} color={iconColor} />
+        {IconComponent && <IconComponent size={17} color={iconColor} />}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 20, padding: '2px 9px', whiteSpace: 'nowrap' }}>
