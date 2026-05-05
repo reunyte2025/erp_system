@@ -76,7 +76,7 @@ const buildExecutionItemsPayload = (items = []) =>
     return {
       description:             String(item.description || '').trim().slice(0, 255),
       quantity:                qty,
-      unit:                    String(item.unit || '').trim() || 'N/A',
+      unit:                    String(item.unit || '').trim() || null,
       sac_code:                String(item.sac_code || '').trim(),
       Professional_amount:     profRate.toFixed(2),
       material_rate:           matRate.toFixed(2),

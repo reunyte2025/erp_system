@@ -43,6 +43,7 @@ import AddComplianceModal from '../../components/AddComplianceModal/Addcomplianc
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
 import PurchaseTypeTable from './PurchaseTypeTable';
+import SendEmailModal from '../../components/SendEmailModal/SendEmailModal';
 import {
   fmtPONum,
   fmtINR,
@@ -146,6 +147,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const navigate = useNavigate();
 
   const [po,            setPo]            = useState(null);
+  const [vendor,        setVendor]        = useState(null);
   const [project,       setProject]       = useState(null);
   const [createdByName, setCreatedByName] = useState('');
   const [loading,       setLoading]       = useState(true);
@@ -153,6 +155,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const [pdfLoading,    setPdfLoading]    = useState(false);
   const [pdfError,      setPdfError]      = useState('');
   const [visible,       setVisible]       = useState(false);
+  const [sendModal,     setSendModal]     = useState(false);
 
   // ── PDF Modal state (mirrors viewquotationdetails exactly) ───────────────────
   const [showPdfModal,     setShowPdfModal]     = useState(false);
@@ -239,14 +242,24 @@ export default function ViewPODetails({ onUpdateNavigation }) {
           const vendorData = vendorRes?.data || vendorRes;
           const vendorName = vendorData?.name || vendorData?.vendor_name || '';
           if (vendorName) { poData.vendor_name = vendorName; setPo({ ...poData }); }
+          // Store full vendor data for email
+          if (vendorData) setVendor(vendorData);
         } catch {
           try {
             const listRes    = await getVendors({ page: 1, page_size: 500 });
             const allVendors = listRes?.data?.results || listRes?.results || [];
             const found      = allVendors.find(v => String(v.id) === String(poData.vendor));
             if (found?.name) { poData.vendor_name = found.name; setPo({ ...poData }); }
+            if (found) setVendor(found);
           } catch { /* non-critical */ }
         }
+      } else if (poData.vendor) {
+        // vendor_name already present — still fetch full vendor data for email
+        try {
+          const vendorRes  = await getVendorById(poData.vendor);
+          const vendorData = vendorRes?.data || vendorRes;
+          if (vendorData) setVendor(vendorData);
+        } catch { /* non-critical */ }
       }
 
       // Resolve project details
@@ -650,8 +663,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         .vpod-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
         .vpod-back:hover{background:#e2e8f0;color:#1e293b}
         .vpod-actions{display:flex;gap:8px;flex-wrap:wrap}
-        .vpod-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#475569;cursor:pointer;transition:all .15s}
-        .vpod-btn-o:hover{background:#f8fafc;border-color:#cbd5e1}
+        .vpod-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
+        .vpod-btn-o:hover{background:#0d6460}
         .vpod-btn-p{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
         .vpod-btn-p:hover{background:#0d6460}
         .vpod-btn-p:disabled{opacity:.6;cursor:not-allowed}
@@ -825,7 +838,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                 <button className="vpod-btn-edit" onClick={enterEditMode}>
                   <Edit2 size={14} /> Update Purchase Order
                 </button>
-                <button className="vpod-btn-o" onClick={() => {}}>
+                <button className="vpod-btn-o" onClick={() => setSendModal(true)}>
                   <Mail size={14} /> Send to Vendor
                 </button>
                 <button
@@ -1655,6 +1668,16 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         onSave={handleComplianceSave}
         existingItems={editItems}
         fetchDescriptions={fetchDescriptionsForModal}
+      />
+
+      {/* ── Send to Vendor Modal ── */}
+      <SendEmailModal
+        isOpen={sendModal}
+        onClose={() => setSendModal(false)}
+        title="Send Purchase Order to Vendor"
+        defaultRecipient={vendor?.email || po?.vendor_email || ''}
+        defaultSubject={`Purchase Order ${poNum}${po?.created_at ? ` — Issued ${fmtDate(po.created_at)}` : ''}`}
+        defaultBody={`Dear ${vendorName !== '—' ? vendorName : 'Vendor'},\n\nPlease find attached Purchase Order ${poNum}${po?.created_at ? `, issued on ${fmtDate(po.created_at)}` : ''}.\n\nKindly review the details and confirm acceptance at your earliest convenience.\n\nBest regards,\n${companyName}`}
       />
 
       {/* ── Save Success toast ── */}

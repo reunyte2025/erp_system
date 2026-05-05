@@ -4,12 +4,12 @@ import {
   ArrowLeft, Download, Loader2, AlertCircle,
   CheckCircle, Clock, Send, FileText, XCircle,
   Building2, User, MapPin, Hash, Calendar,
-  Tag, Percent, ChevronRight, Mail, Paperclip, X,
+  Tag, Percent, ChevronRight, Mail, X,
   Edit2, Save, RotateCcw, Plus, Trash2, PenLine,
   Search, ChevronDown, Edit, Phone, CreditCard, Package, Wrench, FileSearch,
 } from 'lucide-react';
 import {
-  getQuotationById, generateQuotationPdf, sendQuotationToClient,
+  getQuotationById, generateQuotationPdf,
   updateRegulatoryQuotation, updateExecutionQuotation,
   getQuotationCompanyName, getUserById, getAllProjects,
   QUOTATION_COMPANIES,
@@ -19,6 +19,7 @@ import { getClientById, getClientProjects } from '../../services/clients';
 import AddComplianceModal from '../../components/AddComplianceModal/AddcomplianceModal';
 import Notes from '../../components/Notes';
 import { NOTE_ENTITY } from '../../services/notes';
+import SendEmailModal from '../../components/SendEmailModal/SendEmailModal';
 
 // ─── Helpers & constants (shared with QuotationTypeTable) ─────────────────────
 import {
@@ -107,122 +108,6 @@ const ErrorView = ({ message, onRetry, onBack }) => (
     </div>
   </div>
 );
-
-// ─── Send to Client Modal ──────────────────────────────────────────────────
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-
-const SendToClientModal = ({ quotation, client, qNum, issuedDate, onClose }) => {
-  const defaultEmail   = client?.email || '';
-  const defaultSubject = `Quotation ${qNum}${issuedDate ? ` — Issued ${issuedDate}` : ''}`;
-  const defaultBody    = `Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your quotation ${qNum}${issuedDate ? `, issued on ${issuedDate}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\nERP System`;
-
-  const [email,   setEmail]   = useState(defaultEmail);
-  const [subject, setSubject] = useState(defaultSubject);
-  const [body,    setBody]    = useState(defaultBody);
-  const [extras,  setExtras]  = useState([]);
-  const [sending, setSending] = useState(false);
-  const [sent,    setSent]    = useState(false);
-  const [error,   setError]   = useState('');
-  const fileInputRef = useRef(null);
-
-  const totalExtraSize   = extras.reduce((s, f) => s + f.size, 0);
-  const estimatedPdfSize = 2 * 1024 * 1024;
-  const remainingBytes   = MAX_ATTACHMENT_BYTES - estimatedPdfSize - totalExtraSize;
-
-  const handleAddFiles = (e) => {
-    const newFiles = Array.from(e.target.files || []);
-    if (!newFiles.length) return;
-    const combined  = [...extras, ...newFiles];
-    const totalSize = combined.reduce((s, f) => s + f.size, 0) + estimatedPdfSize;
-    if (totalSize > MAX_ATTACHMENT_BYTES) { setError('Adding these files would exceed the 25 MB attachment limit.'); return; }
-    setExtras(combined); setError(''); e.target.value = '';
-  };
-
-  const removeExtra = (idx) => setExtras(prev => prev.filter((_, i) => i !== idx));
-
-  const handleSend = async () => {
-    if (!email.trim()) { setError('Recipient email is required.'); return; }
-    setSending(true); setError('');
-    try {
-      await sendQuotationToClient({ quotationId: quotation.id, email, subject, body, attachments: extras });
-      setSent(true);
-    } catch (e) {
-      setError(e.message || 'Failed to send email. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 20, boxShadow: '0 40px 100px rgba(0,0,0,.22)', width: '100%', maxWidth: 520, overflow: 'hidden' }}>
-        <div style={{ height: 4, background: 'linear-gradient(90deg,#0f766e,#14b8a6)' }} />
-        <div style={{ padding: '24px 28px' }}>
-          {sent ? (
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#ecfdf5', border: '2px solid #6ee7b7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <CheckCircle size={30} color="#059669" />
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Email Sent!</div>
-              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>Quotation has been sent to {email}</div>
-              <button onClick={onClose} style={{ padding: '10px 28px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Close</button>
-            </div>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>Send Quotation to Client</div>
-                <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={18} /></button>
-              </div>
-              {error && <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#dc2626' }}>{error}</div>}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>To</label>
-                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="recipient@email.com" style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>Subject</label>
-                  <input value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 }}>Message</label>
-                  <textarea value={body} onChange={e => setBody(e.target.value)} rows={6} style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attachments</label>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{(remainingBytes / 1024 / 1024).toFixed(1)} MB remaining</span>
-                  </div>
-                  <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
-                    <Paperclip size={12} style={{ marginRight: 4 }} />Quotation PDF will be auto-attached
-                  </div>
-                  {extras.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
-                      <Paperclip size={11} color="#94a3b8" />
-                      <span style={{ flex: 1, color: '#334155' }}>{f.name}</span>
-                      <span style={{ color: '#94a3b8' }}>({(f.size / 1024).toFixed(0)} KB)</span>
-                      <button onClick={() => removeExtra(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 2 }}><X size={12} /></button>
-                    </div>
-                  ))}
-                  <button onClick={() => fileInputRef.current?.click()} style={{ marginTop: 4, padding: '5px 12px', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
-                    <Plus size={12} /> Add File
-                  </button>
-                  <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAddFiles} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button onClick={onClose} style={{ flex: 1, padding: '10px 0', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-                <button onClick={handleSend} disabled={sending} style={{ flex: 2, padding: '10px 0', background: '#0f766e', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit', opacity: sending ? 0.7 : 1 }}>
-                  {sending ? <><Loader2 size={14} style={{ animation: 'vqd_spin .7s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Email</>}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -802,8 +687,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         .vqd-back{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 10px;border-radius:8px;transition:background .15s,color .15s}
         .vqd-back:hover{background:#e2e8f0;color:#1e293b}
         .vqd-actions{display:flex;gap:8px;flex-wrap:wrap}
-        .vqd-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#475569;cursor:pointer;transition:all .15s;font-family:inherit}
-        .vqd-btn-o:hover{background:#f8fafc;border-color:#cbd5e1}
+        .vqd-btn-o{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit;box-shadow:0 2px 8px rgba(3,105,161,.25)}
+        .vqd-btn-o:hover{background:linear-gradient(135deg,#075985,#0369a1);transform:translateY(-1px);box-shadow:0 4px 12px rgba(3,105,161,.35)}
         .vqd-btn-p{display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;background:#0f766e;border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;font-family:inherit}
         .vqd-btn-p:hover{background:#0d6460}
         .vqd-btn-p:disabled{opacity:.6;cursor:not-allowed}
@@ -1533,15 +1418,14 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       />
 
       {/* ── Send to Client Modal ── */}
-      {sendModal && (
-        <SendToClientModal
-          quotation={quotation}
-          client={client}
-          qNum={qNum}
-          issuedDate={fmtDate(quotation.created_at)}
-          onClose={() => setSendModal(false)}
-        />
-      )}
+      <SendEmailModal
+        isOpen={sendModal}
+        onClose={() => setSendModal(false)}
+        title="Send Quotation to Client"
+        defaultRecipient={client?.email || ''}
+        defaultSubject={`Quotation ${qNum}${quotation.created_at ? ` — Issued ${fmtDate(quotation.created_at)}` : ''}`}
+        defaultBody={`Dear ${client ? `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client' : 'Client'},\n\nPlease find attached your quotation ${qNum}${quotation.created_at ? `, issued on ${fmtDate(quotation.created_at)}` : ''}.\n\nKindly review the details and feel free to reach out if you have any questions.\n\nBest regards,\n${companyName}`}
+      />
 
       {/* ── Proforma Already Exists Toast ── */}
       {proformaModal.open && proformaModal.alreadyExists && (
