@@ -20,6 +20,7 @@ export const COMPLIANCE_CATEGORIES = {
   5: 'Water Connection',
   6: 'SWD Line Work',
   7: 'Sewer/Drainage Line Work',
+  8: 'Architecture',
 };
 
 export const SUB_COMPLIANCE_CATEGORIES = {
@@ -41,8 +42,9 @@ export const SUB_COMPLIANCE_CATEGORIES = {
  * Sewer/Drainage Line Work). All others are Regulatory.
  */
 export const COMPLIANCE_GROUPS = {
-  regulatory: [1, 2, 3, 4],
-  execution:  [5, 6, 7],
+  regulatory:   [1, 2, 3, 4],
+  execution:    [5, 6, 7],
+  architecture: [8],
 };
 
 // ─── Status config ────────────────────────────────────────────────────────────

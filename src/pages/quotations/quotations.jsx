@@ -12,7 +12,7 @@ const logger = {
   error: (...args) => console.error(...args),
 };
 
-// ── Regulatory categories: 1–4, Execution categories: 5–7 ──────────────────
+// ── Regulatory categories: 1–4, Execution categories: 5–7, Architecture: 8 ─
 const COMPLIANCE_CATEGORIES = {
   // Regulatory
   1: { id: 1, name: 'Construction Certificate',                                             shortName: 'Construction Certificate', type: 'regulatory' },
@@ -23,6 +23,8 @@ const COMPLIANCE_CATEGORIES = {
   5: { id: 5, name: 'Water Connection',                                                     shortName: 'Water Connection',          type: 'execution'  },
   6: { id: 6, name: 'SWD Line Work',                                                        shortName: 'SWD Line Work',             type: 'execution'  },
   7: { id: 7, name: 'Sewer/Drainage Line Work',                                             shortName: 'Sewer/Drainage',            type: 'execution'  },
+  // Architecture — only for Company ID 1 (Constructive India), no sub-compliance
+  8: { id: 8, name: 'Architecture',                                                         shortName: 'Architecture',              type: 'architecture' },
 };
 
 const COMPLIANCE_GROUPS = {
@@ -30,11 +32,13 @@ const COMPLIANCE_GROUPS = {
   regulatory:              [3, 4],      // Regulatory - no sub-compliance, use Professional_amount
   regulatory_permissions:  [1, 2, 3, 4], // Merged: all Regulatory cats (shown as one option in dropdown)
   execution:               [5, 6, 7],  // Execution  - use material/labour rates
+  architecture:            [8],         // Architecture — Company 1 only, no sub-compliance, manual description
 };
 
 // All regulatory categories combined (for type-checking)
-const REGULATORY_CATS = [1, 2, 3, 4];
-const EXECUTION_CATS  = [5, 6, 7];
+const REGULATORY_CATS     = [1, 2, 3, 4];
+const EXECUTION_CATS      = [5, 6, 7];
+const ARCHITECTURE_CATS   = [8]; // Architecture — Company ID 1 only
 
 // ── Company options (matches backend Company class) ──────────────────────────
 const COMPANIES = QUOTATION_COMPANIES;
@@ -947,12 +951,11 @@ export default function Quotations({ onUpdateNavigation }) {
 
   const handleSelectCategoryType = (type) => {
     // 'regulatory_permissions' is the merged dropdown option (cats 1-4).
-    // Internally we still need to know which sub-group to open first.
-    // We open with ALL 4 cat ids so the user can pick tabs 1,2,3,4 in the modal.
-    const resolvedType = type === 'regulatory_permissions' ? 'regulatory_permissions' : type;
+    // 'architecture' is cat 8 — single category, manual description, no sub-compliance.
+    const resolvedType = type;
     setSelectedCategoryType(resolvedType);
     
-    const categoryIds = COMPLIANCE_GROUPS[resolvedType];
+    const categoryIds = COMPLIANCE_GROUPS[resolvedType] || [];
     const firstCategoryId = categoryIds[0];
 
     // Initialize an empty items bucket for each category in this group
@@ -982,15 +985,18 @@ export default function Quotations({ onUpdateNavigation }) {
 
     // Reset description state
     setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
+    // Architecture always uses manual entry — no preset descriptions
+    setDescriptionMode(type === 'architecture' ? 'manual' : 'dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
     setDescSelectedFromDropdown(false);
 
-    fetchComplianceByCategory(firstCategoryId);
-    // For execution and regulatory-no-sub categories (3,4), fetch descriptions immediately
-    if (resolvedType === 'execution' || (resolvedType === 'regulatory_permissions' && ![1,2].includes(firstCategoryId))) {
-      fetchComplianceDescriptions(firstCategoryId, null);
+    // Architecture: no API fetch needed (all manual). Others fetch as before.
+    if (type !== 'architecture') {
+      fetchComplianceByCategory(firstCategoryId);
+      if (resolvedType === 'execution' || (resolvedType === 'regulatory_permissions' && ![1,2].includes(firstCategoryId))) {
+        fetchComplianceDescriptions(firstCategoryId, null);
+      }
     }
     
     setShowSectionDropdown(false);
@@ -999,15 +1005,18 @@ export default function Quotations({ onUpdateNavigation }) {
 
   const isSectionTypeDisabled = (type) => {
     if (sections.length === 0) return false;
-    const hasExecution   = sections.some(s => EXECUTION_CATS.includes(s.category_id));
-    const hasRegulatory  = sections.some(s => REGULATORY_CATS.includes(s.category_id));
-    if (type === 'execution') return hasRegulatory;
-    // 'regulatory_permissions' covers all regulatory cats 1-4
+    const hasExecution    = sections.some(s => EXECUTION_CATS.includes(s.category_id));
+    const hasRegulatory   = sections.some(s => REGULATORY_CATS.includes(s.category_id));
+    const hasArchitecture = sections.some(s => ARCHITECTURE_CATS.includes(s.category_id));
+    if (type === 'execution') return hasRegulatory || hasArchitecture;
+    if (type === 'architecture') return hasExecution;
+    // 'regulatory_permissions' can coexist with architecture but not execution
     return hasExecution;
   };
 
   const getSectionTypeDisabledReason = (type) => {
-    if (type === 'execution') return 'Cannot mix Execution with Regulatory quotations';
+    if (type === 'execution') return 'Cannot mix Execution with Regulatory/Architecture quotations';
+    if (type === 'architecture') return 'Cannot mix Architecture with Execution quotations';
     return 'Cannot mix Regulatory with Execution quotations';
   };
 
@@ -1015,11 +1024,13 @@ export default function Quotations({ onUpdateNavigation }) {
     const itemForm = getActiveItemForm();
     if (!itemForm.compliance_name.trim()) return;
     const isExec = EXECUTION_CATS.includes(activeCategoryId);
+    const isArch = ARCHITECTURE_CATS.includes(activeCategoryId);
 
     const newItem = {
       compliance_name:      itemForm.compliance_name.trim(),
       compliance_id:        itemForm.compliance_id || null,
-      sub_compliance_id:    itemForm.sub_compliance_id || null,
+      // Architecture: sub_compliance_id always null
+      sub_compliance_id:    isArch ? null : (itemForm.sub_compliance_id || null),
       quantity:             parseInt(itemForm.quantity, 10) || 1,
       total_amount:         calcItemTotal(itemForm, activeCategoryId),
       _categoryId:          activeCategoryId,
@@ -1175,11 +1186,21 @@ export default function Quotations({ onUpdateNavigation }) {
     setSectionForm({ ...section });
 
     const categoryId = section.category_id;
-    const isExecCat = EXECUTION_CATS.includes(categoryId);
+    const isExecCat  = EXECUTION_CATS.includes(categoryId);
+    const isArchCat  = ARCHITECTURE_CATS.includes(categoryId);
 
     // For regulatory edit: seed ALL 4 cat slots so tabs 1-4 all appear.
     // Only the current section's category gets the real items; others get empty.
-    if (!isExecCat) {
+    if (isArchCat) {
+      // Architecture — single tab, seed only cat 8
+      const archCatMap = {
+        8: { items: [...section.items], category_name: section.category_name },
+      };
+      setCategoryItemsMap(archCatMap);
+      setItemFormMap({ 8: { ...BLANK_ITEM_FORM } });
+      setEditingItemIndexMap({ 8: null });
+      setSelectedCategoryType('architecture');
+    } else if (!isExecCat) {
       const regCatMap = {};
       REGULATORY_CATS.forEach(cId => {
         regCatMap[cId] = cId === categoryId
@@ -1213,15 +1234,19 @@ export default function Quotations({ onUpdateNavigation }) {
     }
 
     setActiveCategoryId(categoryId);
-    fetchComplianceByCategory(categoryId);
+
+    // Architecture: no API fetch, manual description mode
+    if (!isArchCat) {
+      fetchComplianceByCategory(categoryId);
+    }
 
     // Pre-fetch descriptions for cats that don't need sub-category selection
-    if (isExecCat || [3, 4].includes(categoryId)) {
+    if (!isArchCat && (isExecCat || [3, 4].includes(categoryId))) {
       fetchComplianceDescriptions(categoryId, null);
     }
 
     setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
+    setDescriptionMode(isArchCat ? 'manual' : 'dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
     setDescSelectedFromDropdown(false);
@@ -1235,10 +1260,14 @@ export default function Quotations({ onUpdateNavigation }) {
     setSectionForm({ ...section });
 
     const categoryId = section.category_id;
-    const isExecCat = EXECUTION_CATS.includes(categoryId);
+    const isExecCat  = EXECUTION_CATS.includes(categoryId);
+    const isArchCat  = ARCHITECTURE_CATS.includes(categoryId);
 
     // Seed all tabs for the group (same logic as handleEditSection)
-    if (!isExecCat) {
+    if (isArchCat) {
+      setCategoryItemsMap({ 8: { items: [...section.items], category_name: section.category_name } });
+      setSelectedCategoryType('architecture');
+    } else if (!isExecCat) {
       const regCatMap = {};
       REGULATORY_CATS.forEach(cId => {
         regCatMap[cId] = cId === categoryId
@@ -1259,7 +1288,7 @@ export default function Quotations({ onUpdateNavigation }) {
     }
 
     setActiveCategoryId(categoryId);
-    fetchComplianceByCategory(categoryId);
+    if (!isArchCat) fetchComplianceByCategory(categoryId);
 
     // Pre-populate item form with ALL fields (including unit) from the item being edited
     const item = section.items[itemIndex];
@@ -1282,7 +1311,10 @@ export default function Quotations({ onUpdateNavigation }) {
     };
 
     // Seed form for current cat; blank for others
-    if (!isExecCat) {
+    if (isArchCat) {
+      setItemFormMap({ 8: prefillForm });
+      setEditingItemIndexMap({ 8: itemIndex });
+    } else if (!isExecCat) {
       const formMap = {};
       REGULATORY_CATS.forEach(cId => { formMap[cId] = cId === categoryId ? prefillForm : { ...BLANK_ITEM_FORM }; });
       setItemFormMap(formMap);
@@ -1298,16 +1330,20 @@ export default function Quotations({ onUpdateNavigation }) {
       setEditingItemIndexMap(editIdxMap);
     }
 
-    // Pre-fetch descriptions
-    if (item.sub_compliance_id) {
-      fetchComplianceDescriptions(categoryId, item.sub_compliance_id);
-    } else if (isExecCat || [3, 4].includes(categoryId)) {
-      fetchComplianceDescriptions(categoryId, null);
+    // Pre-fetch descriptions (architecture = manual, skip)
+    if (!isArchCat) {
+      if (item.sub_compliance_id) {
+        fetchComplianceDescriptions(categoryId, item.sub_compliance_id);
+      } else if (isExecCat || [3, 4].includes(categoryId)) {
+        fetchComplianceDescriptions(categoryId, null);
+      }
     }
 
+    setComplianceDescriptions([]);
+    setDescriptionMode(isArchCat ? 'manual' : 'dropdown');
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
-    setDescSelectedFromDropdown(!!item.compliance_name);
+    setDescSelectedFromDropdown(isArchCat ? true : !!item.compliance_name);
     setShowAddSection(true);
   };
 
@@ -1357,7 +1393,11 @@ export default function Quotations({ onUpdateNavigation }) {
     fetchComplianceByCategory(categoryId);
 
     // For execution + regulatory-no-sub categories, fetch descriptions immediately
-    if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
+    // Architecture: always manual — never fetch
+    if (ARCHITECTURE_CATS.includes(categoryId)) {
+      setActiveItemForm({ ...BLANK_ITEM_FORM });
+      setDescriptionMode('manual');
+    } else if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
       setActiveItemForm({ ...BLANK_ITEM_FORM });
       fetchComplianceDescriptions(categoryId, null);
     } else {
@@ -1393,7 +1433,7 @@ export default function Quotations({ onUpdateNavigation }) {
     }
 
     // Detect quotation type BEFORE validating SAC code.
-    // For Regulatory quotations the header SAC code is REQUIRED.
+    // For Regulatory + Architecture quotations the header SAC code is REQUIRED.
     // For Execution quotations the SAC code is entered per-item (item_sac_code).
     //   - If at least one item has its own SAC code the header field stays optional.
     //   - If NO item has a SAC code (user skipped all of them) the header SAC
@@ -1426,9 +1466,10 @@ export default function Quotations({ onUpdateNavigation }) {
           const quantity = parseInt(item.quantity, 10);
           const compliance_category = section.category_id;
           const isExec = EXECUTION_CATS.includes(compliance_category);
-          // Sub-compliance only relevant for categories 1,2,5,6,7
+          const isArch = ARCHITECTURE_CATS.includes(compliance_category);
+          // Sub-compliance only relevant for categories 1,2,5,6,7; architecture always 0
           const hasSub = [1, 2, 5, 6, 7].includes(compliance_category);
-          const sub_compliance_category = hasSub
+          const sub_compliance_category = (hasSub && !isArch)
             ? (item.sub_compliance_id ? parseInt(item.sub_compliance_id) : 0)
             : 0;
 
@@ -1460,7 +1501,7 @@ export default function Quotations({ onUpdateNavigation }) {
               ...base,
               // Empty unit → null so the detail page shows "—" instead of "N/A"
               unit:            String(item.unit || '').trim() || null,
-              sac_code:        String(item.item_sac_code || '').trim(),
+              sac_code:        String(item.item_sac_code || '').trim() || null,
               Professional_amount: profRate.toFixed(2),
               material_rate:   parseFloat(matRate.toFixed(2)),
               material_amount: parseFloat(matAmt.toFixed(2)),
@@ -1469,7 +1510,7 @@ export default function Quotations({ onUpdateNavigation }) {
               total_amount:    execTotal,
             };
           } else {
-            // Regulatory
+            // Regulatory + Architecture — both use Professional_amount + consultancy_charges style
             const Professional_amount = parseFloat(item.Professional_amount) || 0;
             if (Professional_amount <= 0) throw new Error(`Professional amount must be > 0 for: ${description}`);
             const rawMisc = String(item.miscellaneous_amount ?? '').trim();
@@ -1517,7 +1558,9 @@ export default function Quotations({ onUpdateNavigation }) {
         // preserve the original quotation_type from editQuotation.
         const editQuotationType = isExecutionType
           ? 'Execution'
-          : (editQuotation.quotation_type || 'Regulatory');
+          : sections.some(s => ARCHITECTURE_CATS.includes(s.category_id))
+            ? 'Architecture'
+            : (editQuotation.quotation_type || 'Regulatory');
 
         const updatePayload = {
           id:               parseInt(editQuotation.id),
@@ -1643,6 +1686,10 @@ export default function Quotations({ onUpdateNavigation }) {
   const isExecutionType = sections.some(s => EXECUTION_CATS.includes(s.category_id))
     || selectedCategoryType === 'execution';
 
+  // Is architecture mode active?
+  const isArchitectureType = sections.some(s => ARCHITECTURE_CATS.includes(s.category_id))
+    || selectedCategoryType === 'architecture';
+
   const isEditSectionMode = editingSection !== null;
 
   const modalItemForm = isEditSectionMode
@@ -1691,10 +1738,12 @@ export default function Quotations({ onUpdateNavigation }) {
         const itemForm = modalItemForm;
         if (!itemForm.compliance_name.trim()) return;
         const _isExec = EXECUTION_CATS.includes(activeCategoryId);
+        const _isArch = ARCHITECTURE_CATS.includes(activeCategoryId);
         const newItem = {
           compliance_name:      itemForm.compliance_name.trim(),
           compliance_id:        itemForm.compliance_id || null,
-          sub_compliance_id:    itemForm.sub_compliance_id || null,
+          // Architecture: sub_compliance_id is always null (backend gets sub_compliance_category=0)
+          sub_compliance_id:    _isArch ? null : (itemForm.sub_compliance_id || null),
           quantity:             parseInt(itemForm.quantity, 10) || 1,
           total_amount:         calcItemTotal(itemForm, activeCategoryId),
           _categoryId:          activeCategoryId,
@@ -1746,10 +1795,13 @@ export default function Quotations({ onUpdateNavigation }) {
         });
         modalSetEditingIdx(index);
         setDescSelectedFromDropdown(true);
-        if (item.sub_compliance_id) {
-          fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
-        } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
-          fetchComplianceDescriptions(activeCategoryId, null);
+        // Architecture = manual, no fetch; others fetch as normal
+        if (!ARCHITECTURE_CATS.includes(activeCategoryId)) {
+          if (item.sub_compliance_id) {
+            fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
+          } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
+            fetchComplianceDescriptions(activeCategoryId, null);
+          }
         }
       }
     : handleEditItem;
@@ -2152,12 +2204,26 @@ export default function Quotations({ onUpdateNavigation }) {
                         onClick={() => !isSectionTypeDisabled('execution') && handleSelectCategoryType('execution')}
                         disabled={isSectionTypeDisabled('execution')}
                         title={isSectionTypeDisabled('execution') ? getSectionTypeDisabledReason('execution') : ''}
-                        className={`w-full px-4 py-3 text-left transition-colors text-sm font-medium
+                        className={`w-full px-4 py-3 text-left transition-colors text-sm font-medium ${selectedCompany?.id === 1 ? 'border-b border-gray-100' : ''}
                           ${isSectionTypeDisabled('execution') ? 'text-gray-300 cursor-not-allowed bg-white' : 'text-gray-700 hover:bg-gray-50'}`}
                       >
                         <div className="font-semibold">Execution Compliance</div>
                         <div className="text-xs text-gray-500 mt-0.5">Water Connection, SWD & Sewer/Drainage (Cat 5–7)</div>
                       </button>
+
+                      {/* ── Architecture: cat 8 — only for Company ID 1 ── */}
+                      {selectedCompany?.id === 1 && (
+                        <button
+                          onClick={() => !isSectionTypeDisabled('architecture') && handleSelectCategoryType('architecture')}
+                          disabled={isSectionTypeDisabled('architecture')}
+                          title={isSectionTypeDisabled('architecture') ? getSectionTypeDisabledReason('architecture') : ''}
+                          className={`w-full px-4 py-3 text-left transition-colors text-sm font-medium
+                            ${isSectionTypeDisabled('architecture') ? 'text-gray-300 cursor-not-allowed bg-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                        >
+                          <div className="font-semibold">Architecture</div>
+                          <div className="text-xs text-gray-500 mt-0.5">Architecture Services (Cat 8)</div>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2688,8 +2754,8 @@ export default function Quotations({ onUpdateNavigation }) {
                       </div>
 
                       <div className="p-4 space-y-3">
-                        {/* Sub-compliance shown only for categories that have sub-options: 1,2,5,6,7 */}
-                        {activeCategoryId && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (
+                        {/* Sub-compliance shown only for categories that have sub-options: 1,2,5,6,7 (never architecture) */}
+                        {activeCategoryId && !ARCHITECTURE_CATS.includes(activeCategoryId) && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                               Sub-Compliance Category <span className="text-red-400">*</span>
@@ -2714,7 +2780,7 @@ export default function Quotations({ onUpdateNavigation }) {
                             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                               Description <span className="text-red-400">*</span>
                             </label>
-                            {complianceDescriptions.length > 0 && (
+                            {complianceDescriptions.length > 0 && !ARCHITECTURE_CATS.includes(activeCategoryId) && (
                               <button type="button"
                                 onClick={() => {
                                   setDescriptionMode(prev => prev === 'dropdown' ? 'manual' : 'dropdown');
@@ -2732,6 +2798,15 @@ export default function Quotations({ onUpdateNavigation }) {
                             <div className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-2 text-sm text-gray-500">
                               <Loader2 className="w-4 h-4 animate-spin text-teal-500" />Loading descriptions...
                             </div>
+                          ) : ARCHITECTURE_CATS.includes(activeCategoryId) ? (
+                            /* Architecture: always manual text entry */
+                            <textarea
+                              value={modalItemForm.compliance_name}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, compliance_name: e.target.value }))}
+                              placeholder="Enter architecture service description"
+                              rows="2"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none"
+                            />
                           ) : descriptionMode === 'dropdown' && complianceDescriptions.length > 0 ? (
                             <div className="description-dropdown relative w-full">
 
@@ -3092,7 +3167,9 @@ export default function Quotations({ onUpdateNavigation }) {
                             onClick={modalAddItem}
                             disabled={
                               !modalItemForm.compliance_name.trim() ||
-                              (activeCategoryId && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && !modalItemForm.sub_compliance_id) ||
+                              // Sub-compliance required only for cats 1,2,5,6,7 (not arch)
+                              (activeCategoryId && !ARCHITECTURE_CATS.includes(activeCategoryId) && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && !modalItemForm.sub_compliance_id) ||
+                              // Professional_amount required for regulatory + architecture; execution uses rates
                               (!EXECUTION_CATS.includes(activeCategoryId) && !(parseFloat(modalItemForm.Professional_amount) > 0))
                             }
                             className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${modalEditingItemIndex !== null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
