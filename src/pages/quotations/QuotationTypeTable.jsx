@@ -404,6 +404,7 @@ export default function QuotationTypeTable({
                       </th>
                       <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Qty</th>
                       <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Unit</th>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>SAC Code</th>
                       <th rowSpan={2} style={{ textAlign: 'right', verticalAlign: 'middle' }}>Prof. (₹)</th>
                       <th
                         colSpan={2}
@@ -459,7 +460,7 @@ export default function QuotationTypeTable({
                   <tbody key={gi}>
                     {/* Category header row */}
                     <tr className="vqd-cat-row">
-                      <td colSpan={isRegulatory ? 8 : 11}>
+                      <td colSpan={isRegulatory ? 8 : 12}>
                         <div className="vqd-cat-inner">
                           <span
                             className="vqd-cat-dot"
@@ -560,6 +561,18 @@ export default function QuotationTypeTable({
                                   onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
                                   placeholder="Unit"
                                   style={{ textAlign: 'center', width: '100%' }}
+                                />
+                              </td>
+                              {/* SAC Code */}
+                              <td style={{ verticalAlign: 'middle' }}>
+                                <input
+                                  type="text"
+                                  className="vqd-edit-input"
+                                  value={it.sac_code || ''}
+                                  onChange={e => updateItem(globalIdx, 'sac_code', e.target.value)}
+                                  placeholder="e.g. 998312"
+                                  title="Per-item SAC Code"
+                                  style={{ textAlign: 'center', width: '100%', fontFamily: 'monospace', fontSize: 12 }}
                                 />
                               </td>
                               {/* Professional amount */}
@@ -666,7 +679,7 @@ export default function QuotationTypeTable({
                     {/* Category subtotal row */}
                     <tr className="vqd-cat-sub">
                       <td
-                        colSpan={isRegulatory ? 6 : 9}
+                        colSpan={isRegulatory ? 6 : 10}
                         style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}
                       >
                         {grp.catName} subtotal

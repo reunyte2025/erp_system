@@ -424,11 +424,9 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   const [showAddSection, setShowAddSection] = useState(false);
 
-  // ── Scroll lock — only for modals that overlay inline content (add section, reason, reject, invoice)
-  //    sendModal and showPdfModal intentionally do NOT lock the body scroll so the background
-  //    stays scrollable and keeps its normal appearance, matching the quotation detail page behaviour.
+  // ── Scroll lock — prevents background page scroll whenever any modal is open
   useEffect(() => {
-    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || showInvoiceModal;
+    const anyModalOpen = showAddSection || showUpdateReasonModal || showRejectModal || showInvoiceModal || showPdfModal;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = 'fixed';
@@ -449,7 +447,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       document.body.style.width = '';
       document.body.style.overflow = '';
     };
-  }, [showAddSection, showUpdateReasonModal, showRejectModal, showInvoiceModal]);
+  }, [showAddSection, showUpdateReasonModal, showRejectModal, showInvoiceModal, showPdfModal]);
 
   // ── Compliance modal helpers ─────────────────────────────────────────────────
 
@@ -464,21 +462,29 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const handleComplianceSave = (newFlatItems) => {
     const EXECUTION_CATS = [5, 6, 7];
     const normalized = newFlatItems.map(item => {
-      const isExec = EXECUTION_CATS.includes(parseInt(item.compliance_category));
+      // CRITICAL: compliance_category must come from the item exactly as saved
+      // by the modal. Never default/fallback — wrong category = corrupted data.
+      const complianceCat = parseInt(item.compliance_category);
+      if (!complianceCat) {
+        console.error('[Proforma handleComplianceSave] Item has no compliance_category — skipping:', item);
+        return null;
+      }
+      const isExec = EXECUTION_CATS.includes(complianceCat);
       const base = {
         id:                      null,
+        compliance_category:     complianceCat,
+        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
-        unit:                    String(item.unit || '').trim() || '',
-        compliance_category:     parseInt(item.compliance_category) || (isExec ? 5 : 1),
-        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        // Empty unit → null so backend stores null and UI shows "—"
+        unit:                    String(item.unit || '').trim() || null,
         Professional_amount:     parseFloat(item.Professional_amount) || 0,
         total_amount:            parseFloat(item.total_amount) || 0,
       };
       if (isExec) {
         return {
           ...base,
-          sac_code:        String(item.sac_code || '').trim(),
+          sac_code:        String(item.sac_code || '').trim() || null,
           material_rate:   parseFloat(item.material_rate)   || 0,
           material_amount: parseFloat(item.material_amount) || 0,
           labour_rate:     parseFloat(item.labour_rate)     || 0,
@@ -492,7 +498,9 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           miscellaneous_amount: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '' : String(miscRaw),
         };
       }
-    });
+    }).filter(Boolean); // drop any items that had no compliance_category
+
+    if (normalized.length === 0) return;
     setEditItems(prev => [...prev, ...normalized]);
     setShowAddSection(false);
   };
@@ -991,9 +999,15 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const items      = proforma.items || [];
   const groups     = groupItemsByCategory(items);
   const totalQty   = items.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0);
-  const pTypeRaw   = proforma.proforma_type || '';
-  const isExecution  = pTypeRaw.toLowerCase().includes('execution') || getComplianceType(items) === 'execution';
-  const isRegulatory = !isExecution;
+  const pTypeRaw      = proforma.proforma_type || '';
+  const pTypeLower    = pTypeRaw.toLowerCase();
+  const isExecution   = pTypeLower.includes('execution') || getComplianceType(items) === 'execution';
+  // Architecture: type string says "architecture" OR all items are category 8
+  const isArchitecture = !isExecution && (
+    pTypeLower.includes('architecture') ||
+    (items.length > 0 && items.every(it => Number(it.compliance_category) === 8))
+  );
+  const isRegulatory  = !isExecution;
   const companyName  = proforma.company_name || getQuotationCompanyName(proforma.company) || 'ERP System';
 
   const clientName = client
@@ -1010,6 +1024,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         .vpd-root *{box-sizing:border-box;font-family:'Outfit',sans-serif}
+        .vpd-pdf-body::-webkit-scrollbar{display:none}
         .vpd-modal-textarea{font-family:'Outfit',sans-serif !important}
         .vpd-modal-title{font-family:'Outfit',sans-serif !important}
         .vpd-modal-sub{font-family:'Outfit',sans-serif !important}
@@ -1391,9 +1406,9 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <div className="vpd-meta-sep" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: isExecution ? '#f5f3ff' : '#f0f9ff', border: `1.5px solid ${isExecution ? '#ddd6fe' : '#bae6fd'}`, color: isExecution ? '#7c3aed' : '#0369a1', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: isExecution ? '#f5f3ff' : isArchitecture ? '#fdf4ff' : '#f0f9ff', border: `1.5px solid ${isExecution ? '#ddd6fe' : isArchitecture ? '#e9d5ff' : '#bae6fd'}`, color: isExecution ? '#7c3aed' : isArchitecture ? '#9333ea' : '#0369a1', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20 }}>
                 {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
-                {isExecution ? 'Execution' : 'Regulatory'}
+                {isExecution ? 'Execution' : isArchitecture ? 'Architecture' : 'Regulatory'}
               </span>
             </div>
             {createdByName && <>
@@ -1874,158 +1889,174 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           />
           <div className="relative z-10 flex items-center justify-center p-4 pointer-events-none" style={{ height: '100vh' }}>
             <div
-              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif" }}
+              style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', boxShadow: '0 32px 80px rgba(0,0,0,.28)', overflow: 'hidden', fontFamily: "'Outfit', sans-serif", display: 'flex', flexDirection: 'column' }}
               className="pointer-events-auto"
               onClick={e => e.stopPropagation()}
             >
-            <div style={{ background: 'linear-gradient(135deg,#0c6e67,#0f766e,#0d9488)', padding: '18px 22px 16px', borderRadius: '20px 20px 0 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <FileSearch size={18} color="#fff" />
+              {/* ── Sticky Header ── */}
+              <div style={{ background: 'linear-gradient(135deg,#0c6e67 0%,#0f766e 45%,#0d9488 100%)', padding: '20px 24px 18px', position: 'sticky', top: 0, zIndex: 2, borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(255,255,255,.18)', border: '1.5px solid rgba(255,255,255,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <FileSearch size={17} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Generate Proforma PDF</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{pNum} · {companyName}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>Generate Proforma PDF</div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', marginTop: 2 }}>{pNum} · {companyName}</div>
-                  </div>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+                  >
+                    <X size={15} />
+                  </button>
                 </div>
-                <button onClick={() => !pdfLoading && setShowPdfModal(false)} style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                  <X size={15} />
-                </button>
               </div>
-            </div>
 
-            <div style={{ padding: '20px 24px 24px', fontFamily: "'Outfit', sans-serif" }}>
-              {(() => {
-                const companyId      = parseInt(proforma?.company) || 0;
-                const isConstructive = companyId === 1;
+              {/* ── Body ── */}
+              <div className="vpd-pdf-body" style={{ padding: '22px 24px 24px', background: '#fff', overflowY: 'auto', flex: 1, scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                {(() => {
+                  const companyId      = parseInt(proforma?.company) || 0;
+                  const isConstructive = companyId === 1;
 
-                const fieldWrap  = { marginBottom: 14 };
-                const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'block', marginBottom: 5, fontFamily: "'Outfit', sans-serif" };
-                const inputStyle = () => ({
-                  width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9,
-                  fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: "'Outfit', sans-serif", boxSizing: 'border-box',
-                  background: pdfLoading ? '#f8fafc' : '#fff',
-                });
-                const onFocus = e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
-                const onBlur  = e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; };
+                  const fieldWrap  = { marginBottom: 14 };
+                  const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 };
+                  const inputStyle = {
+                    width: '100%', padding: '8px 11px', border: '1.5px solid #e2e8f0', borderRadius: 9,
+                    fontSize: 13, color: '#1e293b', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                    background: pdfLoading ? '#f8fafc' : '#fff',
+                  };
+                  const onFocus = e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; };
+                  const onBlur  = e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; };
 
-                return (
-                  <>
-                    {/* Common fields */}
-                    <div style={fieldWrap}>
-                      <div style={labelStyle}>Company Name <span style={{ color: '#dc2626' }}>*</span></div>
-                      <input type="text" placeholder="e.g. ABC Construction Pvt. Ltd." value={pdfCompanyName} onChange={e => setPdfCompanyName(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle(false), borderColor: pdfCompanyName === '' && pdfError ? '#fca5a5' : '#e2e8f0' }} />
-                    </div>
-                    <div style={fieldWrap}>
-                      <div style={labelStyle}>Address <span style={{ color: '#dc2626' }}>*</span></div>
-                      <input type="text" placeholder="e.g. 123 Main St, Mumbai" value={pdfAddress} onChange={e => { setPdfAddress(e.target.value); setPdfError(''); }} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle(false), borderColor: !pdfAddress.trim() && pdfError ? '#fca5a5' : '#e2e8f0' }} />
-                    </div>
-                    <div style={fieldWrap}>
-                      <div style={labelStyle}>GST No.</div>
-                      <input type="text" placeholder="e.g. 27AABCU9603R1ZX" value={pdfGstNo} onChange={e => setPdfGstNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                      <div>
-                        <div style={labelStyle}>PO No.</div>
-                        <input type="text" placeholder="e.g. PO-2024-001" value={pdfPoNo} onChange={e => setPdfPoNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                      <div>
-                        <div style={labelStyle}>Schedule Date <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span></div>
-                        <input type="date" value={pdfScheduleDate} onChange={e => setPdfScheduleDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                      <div>
-                        <div style={labelStyle}>State</div>
-                        <input type="text" placeholder="e.g. Maharashtra" value={pdfState} onChange={e => setPdfState(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                      <div>
-                        <div style={labelStyle}>Code</div>
-                        <input type="text" placeholder="e.g. MH" value={pdfCode} onChange={e => setPdfCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                      </div>
-                    </div>
-
-                    {/* Constructive-only fields */}
-                    {isConstructive && (
-                      <>
+                  return (
+                    <>
+                      {/* ── Form fields grid ── */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                        {/* Company Name — full width */}
+                        <div style={{ ...fieldWrap, gridColumn: '1 / -1' }}>
+                          <div style={labelStyle}>Company Name <span style={{ color: '#dc2626', marginLeft: 3 }}>*</span></div>
+                          <input type="text" placeholder="e.g. ABC Construction Pvt. Ltd." value={pdfCompanyName} onChange={e => setPdfCompanyName(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle, borderColor: pdfCompanyName === '' && pdfError ? '#fca5a5' : '#e2e8f0' }} />
+                        </div>
+                        {/* Address — full width */}
+                        <div style={{ ...fieldWrap, gridColumn: '1 / -1' }}>
+                          <div style={labelStyle}>Address <span style={{ color: '#dc2626', marginLeft: 3 }}>*</span></div>
+                          <input type="text" placeholder="e.g. 123 Main St, Mumbai" value={pdfAddress} onChange={e => { setPdfAddress(e.target.value); setPdfError(''); }} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={{ ...inputStyle, borderColor: !pdfAddress.trim() && pdfError ? '#fca5a5' : '#e2e8f0' }} />
+                        </div>
+                        {/* GST No — full width */}
+                        <div style={{ ...fieldWrap, gridColumn: '1 / -1' }}>
+                          <div style={labelStyle}>GST No.</div>
+                          <input type="text" placeholder="e.g. 27AABCU9603R1ZX" value={pdfGstNo} onChange={e => setPdfGstNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                        </div>
+                        {/* State */}
                         <div style={fieldWrap}>
-                          <div style={labelStyle}>SAC Code</div>
-                          <input type="text" placeholder="e.g. 998313" value={pdfSacCode} onChange={e => setPdfSacCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
+                          <div style={labelStyle}>State</div>
+                          <input type="text" placeholder="e.g. Maharashtra" value={pdfState} onChange={e => setPdfState(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                          <div>
-                            <div style={labelStyle}>Invoice Date</div>
-                            <input type="date" value={pdfInvoiceDate} onChange={e => setPdfInvoiceDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                          </div>
-                          <div>
-                            <div style={labelStyle}>Work Order Date</div>
-                            <input type="date" value={pdfWorkOrderDate} onChange={e => setPdfWorkOrderDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                          </div>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                          <div>
-                            <div style={labelStyle}>Valid From</div>
-                            <input type="date" value={pdfValidFrom} onChange={e => setPdfValidFrom(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                          </div>
-                          <div>
-                            <div style={labelStyle}>Valid Till</div>
-                            <input type="date" value={pdfValidTill} onChange={e => setPdfValidTill(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
-                          </div>
-                        </div>
+                        {/* Code */}
                         <div style={fieldWrap}>
-                          <div style={labelStyle}>Vendor Code</div>
-                          <input type="text" placeholder="e.g. VND-001" value={pdfVendorCode} onChange={e => setPdfVendorCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle(false)} />
+                          <div style={labelStyle}>Code</div>
+                          <input type="text" placeholder="e.g. MH" value={pdfCode} onChange={e => setPdfCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
                         </div>
-                      </>
-                    )}
+                        {/* PO No */}
+                        <div style={fieldWrap}>
+                          <div style={labelStyle}>PO No.</div>
+                          <input type="text" placeholder="e.g. PO-2024-001" value={pdfPoNo} onChange={e => setPdfPoNo(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                        </div>
+                        {/* Schedule Date */}
+                        <div style={fieldWrap}>
+                          <div style={labelStyle}>Schedule Date <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span></div>
+                          <input type="date" value={pdfScheduleDate} onChange={e => setPdfScheduleDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                        </div>
 
-                    <div style={{ borderTop: '1.5px dashed #e2e8f0', margin: '4px 0 14px' }} />
-                    <div style={fieldWrap}>
-                      <div style={{ ...labelStyle, marginBottom: 6 }}>
-                        Scope of Work <span style={{ color: '#dc2626' }}>*</span>
+                        {/* Constructive-only fields */}
+                        {isConstructive && (
+                          <>
+                            <div style={{ ...fieldWrap, gridColumn: '1 / -1' }}>
+                              <div style={labelStyle}>SAC Code</div>
+                              <input type="text" placeholder="e.g. 998313" value={pdfSacCode} onChange={e => setPdfSacCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                            <div style={fieldWrap}>
+                              <div style={labelStyle}>Invoice Date</div>
+                              <input type="date" value={pdfInvoiceDate} onChange={e => setPdfInvoiceDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                            <div style={fieldWrap}>
+                              <div style={labelStyle}>Work Order Date</div>
+                              <input type="date" value={pdfWorkOrderDate} onChange={e => setPdfWorkOrderDate(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                            <div style={fieldWrap}>
+                              <div style={labelStyle}>Valid From</div>
+                              <input type="date" value={pdfValidFrom} onChange={e => setPdfValidFrom(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                            <div style={fieldWrap}>
+                              <div style={labelStyle}>Valid Till</div>
+                              <input type="date" value={pdfValidTill} onChange={e => setPdfValidTill(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                            <div style={{ ...fieldWrap, gridColumn: '1 / -1' }}>
+                              <div style={labelStyle}>Vendor Code</div>
+                              <input type="text" placeholder="e.g. VND-001" value={pdfVendorCode} onChange={e => setPdfVendorCode(e.target.value)} onFocus={onFocus} onBlur={onBlur} disabled={pdfLoading} style={inputStyle} />
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <textarea
-                        rows={4}
-                        placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
-                        value={scopeOfWork}
-                        onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
-                        onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
-                        onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
-                        disabled={pdfLoading}
-                        style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, fontSize: 13, fontFamily: "'Outfit', sans-serif", color: '#1e293b', resize: 'vertical', minHeight: 100, outline: 'none', transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff' }}
-                      />
-                      {scopeError && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', marginTop: 5, fontWeight: 500 }}>
-                          <AlertCircle size={12} /> {scopeError}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
 
-              {pdfError && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
-                  <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div>
-                    <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
-                    <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                      {/* Scope of Work — full width below grid */}
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 }}>
+                          Scope of Work <span style={{ color: '#dc2626' }}>*</span>
+                        </div>
+                        <textarea
+                          rows={3}
+                          placeholder="e.g. Supply, installation and commissioning of plumbing works as per approved drawings…"
+                          value={scopeOfWork}
+                          onChange={e => { setScopeOfWork(e.target.value); setScopeError(''); setPdfError(''); }}
+                          onFocus={e => { e.target.style.borderColor = '#0f766e'; e.target.style.boxShadow = '0 0 0 3px rgba(15,118,110,.1)'; }}
+                          onBlur={e => { e.target.style.borderColor = scopeError ? '#fca5a5' : '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                          disabled={pdfLoading}
+                          style={{ width: '100%', padding: '9px 11px', border: `1.5px solid ${scopeError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b', resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: pdfLoading ? '#f8fafc' : '#fff' }}
+                        />
+                        {scopeError && (
+                          <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <AlertCircle size={11} /> {scopeError}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {/* API error */}
+                {pdfError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 10, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#dc2626', fontWeight: 500 }}>
+                    <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
+                      <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
-                <button onClick={() => !pdfLoading && setShowPdfModal(false)} disabled={pdfLoading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-                  Cancel
-                </button>
-                <button onClick={handleConfirmPdfDownload} disabled={pdfLoading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : 'linear-gradient(135deg,#0f766e,#0d9488)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}>
-                  {pdfLoading
-                    ? <><Loader2 size={13} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Generating…</>
-                    : <><Download size={13} /> Generate &amp; Download</>}
-                </button>
+                {/* Buttons */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => !pdfLoading && setShowPdfModal(false)}
+                    disabled={pdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 9, background: '#fff', border: '2px solid #94a3b8', color: '#475569', fontSize: 13, fontWeight: 600, cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmPdfDownload}
+                    disabled={pdfLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 22px', borderRadius: 9, border: 'none', background: pdfLoading ? '#d1d5db' : '#0f766e', color: '#fff', fontSize: 13, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', boxShadow: pdfLoading ? 'none' : '0 2px 8px rgba(15,118,110,.3)', fontFamily: 'inherit', transition: 'all .15s' }}
+                  >
+                    {pdfLoading
+                      ? <><Loader2 size={13} style={{ animation: 'vpd_spin .7s linear infinite' }} /> Generating…</>
+                      : <><Download size={13} /> Generate &amp; Download</>}
+                  </button>
+                </div>
               </div>
-            </div>
             </div>
           </div>
         </div>

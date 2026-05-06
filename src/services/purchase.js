@@ -36,7 +36,7 @@ const ENDPOINTS = {
   // Purchase Order CRUD
   GET_PURCHASE_ORDER:    '/quotations/get_purchase_order/',
   CREATE_PURCHASE_ORDER: '/quotations/create_purchase_order/',
-  UPDATE_PURCHASE_ORDER: '/quotations/update_quotation/',     // shared PUT endpoint
+  UPDATE_PURCHASE_ORDER: '/quotations/update_execution_quotation/', // execution PUT endpoint (POs are always execution type)
 
   // Supporting lookups used by PO pages
   GET_ALL_PROJECTS: '/projects/get_all_Project/',
@@ -203,21 +203,75 @@ export const createPurchaseOrder = async (quotationData) => {
  * @returns {Promise<Object>} API response data
  * @throws {Error} If ID is missing or update fails
  */
-export const updatePurchaseOrder = async (payload) => {
-  if (!payload?.id) throw new Error('Purchase Order ID is required for update');
+export const updatePurchaseOrder = async (quotationData) => {
+  if (!quotationData?.id) throw new Error('Purchase Order ID is required for update');
+  serviceLogger.log(`Updating Purchase Order ${quotationData.id} → ${ENDPOINTS.UPDATE_PURCHASE_ORDER}`);
+
+  // Shape the payload to exactly match /quotations/update_execution_quotation/ swagger spec.
+  // Monetary top-level fields must be strings.  Items follow the execution item schema.
+  const shaped = {
+    id:               parseInt(quotationData.id),
+    // Purchase Orders are vendor-based — client is always null
+    client:           quotationData.client  ? parseInt(quotationData.client)  : null,
+    vendor:           quotationData.vendor  ? parseInt(quotationData.vendor)  : null,
+    project:          parseInt(quotationData.project),
+    company:          parseInt(quotationData.company) || 1,
+    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
+    discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
+    total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
+    total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
+    grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
+    status:           parseInt(quotationData.status) || 1,
+    items: (quotationData.items || []).map(item => {
+      const rawId  = item.id != null ? parseInt(item.id) : null;
+      const itemId = rawId && rawId > 0 ? rawId : null;
+      const qty     = parseInt(item.quantity) || 1;
+      const prof    = parseFloat(item.Professional_amount) || 0;
+      const matRate = parseFloat(item.material_rate)   || 0;
+      const labRate = parseFloat(item.labour_rate)     || 0;
+      const matAmt  = (parseFloat(item.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
+      const labAmt  = (parseFloat(item.labour_amount)   || 0) || (labRate > 0 ? labRate * qty : 0);
+      const total   = (matAmt + labAmt) > 0
+        ? parseFloat((matAmt + labAmt).toFixed(2))
+        : parseFloat((prof * qty).toFixed(2));
+      // consultancy_charges is required by the execution endpoint schema (send "0.00" for POs)
+      const consultancy = (() => {
+        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+        const num = parseFloat(String(raw).trim());
+        return isNaN(num) ? '0.00' : num.toFixed(2);
+      })();
+      return {
+        id:                      itemId,
+        description:             String(item.description || '').trim(),
+        quantity:                qty,
+        unit:                    String(item.unit || '').trim() || null,
+        sac_code:                String(item.sac_code || '').trim(),
+        consultancy_charges:     consultancy,
+        Professional_amount:     String(prof.toFixed(2)),
+        material_rate:           String(matRate.toFixed(2)),
+        material_amount:         String(matAmt.toFixed(2)),
+        labour_rate:             String(labRate.toFixed(2)),
+        labour_amount:           String(labAmt.toFixed(2)),
+        total_amount:            String(total.toFixed(2)),
+        compliance_category:     parseInt(item.compliance_category) || 5,
+        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      };
+    }),
+  };
+
   try {
-    serviceLogger.log(`Updating Purchase Order ${payload.id}...`);
-    const response = await api.put(ENDPOINTS.UPDATE_PURCHASE_ORDER, payload);
-    serviceLogger.log(`Purchase Order ${payload.id} updated successfully`);
+    const response = await api.put(ENDPOINTS.UPDATE_PURCHASE_ORDER, shaped);
+    serviceLogger.log(`Purchase Order ${quotationData.id} updated successfully`);
     return response.data;
   } catch (error) {
     if (error.response?.status === 400) {
       const msg = format400Error(error.response.data);
-      serviceLogger.error(`updatePurchaseOrder(${payload.id}) 400:`, msg);
+      serviceLogger.error(`updatePurchaseOrder(${quotationData.id}) 400:`, msg);
       throw new Error(`Server error: 400 — ${msg}`);
     }
     const errorMessage = normalizeError(error);
-    serviceLogger.error(`updatePurchaseOrder(${payload.id}) failed:`, errorMessage);
+    serviceLogger.error(`updatePurchaseOrder(${quotationData.id}) failed:`, errorMessage);
     throw new Error(errorMessage);
   }
 };

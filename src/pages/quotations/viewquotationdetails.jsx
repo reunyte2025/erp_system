@@ -244,33 +244,51 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const handleComplianceSave = (newFlatItems) => {
     const EXECUTION_CATS = [5, 6, 7];
     const normalized = newFlatItems.map(item => {
-      const isExec = EXECUTION_CATS.includes(parseInt(item.compliance_category));
+      // ── CRITICAL: compliance_category MUST come from the item that was
+      // actually saved in the modal (i.e. the category tab the user was on
+      // when they clicked "Add Item"). Never default/fallback here — an
+      // incorrect category is worse than an error, because it silently saves
+      // the item under the wrong compliance section.
+      const complianceCat = parseInt(item.compliance_category);
+      if (!complianceCat) {
+        // Safety guard: if somehow the modal sent an item with no category,
+        // log it loudly and skip it rather than saving garbage data.
+        console.error('[handleComplianceSave] Item has no compliance_category — skipping:', item);
+        return null;
+      }
+      const isExec = EXECUTION_CATS.includes(complianceCat);
       const base = {
         id:                      null,
+        // compliance_category is the field that determines which section this
+        // item appears under. It must ALWAYS be set from the item, never inferred.
+        compliance_category:     complianceCat,
+        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
+        // null for empty unit — backend stores null, UI shows "—"
         unit:                    String(item.unit || '').trim() || null,
-        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
         Professional_amount:     parseFloat(item.Professional_amount) || 0,
         total_amount:            parseFloat(item.total_amount) || 0,
       };
       if (isExec) {
         return {
           ...base,
-          sac_code:        String(item.sac_code || '').trim(),
+          sac_code:        String(item.sac_code || '').trim() || null,
           material_rate:   parseFloat(item.material_rate)   || 0,
           material_amount: parseFloat(item.material_amount) || 0,
           labour_rate:     parseFloat(item.labour_rate)     || 0,
           labour_amount:   parseFloat(item.labour_amount)   || 0,
         };
       } else {
-        const miscRaw = item.miscellaneous_amount ?? '';
+        const miscRaw = item.miscellaneous_amount ?? item.consultancy_charges ?? '';
         return {
           ...base,
           consultancy_charges: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
         };
       }
-    });
+    }).filter(Boolean); // remove any nulls from the safety guard above
+
+    if (normalized.length === 0) return; // nothing valid to add
     setEditItems(prev => [...prev, ...normalized]);
     setShowAddSection(false);
   };
@@ -649,8 +667,12 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   // Quotation type detection
   const qTypeRaw    = quotation.quotation_type || '';
   const qType       = qTypeRaw.toLowerCase();
-  const isExecution  = qType.includes('execution');
-  const isRegulatory = !isExecution;
+  const isExecution   = qType.includes('execution');
+  const isArchitecture = !isExecution && (
+    qType.includes('architecture') ||
+    (items.length > 0 && items.every(it => Number(it.compliance_category ?? it.category) === 8))
+  );
+  const isRegulatory = !isExecution && !isArchitecture;
 
   // Display names
   const clientName = quotation.client_name
@@ -671,7 +693,9 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   // Type badge colors
   const typeColor = isExecution
     ? { text: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' }
-    : { text: '#0369a1', bg: '#f0f9ff', border: '#bae6fd' };
+    : isArchitecture
+      ? { text: '#9333ea', bg: '#fdf4ff', border: '#e9d5ff' }
+      : { text: '#0369a1', bg: '#f0f9ff', border: '#bae6fd' };
 
   return (
     <>
@@ -968,7 +992,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                 padding: '3px 9px', borderRadius: 20,
               }}>
                 {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
-                {isExecution ? 'Execution' : 'Regulatory'}
+                {isExecution ? 'Execution' : isArchitecture ? 'Architecture' : 'Regulatory'}
               </span>
             </div>
             {createdByName && <>

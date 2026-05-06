@@ -228,7 +228,7 @@ const buildExecutionItemsPayload = (items = []) =>
     return {
       description:             String(item.description || '').trim().slice(0, 255),
       quantity:                qty,
-      unit:                    String(item.unit || '').trim() || 'N/A',
+      unit:                    String(item.unit || '').trim() || null,
       sac_code:                String(item.sac_code || '').trim(),
       Professional_amount:     profRate.toFixed(2),
       material_rate:           matRate.toFixed(2),
@@ -293,7 +293,7 @@ const _createQuotationInternal = async (quotationData, endpoint) => {
     basePayload.items = quotationData.items.map(item => ({
       description:             String(item.description).trim(),
       quantity:                parseInt(item.quantity),
-      unit:                    String(item.unit || '').trim() || 'N/A',
+      unit:                    String(item.unit || '').trim() || null,
       sac_code:                String(item.sac_code || '').trim(),
       consultancy_charges:     String(item.consultancy_charges ?? item.miscellaneous_amount ?? '').trim()
                                || String((parseFloat(String(item.miscellaneous_amount ?? '').trim()) || 0).toFixed(2)),
@@ -395,7 +395,7 @@ export const updateRegulatoryQuotation = async (quotationData) => {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
-        unit:                    String(item.unit || '').trim() || 'N/A',
+        unit:                    String(item.unit || '').trim() || null,
         consultancy_charges:     consultancy,
         Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
         total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
@@ -463,7 +463,7 @@ export const updateExecutionQuotation = async (quotationData) => {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                qty,
-        unit:                    String(item.unit || '').trim() || 'N/A',
+        unit:                    String(item.unit || '').trim() || null,
         sac_code:                String(item.sac_code || item.item_sac_code || '').trim(),
         consultancy_charges:     consultancy,
         Professional_amount:     String(prof.toFixed(2)),
