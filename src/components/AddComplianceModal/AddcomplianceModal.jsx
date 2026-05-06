@@ -44,7 +44,7 @@ import {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-// All compliance categories — Regulatory (1–4) + Execution (5–7)
+// All compliance categories — Regulatory (1–4) + Execution (5–7) + Architecture (8)
 const ALL_COMPLIANCE_CATEGORIES = {
   1: { id: 1, name: 'Construction Certificate',                                      shortName: 'Construction Cert', type: 'regulatory' },
   2: { id: 2, name: 'Occupational Certificate',                                      shortName: 'Occupational Cert', type: 'regulatory' },
@@ -53,6 +53,7 @@ const ALL_COMPLIANCE_CATEGORIES = {
   5: { id: 5, name: 'Water Connection',                                              shortName: 'Water Connection',  type: 'execution'  },
   6: { id: 6, name: 'SWD Line Work',                                                 shortName: 'SWD Line Work',     type: 'execution'  },
   7: { id: 7, name: 'Sewer/Drainage Line Work',                                      shortName: 'Sewer/Drainage',    type: 'execution'  },
+  8: { id: 8, name: 'Architecture',                                                  shortName: 'Architecture',      type: 'architecture' },
 };
 
 // Sub-compliance options per category
@@ -80,8 +81,9 @@ const SUB_COMPLIANCE_CATEGORIES = {
   9: { id: 9, name: 'Open Cut Method' },
 };
 
-const REGULATORY_CATS = [1, 2, 3, 4];
-const EXECUTION_CATS  = [5, 6, 7];
+const REGULATORY_CATS    = [1, 2, 3, 4];
+const EXECUTION_CATS     = [5, 6, 7];
+const ARCHITECTURE_CATS  = [8]; // Architecture — no sub-category, manual description, regulatory-style fields
 
 const BLANK_ITEM_FORM = {
   compliance_name:      '',
@@ -134,14 +136,16 @@ const calcItemTotalExecution = (item) => {
 const resolveQuotationType = (quotationType, existingItems = []) => {
   if (quotationType) {
     const qt = String(quotationType).toLowerCase().trim();
-    if (qt.includes('execution')) return 'execution';
+    if (qt.includes('execution'))    return 'execution';
+    if (qt.includes('architecture')) return 'architecture';
     return 'regulatory';
   }
   // Fall back: detect from existing items' compliance_category
   if (existingItems.length > 0) {
     const cats = existingItems.map(it => parseInt(it.compliance_category || 0));
-    if (cats.some(c => EXECUTION_CATS.includes(c))) return 'execution';
-    if (cats.some(c => REGULATORY_CATS.includes(c))) return 'regulatory';
+    if (cats.some(c => EXECUTION_CATS.includes(c)))    return 'execution';
+    if (cats.some(c => ARCHITECTURE_CATS.includes(c))) return 'architecture';
+    if (cats.some(c => REGULATORY_CATS.includes(c)))   return 'regulatory';
   }
   return null; // unknown — show type chooser
 };
@@ -290,7 +294,11 @@ export default function AddComplianceModal({
 
   const initForType = (type) => {
     setResolvedType(type);
-    const catIds = type === 'execution' ? EXECUTION_CATS : REGULATORY_CATS;
+    const catIds = type === 'execution'
+      ? EXECUTION_CATS
+      : type === 'architecture'
+        ? ARCHITECTURE_CATS
+        : REGULATORY_CATS;
     const firstId = catIds[0];
 
     const initMap = {};
@@ -307,8 +315,9 @@ export default function AddComplianceModal({
 
     setActiveCategoryId(firstId);
 
-    // Pre-fetch descriptions for categories that don't require sub-category selection
-    const needsImmediateFetch = type === 'execution' || [3, 4].includes(firstId);
+    // Architecture: always manual description (no API fetch needed)
+    // Pre-fetch descriptions for execution / regulatory no-sub cats
+    const needsImmediateFetch = type === 'execution' || (type === 'regulatory' && [3, 4].includes(firstId));
     if (needsImmediateFetch) {
       fetchDescForCategory(firstId, null);
     }
@@ -347,7 +356,8 @@ export default function AddComplianceModal({
     setDescriptionSearch('');
     setShowDescDropdown(false);
     setComplianceDescriptions([]);
-    setDescriptionMode('dropdown');
+    // Architecture always uses manual entry — set before initForType so it sticks
+    setDescriptionMode(type === 'architecture' ? 'manual' : 'dropdown');
     initForType(type);
   };
 
@@ -357,26 +367,34 @@ export default function AddComplianceModal({
       if (prev[categoryId]) return prev;
       return { ...prev, [categoryId]: { items: [], category_name: ALL_COMPLIANCE_CATEGORIES[categoryId]?.shortName || '' } };
     });
-    setItemFormMap(prev => ({ ...prev, [categoryId]: prev[categoryId] || { ...BLANK_ITEM_FORM } }));
-    setEditingIndexMap(prev => ({ ...prev, [categoryId]: prev[categoryId] ?? null }));
+
+    // Always reset the item form for the new category — never carry sub_compliance_id
+    // or any other field from a different category's form into this tab.
+    setItemFormMap(prev => ({
+      ...prev,
+      [categoryId]: { ...BLANK_ITEM_FORM },
+    }));
+    setEditingIndexMap(prev => ({ ...prev, [categoryId]: null }));
     setActiveCategoryId(categoryId);
 
-    // Reset description UI
+    // Always fully reset ALL description UI state when switching categories.
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescDropdown(false);
     setDescSelectedFromDropdown(false);
 
+    // Architecture: always manual, no fetch
+    if (ARCHITECTURE_CATS.includes(categoryId)) {
+      setDescriptionMode('manual');
+      return;
+    }
     // Auto-fetch for execution cats + regulatory cats 3,4 (no sub-category needed)
     if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
       fetchDescForCategory(categoryId, null);
-    } else {
-      const existingForm = itemFormMap[categoryId];
-      if (existingForm?.sub_compliance_id) {
-        fetchDescForCategory(categoryId, existingForm.sub_compliance_id);
-      }
     }
+    // For cats 1,2 (regulatory with sub-compliance): do NOT auto-fetch —
+    // the user must pick a sub-category first.
   };
 
   // ── Per-category form helpers ───────────────────────────────────────────────
@@ -404,17 +422,19 @@ export default function AddComplianceModal({
 
   // ── Item CRUD ───────────────────────────────────────────────────────────────
   const isExecCategory = activeCategoryId ? EXECUTION_CATS.includes(activeCategoryId) : false;
+  const isArchCategory = activeCategoryId ? ARCHITECTURE_CATS.includes(activeCategoryId) : false;
 
   const handleAddItem = () => {
     const form = getItemForm();
     if (!form.compliance_name.trim()) return;
-    // Regulatory: cats 1,2 require sub_compliance_id
-    if (!isExecCategory && [1, 2].includes(activeCategoryId) && !form.sub_compliance_id) return;
+    // Regulatory cats 1,2 require sub_compliance_id; Architecture (8) does NOT
+    if (!isExecCategory && !isArchCategory && [1, 2].includes(activeCategoryId) && !form.sub_compliance_id) return;
 
     const newItem = {
       compliance_name:   form.compliance_name.trim(),
       compliance_id:     form.compliance_id  || null,
-      sub_compliance_id: form.sub_compliance_id || null,
+      // Architecture always uses sub_compliance_category = 0
+      sub_compliance_id: isArchCategory ? null : (form.sub_compliance_id || null),
       quantity:          parseInt(form.quantity, 10) || 1,
       unit:              String(form.unit || '').trim(),
       ...(isExecCategory ? {
@@ -427,7 +447,7 @@ export default function AddComplianceModal({
         labour_amount:   parseFloat(form.labour_amount)   || 0,
         total_amount:    calcItemTotalExecution(form),
       } : {
-        // Regulatory-specific fields
+        // Regulatory + Architecture use the same fields
         Professional_amount:  parseFloat(form.Professional_amount) || 0,
         miscellaneous_amount: String(form.miscellaneous_amount ?? '').trim(),
         total_amount:         calcItemTotalRegulatory(form),
@@ -441,11 +461,23 @@ export default function AddComplianceModal({
     } else {
       setActiveItems(prev => [...prev, newItem]);
     }
-    // Preserve sub_compliance_id for rapid item entry
-    setItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+    // Reset form fully after each add
+    setItemForm({ ...BLANK_ITEM_FORM });
     setDescriptionSearch('');
     setShowDescDropdown(false);
     setDescSelectedFromDropdown(false);
+    // Architecture: stay in manual mode; no re-fetch needed
+    if (isArchCategory) {
+      setDescriptionMode('manual');
+      return;
+    }
+    // Re-fetch descriptions for execution / no-sub cats so the list is still ready
+    if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
+      fetchDescForCategory(activeCategoryId, null);
+    } else {
+      setComplianceDescriptions([]);
+      setDescriptionMode('dropdown');
+    }
   };
 
   const handleEditItem = (index) => {
@@ -480,7 +512,7 @@ export default function AddComplianceModal({
     const editingIdx = getEditingIdx();
     if (editingIdx === index) {
       setEditingIdx(null);
-      setItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+      setItemForm({ ...BLANK_ITEM_FORM });
     }
     setActiveItems(prev => prev.filter((_, i) => i !== index));
   };
@@ -500,16 +532,17 @@ export default function AddComplianceModal({
           id:                      null, // new item — backend assigns
           description:             item.compliance_name.trim(),
           quantity:                parseInt(item.quantity) || 1,
-          unit:                    String(item.unit || '').trim() || 'N/A',
+          // Pass null for any empty optional string field — backend renders it as "–"
+          unit:                    String(item.unit || '').trim() || null,
           compliance_category:     catId,
           sub_compliance_category: item.sub_compliance_id || 0,
           total_amount:            isExec ? calcItemTotalExecution(item) : calcItemTotalRegulatory(item),
           // Regulatory fields
           Professional_amount:     parseFloat(item.Professional_amount) || 0,
-          miscellaneous_amount:    isExec ? '--' : (String(item.miscellaneous_amount ?? '').trim() || '--'),
+          miscellaneous_amount:    isExec ? null : (String(item.miscellaneous_amount ?? '').trim() || null),
           // Execution fields
           ...(isExec ? {
-            sac_code:        String(item.item_sac_code || '').trim(),
+            sac_code:        String(item.item_sac_code || '').trim() || null,
             material_rate:   parseFloat(item.material_rate)   || 0,
             material_amount: parseFloat(item.material_amount) || 0,
             labour_rate:     parseFloat(item.labour_rate)     || 0,
@@ -556,7 +589,11 @@ export default function AddComplianceModal({
     (subCompRequired && !itemForm.sub_compliance_id)
   );
 
-  const catIds = resolvedType === 'execution' ? EXECUTION_CATS : (resolvedType === 'regulatory' ? REGULATORY_CATS : []);
+  const catIds = resolvedType === 'execution'
+    ? EXECUTION_CATS
+    : resolvedType === 'architecture'
+      ? ARCHITECTURE_CATS
+      : (resolvedType === 'regulatory' ? REGULATORY_CATS : []);
 
   if (!isOpen) return null;
 
@@ -589,13 +626,17 @@ export default function AddComplianceModal({
                 </div>
                 <div>
                   <p className="text-white font-bold text-base leading-tight">
-                    {resolvedType === 'execution' ? 'Add Execution Item' : resolvedType === 'regulatory' ? 'Add Regulatory Item' : 'Add New Compliance'}
+                    {resolvedType === 'execution' ? 'Add Execution Item' : resolvedType === 'architecture' ? 'Add Architecture Item' : resolvedType === 'regulatory' ? 'Add Regulatory Item' : 'Add New Compliance'}
                   </p>
                   <p className="text-white/70 text-xs mt-0.5">
                     {activeCategoryId
                       ? ALL_COMPLIANCE_CATEGORIES[activeCategoryId]?.name
                       : resolvedType
-                        ? (resolvedType === 'execution' ? 'Execution Quotation — Water Connection / SWD / Sewer' : 'Regulatory Quotation — Certificates / Water Main / STP')
+                        ? (resolvedType === 'execution'
+                            ? 'Execution Quotation — Water Connection / SWD / Sewer'
+                            : resolvedType === 'architecture'
+                              ? 'Architecture Services — Manual Description'
+                              : 'Regulatory Quotation — Certificates / Water Main / STP')
                         : 'Select a compliance type below'}
                   </p>
                 </div>
@@ -617,8 +658,9 @@ export default function AddComplianceModal({
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Select Compliance Type</p>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { type: 'regulatory', label: 'Regulatory Permissions', sub: 'Construction / Occupational / Water Main / STP  (Cat 1–4)' },
-                    { type: 'execution',  label: 'Execution Compliance',   sub: 'Water Connection / SWD / Sewer/Drainage  (Cat 5–7)' },
+                    { type: 'regulatory',    label: 'Regulatory Permissions', sub: 'Construction / Occupational / Water Main / STP  (Cat 1–4)' },
+                    { type: 'execution',     label: 'Execution Compliance',   sub: 'Water Connection / SWD / Sewer/Drainage  (Cat 5–7)' },
+                    { type: 'architecture',  label: 'Architecture',           sub: 'Architecture Services  (Cat 8)' },
                   ].map(({ type, label, sub }) => (
                     <button key={type} onClick={() => handleSelectType(type)}
                       className="px-4 py-3 rounded-xl border-2 font-medium text-sm transition-colors text-left border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 cursor-pointer">
@@ -634,7 +676,7 @@ export default function AddComplianceModal({
             {resolvedType && catIds.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                  {resolvedType === 'execution' ? 'Execution Category' : 'Regulatory Category'}
+                  {resolvedType === 'execution' ? 'Execution Category' : resolvedType === 'architecture' ? 'Architecture Category' : 'Regulatory Category'}
                 </p>
                 <div className={`grid gap-2 ${catIds.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                   {catIds.map(catId => {
@@ -678,7 +720,7 @@ export default function AddComplianceModal({
                     )}
                   </div>
                   {editingIdx !== null && (
-                    <button onClick={() => { setEditingIdx(null); setItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id })); setDescSelectedFromDropdown(false); }}
+                    <button onClick={() => { setEditingIdx(null); setItemForm({ ...BLANK_ITEM_FORM }); setDescSelectedFromDropdown(false); setComplianceDescriptions([]); setDescriptionMode('dropdown'); }}
                       className="text-xs text-amber-600 hover:text-amber-800 font-medium">Cancel edit</button>
                   )}
                 </div>

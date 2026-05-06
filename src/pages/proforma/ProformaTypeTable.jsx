@@ -351,9 +351,9 @@ export default function ProformaTypeTable({
                             </div>
                           </div>
                         ) : (
-                          /* Execution: Professional + Material Rate + Labour Rate + Material Amt + Labour Amt */
+                          /* Execution: Professional + SAC Code + Material Rate + Labour Rate + Material Amt + Labour Amt */
                           <>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 10 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                               <div>
                                 <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Professional Amount (₹)</label>
                                 <input
@@ -363,6 +363,17 @@ export default function ProformaTypeTable({
                                   onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
                                   placeholder="0.00"
                                   style={{ textAlign: 'right', width: '100%' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>SAC Code</label>
+                                <input
+                                  type="text"
+                                  className="vpd-edit-input"
+                                  value={it.sac_code || ''}
+                                  onChange={e => updateItem(globalIdx, 'sac_code', e.target.value)}
+                                  placeholder="e.g. 998312"
+                                  style={{ textAlign: 'center', width: '100%', fontFamily: 'monospace' }}
                                 />
                               </div>
                             </div>

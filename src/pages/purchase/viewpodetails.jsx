@@ -310,7 +310,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      unit:                    it.unit || 'N/A',
+      unit:                    (it.unit && it.unit !== 'N/A') ? it.unit : null,
       sac_code:                it.sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
       material_rate:           parseFloat(it.material_rate || 0),
@@ -350,6 +350,25 @@ export default function ViewPODetails({ onUpdateNavigation }) {
     setEditItems(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, [field]: value };
+      const qty = parseInt(updated.quantity) || 1;
+
+      // Auto-recalculate paired fields (same logic as quotation + proforma pages)
+      if (field === 'material_rate') {
+        updated.material_amount = parseFloat(((parseFloat(value) || 0) * qty).toFixed(2));
+      } else if (field === 'material_amount') {
+        updated.material_rate = parseFloat((qty > 0 ? (parseFloat(value) || 0) / qty : 0).toFixed(6));
+      } else if (field === 'labour_rate') {
+        updated.labour_amount = parseFloat(((parseFloat(value) || 0) * qty).toFixed(2));
+      } else if (field === 'labour_amount') {
+        updated.labour_rate = parseFloat((qty > 0 ? (parseFloat(value) || 0) / qty : 0).toFixed(6));
+      } else if (field === 'quantity') {
+        const newQty  = parseInt(value) || 1;
+        const matRate = parseFloat(updated.material_rate) || 0;
+        const labRate = parseFloat(updated.labour_rate) || 0;
+        if (matRate > 0) updated.material_amount = parseFloat((matRate * newQty).toFixed(2));
+        if (labRate > 0) updated.labour_amount   = parseFloat((labRate * newQty).toFixed(2));
+      }
+
       updated.total_amount = calcItemTotal(updated);
       return updated;
     }));
@@ -358,7 +377,31 @@ export default function ViewPODetails({ onUpdateNavigation }) {
   const removeItem = (idx) => setEditItems(prev => prev.filter((_, i) => i !== idx));
 
   const handleComplianceSave = (newFlatItems) => {
-    setEditItems(prev => [...prev, ...newFlatItems]);
+    const normalized = newFlatItems.map(item => {
+      const compCat = parseInt(item.compliance_category);
+      if (!compCat) {
+        console.error('[PO handleComplianceSave] Item has no compliance_category — skipping:', item);
+        return null;
+      }
+      return {
+        id:                      null,
+        compliance_category:     compCat,
+        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        description:             String(item.description || '').trim(),
+        quantity:                parseInt(item.quantity) || 1,
+        unit:                    String(item.unit || '').trim() || null,
+        sac_code:                String(item.sac_code || '').trim() || null,
+        Professional_amount:     parseFloat(item.Professional_amount) || 0,
+        material_rate:           parseFloat(item.material_rate)   || 0,
+        material_amount:         parseFloat(item.material_amount) || 0,
+        labour_rate:             parseFloat(item.labour_rate)     || 0,
+        labour_amount:           parseFloat(item.labour_amount)   || 0,
+        total_amount:            parseFloat(item.total_amount)    || 0,
+      };
+    }).filter(Boolean);
+
+    if (normalized.length === 0) return;
+    setEditItems(prev => [...prev, ...normalized]);
     setShowAddSection(false);
   };
 
@@ -395,45 +438,33 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         ? rawStatus
         : (parseInt(rawStatus) || STATUS_STR_TO_INT[String(rawStatus).toLowerCase()] || 1);
 
+      // Validate compliance_category on every item before sending
+      for (const it of editItems) {
+        if (!parseInt(it.compliance_category)) {
+          throw new Error(
+            `Item "${String(it.description || '').slice(0, 40)}" has no compliance_category. Cannot save.`
+          );
+        }
+      }
+
+      // Pass clean data to updatePurchaseOrder — the service layer owns all
+      // payload shaping, string-coercion of monetary fields, consultancy_charges
+      // defaulting, and routing to /quotations/update_execution_quotation/.
       const payload = {
         id:               parseInt(po.id),
-        vendor:           parseInt(po.vendor),
+        vendor:           po.vendor  ? parseInt(po.vendor)  : null,
+        client:           po.client  ? parseInt(po.client)  : null,
         project:          parseInt(po.project),
         company:          parseInt(editCompany) || 1,
         status:           resolvedStatus,
         sac_code:         editSacCode.trim(),
-        gst_rate:         isGSTApplicable ? String(parseFloat(editGstRate || 0).toFixed(2)) : '0.00',
-        discount_rate:    String(parseFloat(editDiscRate || 0).toFixed(2)),
-        total_amount:     Math.round(sub),
-        total_gst_amount: Math.round(gst),
-        grand_total:      Math.round(grand),
-        items: editItems.map(it => {
-          const compCat    = parseInt(it.compliance_category) || 5;
-          const subCompCat = parseInt(it.sub_compliance_category) || 0;
-          const rawId      = it.id != null ? parseInt(it.id) : null;
-          const itemId     = rawId && rawId > 0 ? rawId : null;
-          const qty        = parseInt(it.quantity) || 1;
-          const prof       = parseFloat(it.Professional_amount) || 0;
-          const matRate    = parseFloat(it.material_rate) || 0;
-          const labRate    = parseFloat(it.labour_rate) || 0;
-          const matAmt     = (parseFloat(it.material_amount) || 0) || (matRate > 0 ? matRate * qty : 0);
-          const labAmt     = (parseFloat(it.labour_amount) || 0) || (labRate > 0 ? labRate * qty : 0);
-          return {
-            id:                      itemId,
-            description:             String(it.description).trim(),
-            quantity:                qty,
-            unit:                    String(it.unit || '').trim() || 'N/A',
-            sac_code:                String(it.sac_code || '').trim(),
-            Professional_amount:     prof.toFixed(2),
-            material_rate:           matRate.toFixed(2),
-            material_amount:         matAmt.toFixed(2),
-            labour_rate:             labRate.toFixed(2),
-            labour_amount:           labAmt.toFixed(2),
-            total_amount:            calcItemTotal({ ...it, quantity: qty, material_amount: matAmt, labour_amount: labAmt }).toFixed(2),
-            compliance_category:     compCat,
-            sub_compliance_category: subCompCat,
-          };
-        }),
+        gst_rate:         isGSTApplicable ? parseFloat(editGstRate || 0) : 0,
+        discount_rate:    parseFloat(editDiscRate || 0),
+        total_amount:     sub,
+        total_gst_amount: gst,
+        grand_total:      grand,
+        // Spread editItems as-is — updatePurchaseOrder handles all field shaping
+        items:            editItems.map(it => ({ ...it })),
       };
 
       const response = await updatePurchaseOrder(payload);

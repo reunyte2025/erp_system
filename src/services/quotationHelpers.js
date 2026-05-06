@@ -20,6 +20,7 @@ export const COMPLIANCE_CATEGORIES = {
   5: 'Water Connection',
   6: 'SWD Line Work',
   7: 'Sewer/Drainage Line Work',
+  8: 'Architecture',
 };
 
 export const SUB_COMPLIANCE_CATEGORIES = {
@@ -61,7 +62,8 @@ export const STATUS_CONFIG = {
   'rejected':           { label: 'Failed',             color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
 };
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+// Architecture category — treated as regulatory-style (prof + consultancy, no sub-category)
+export const ARCHITECTURE_CAT = 8;
 
 /**
  * fmtQNum — returns the quotation number exactly as received from the backend.
