@@ -561,7 +561,7 @@ export default function Quotations({ onUpdateNavigation }) {
             quantity:             item.quantity || 1,
             miscellaneous_amount: item.miscellaneous_amount === '--' ? '' : (item.miscellaneous_amount || ''),
             Professional_amount:  parseFloat(item.Professional_amount || 0),
-            unit:                 (item.unit && item.unit !== 'N/A') ? item.unit : '',
+            unit:                 item.unit || '',
             total_amount:         parseFloat(item.total_amount || 0),
             // Execution fields — present for execution items, 0 for regulatory
             material_rate:        parseFloat(item.material_rate  || 0),
@@ -1292,7 +1292,7 @@ export default function Quotations({ onUpdateNavigation }) {
 
     // Pre-populate item form with ALL fields (including unit) from the item being edited
     const item = section.items[itemIndex];
-    const unitVal = (item.unit && item.unit !== 'N/A') ? item.unit : '';
+    const unitVal = item.unit || '';
     const prefillForm = {
       compliance_name:      item.compliance_name || '',
       compliance_id:        item.compliance_id || null,
@@ -1499,7 +1499,7 @@ export default function Quotations({ onUpdateNavigation }) {
             }
             return {
               ...base,
-              // Empty unit → null so the detail page shows "—" instead of "N/A"
+              // Empty unit → null so the detail page shows "—"
               unit:            String(item.unit || '').trim() || null,
               sac_code:        String(item.item_sac_code || '').trim() || null,
               Professional_amount: profRate.toFixed(2),
@@ -1518,7 +1518,7 @@ export default function Quotations({ onUpdateNavigation }) {
             const item_total = parseFloat(((Professional_amount + miscNumericValue) * quantity).toFixed(2));
             return {
               ...base,
-              // Empty unit → null so the detail page shows "—" instead of "N/A"
+              // Empty unit → null so the detail page shows "—"
               unit:                    String(item.unit || '').trim() || null,
               // Backend field renamed: miscellaneous_amount → consultancy_charges
               consultancy_charges:     rawMisc || '0.00',
@@ -2330,7 +2330,7 @@ export default function Quotations({ onUpdateNavigation }) {
 
                               <tbody className="bg-white divide-y divide-gray-100">
                                 {section.items.map((item, itemIndex) => {
-                                  const displayUnit = (item.unit && item.unit !== 'N/A') ? item.unit : '—';
+                                  const displayUnit = item.unit || '—';
                                   const execRate = parseFloat(item.Professional_amount) || 0;
                                   const matAmt   = parseFloat(item.material_amount) || 0;
                                   const labAmt   = parseFloat(item.labour_amount)   || 0;

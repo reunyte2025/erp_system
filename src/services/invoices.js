@@ -310,6 +310,15 @@ export const getInvoiceByIdTyped = async (id, invoiceType = '') => {
         // Endpoint returned empty — fall through to cascade
         return getInvoiceById(id);
       }
+      // A type hint from the list API is authoritative. Do not infer execution
+      // from material/labour fields here, because professional-only execution
+      // invoices have no breakdown and would be misclassified as regulatory.
+      if (canonical) {
+        return {
+          status: 'success',
+          data: { ...data, invoice_type: data.invoice_type || canonical },
+        };
+      }
       // Structural validation: if this endpoint doesn't own the invoice, cascade
       // (avoids accepting a misidentified response with a wrong invoice_type string)
       const isVendor  = data.vendor != null && data.vendor !== '';
@@ -385,6 +394,32 @@ const _postAndDownloadPdf = async (endpoint, payload, fileName) => {
   window.URL.revokeObjectURL(objectUrl);
 };
 
+const _extractPdfErrorMessage = async (error, fallback) => {
+  const data = error?.response?.data;
+  let parsed = data;
+
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+  }
+
+  const errors = parsed?.errors;
+  if (errors && typeof errors === 'object') {
+    const parts = Object.entries(errors).flatMap(([field, messages]) => {
+      const label = field.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+      const list = Array.isArray(messages) ? messages : [messages];
+      return list.map(message => `${label}: ${message}`);
+    });
+    if (parts.length) return parts.join(' ');
+  }
+
+  return parsed?.message || parsed?.detail || error?.message || fallback;
+};
+
 /**
  * Generate & download a Constructive India invoice PDF.
  * Used ONLY when company ID === 1 (Constructive India).
@@ -406,8 +441,9 @@ export const generateConstructiveInvoicePdf = async (payload, fileName = 'invoic
     await _postAndDownloadPdf(ENDPOINTS.GENERATE_CONSTRUCTIVE_PDF, payload, fileName);
     serviceLogger.log(`[Invoice Service] Constructive PDF downloaded: ${fileName}`);
   } catch (error) {
-    serviceLogger.error('[Invoice Service] generateConstructiveInvoicePdf failed:', error.message);
-    throw new Error(error.message || 'Failed to generate PDF. Please try again.');
+    const message = await _extractPdfErrorMessage(error, 'Failed to generate PDF. Please try again.');
+    serviceLogger.error('[Invoice Service] generateConstructiveInvoicePdf failed:', message);
+    throw new Error(message);
   }
 };
 
@@ -431,8 +467,9 @@ export const generateOtherCompanyInvoicePdf = async (payload, fileName = 'invoic
     await _postAndDownloadPdf(ENDPOINTS.GENERATE_OTHER_COMPANY_PDF, payload, fileName);
     serviceLogger.log(`[Invoice Service] Other Company PDF downloaded: ${fileName}`);
   } catch (error) {
-    serviceLogger.error('[Invoice Service] generateOtherCompanyInvoicePdf failed:', error.message);
-    throw new Error(error.message || 'Failed to generate PDF. Please try again.');
+    const message = await _extractPdfErrorMessage(error, 'Failed to generate PDF. Please try again.');
+    serviceLogger.error('[Invoice Service] generateOtherCompanyInvoicePdf failed:', message);
+    throw new Error(message);
   }
 };
 

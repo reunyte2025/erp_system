@@ -1112,7 +1112,7 @@ export default function AddComplianceModal({
                             <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                             {isExec ? (
                               <>
-                                {item.unit && item.unit !== 'N/A' && <span className="text-xs text-gray-400">Unit: {item.unit}</span>}
+                                {item.unit && <span className="text-xs text-gray-400">Unit: {item.unit}</span>}
                                 {(parseFloat(item.material_rate) > 0 || parseFloat(item.labour_rate) > 0) ? (
                                   <>
                                     {parseFloat(item.material_rate) > 0 && <span className="text-xs text-gray-400">Mat.Rate: Rs.{parseFloat(item.material_rate).toLocaleString('en-IN')}</span>}

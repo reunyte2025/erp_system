@@ -134,7 +134,7 @@ const formatCurrency = (amount) => {
  * Format date to DD-MM-YYYY
  */
 const formatDate = (dateString) => {
-  if (!dateString) return "N/A";
+  if (!dateString) return "—";
   try {
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, "0");
@@ -142,7 +142,7 @@ const formatDate = (dateString) => {
     const year = date.getFullYear();
     return `${day}-${month}-${year}`;
   } catch {
-    return "N/A";
+    return "—";
   }
 };
 
@@ -215,7 +215,7 @@ const getProjectName = (row) => {
     return `Project #${row.project}`;
   }
 
-  return "N/A";
+  return "—";
 };
 
 /**

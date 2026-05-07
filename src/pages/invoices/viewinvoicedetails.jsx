@@ -40,6 +40,7 @@ import {
   numberToWords,
   normalizeInvoiceType,
   detectInvoiceTypeFromData,
+  hasExecutionRateBreakdown,
 } from '../../services/invoiceHelpers';
 
 // ─── Status config (with Lucide Icon refs — kept here because invoiceHelpers.js is zero-React) ──
@@ -398,6 +399,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const preferredInvoiceType = normalizeInvoiceType(
     location.state?.invoiceType || location.state?.invoiceData?.invoice_type
   );
+  const invoiceTypeLabel = (type) => ({
+    execution:  'Execution Compliance',
+    regulatory: 'Regulatory Compliance',
+    vendor:     'Vendor Compliance',
+  }[type] || '');
 
   useEffect(() => {
     onUpdateNavigation?.({ breadcrumbs: ['Invoices', 'Invoice Details'] });
@@ -434,6 +440,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           const response = await fetchFn(id);
           const data = response?.data || response;
           if (!data || (!data.id && !data.invoice_number)) return null;
+
+          const activeHint = preferredInvoiceType || listInvoiceType;
+          if (activeHint && endpointType === activeHint) {
+            return { data, type: endpointType };
+          }
 
           const detectedType = detectInvoiceTypeFromData(data);
 
@@ -506,13 +517,13 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         };
       }
 
+      const resolvedInvoiceType = preferredInvoiceType || listInvoiceType || result.type || detectInvoiceTypeFromData(result.data);
       const inv = { ...(listInvoiceData || {}), ...result.data };
-      inv.invoice_type = inv.invoice_type || result.type;
+      inv.invoice_type = invoiceTypeLabel(resolvedInvoiceType) || inv.invoice_type || result.type;
       setInvoice(inv);
 
       // ── Determine invoice kind from response shape ───────────────────────────
       // PO (vendor) invoices have a `vendor` field; client invoices have `client`.
-      const resolvedInvoiceType = preferredInvoiceType || listInvoiceType || detectInvoiceTypeFromData(inv) || result.type;
       const isPoInvoice = resolvedInvoiceType === 'vendor';
 
       // ── Load project ─────────────────────────────────────────────────────────
@@ -650,7 +661,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     // Pre-fill shared form from invoice data
     const today = new Date().toISOString().split('T')[0];
     setPdfForm({
-      company_name:   invoice?.company_name  || '',
+      company_name:   '',
       address:        invoice?.address       || '',
       gst_no:         invoice?.gst_no        || '',
       state:          invoice?.state         || '',
@@ -687,6 +698,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   /** Validate and submit invoice PDF download (constructive or other-company) */
   const handleConfirmPdfDownload = async () => {
     const errors = {};
+    if (!pdfForm.address?.trim())       errors.address       = 'Address is required for the invoice PDF.';
     if (!pdfForm.scope_of_work?.trim()) errors.scope_of_work = 'Scope of work is required.';
     if (!pdfForm.schedule_date)         errors.schedule_date  = 'Schedule date is required.';
     // Constructive India extra validations
@@ -974,24 +986,29 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
 
   const projLoc     = project ? [project.city, project.state].filter(Boolean).join(', ') : '';
   const companyName = invoice.company_name || getQuotationCompanyName(invoice.company) || 'ERP System';
+  const invoiceTypeDisplay = isPurchaseOrder
+    ? 'Vendor Compliance'
+    : isExecution
+      ? 'Execution Compliance'
+      : invoice.invoice_type || 'Regulatory Compliance';
 
   // ── Execution cost breakdown totals (only shown for execution/PO layouts) ────
   const totalProfessionalAmount = items.reduce((sum, item) => {
     const qty          = parseInt(item.quantity) || 1;
     const professional = parseFloat(item.Professional_amount || 0) || 0;
-    return sum + (professional * qty);
+    return sum + (hasExecutionRateBreakdown(item) ? 0 : professional * qty);
   }, 0);
   const totalMaterialAmount = items.reduce((sum, item) => {
     const qty           = parseInt(item.quantity) || 1;
-    const materialAmount = parseFloat(item.material_amount);
+    const materialAmount = parseFloat(item.material_amount) || 0;
     const materialRate   = parseFloat(item.material_rate || 0) || 0;
-    return sum + (Number.isFinite(materialAmount) ? materialAmount : materialRate * qty);
+    return sum + (materialAmount > 0 ? materialAmount : materialRate * qty);
   }, 0);
   const totalLabourAmount = items.reduce((sum, item) => {
     const qty          = parseInt(item.quantity) || 1;
-    const labourAmount = parseFloat(item.labour_amount);
+    const labourAmount = parseFloat(item.labour_amount) || 0;
     const labourRate   = parseFloat(item.labour_rate || 0) || 0;
-    return sum + (Number.isFinite(labourAmount) ? labourAmount : labourRate * qty);
+    return sum + (labourAmount > 0 ? labourAmount : labourRate * qty);
   }, 0);
 
   return (
@@ -1104,10 +1121,10 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         .vid-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
 
         .vid-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
-        .vid-sum-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
-        .vid-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}
+        .vid-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
+        .vid-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vid-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vid-sum-lbl{font-size:11px;color:#94a3b8;font-weight:500}
+        .vid-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
         .vid-sum-val{font-size:13px;font-weight:700;color:#1e293b}
 
         .vid-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
@@ -1419,6 +1436,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
             <div>
               <div className="vid-sum-title">Invoice Summary</div>
               <div className="vid-sum-grid">
+                <div className="vid-sum-item"><span className="vid-sum-lbl">Invoice Type</span><span className="vid-sum-val" style={{ color: isPurchaseOrder ? '#c2410c' : isExecution ? '#7c3aed' : '#0369a1' }}>{invoiceTypeDisplay}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Total Items</span><span className="vid-sum-val">{items.length}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Total Quantity</span><span className="vid-sum-val">{totalQty}</span></div>
                 <div className="vid-sum-item"><span className="vid-sum-lbl">Compliance Groups</span><span className="vid-sum-val">{groups.length}</span></div>
@@ -1811,28 +1829,22 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 {/* ── Body ── */}
                 <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
 
-                  {/* Company badge */}
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: isConstructive ? '#f0fdf4' : '#eff6ff', border: `1px solid ${isConstructive ? '#86efac' : '#bfdbfe'}`, borderRadius: 20, padding: '5px 12px', marginBottom: 18, fontSize: 12, fontWeight: 700, color: isConstructive ? '#059669' : '#2563eb' }}>
-                    <Building2 size={13} />
-                    {isConstructive ? 'Constructive India — GST endpoint' : 'Other Company — generic endpoint'}
-                  </div>
-
                   {/* ── Form fields grid ── */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                    {field('invoice_number', 'Invoice Number', false)}
                     {field('company_name',   'Company Name', false)}
-                    {field('address',        'Address', false)}
+                    {field('address',        'Address', true)}
                     {field('gst_no',         'GST No.', false)}
                     {field('state',          'State', false)}
                     {field('sac_code',       'SAC Code', false)}
-                    {field('po_no',          'PO No.', false)}
-                    {field('schedule_date',  'Schedule Date', true, 'date')}
+                    {isConstructive && field('code', 'Code', false)}
+                    {field('invoice_number', 'Invoice Number', false)}
                     {isConstructive && field('invoice_date',    'Invoice Date', true, 'date')}
                     {isConstructive && field('work_order_date', 'Work Order Date', true, 'date')}
                     {isConstructive && field('valid_from',      'Valid From', true, 'date')}
                     {isConstructive && field('valid_till',      'Valid Till', true, 'date')}
                     {isConstructive && field('vendor_code',     'Vendor Code', false)}
-                    {isConstructive && field('code',            'Code', false)}
+                    {field('po_no',          'PO No.', false)}
+                    {field('schedule_date',  'Schedule Date', true, 'date')}
                   </div>
 
                   {/* Scope of Work */}

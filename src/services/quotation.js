@@ -123,10 +123,11 @@ export const getQuotations = async (params = {}) => {
  * ⚠️  IMPORTANT: Never skip step 2 for execution quotations — loading them from
  *     GET_REGULATORY will return zeros for all mat/lab rate/amount fields.
  */
-export const getQuotationById = async (id) => {
+export const getQuotationById = async (id, quotationType = '') => {
   if (!id) throw new Error('Quotation ID is required');
 
   serviceLogger.log(`Fetching quotation with ID: ${id}`);
+  const typeHint = String(quotationType || '').toLowerCase().trim();
 
   const tryEndpoint = async (endpoint) => {
     try {
@@ -140,6 +141,18 @@ export const getQuotationById = async (id) => {
   };
 
   try {
+    if (typeHint.includes('execution')) {
+      const executionResult = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
+      if (executionResult?.data) return executionResult;
+      throw new Error('Server error: 404');
+    }
+
+    if (typeHint.includes('regulatory') || typeHint.includes('architecture')) {
+      const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
+      if (regulatoryResult?.data) return regulatoryResult;
+      throw new Error('Server error: 404');
+    }
+
     // ── Step 1: Use regulatory endpoint to detect quotation_type ──────────
     const regulatoryResult = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
 

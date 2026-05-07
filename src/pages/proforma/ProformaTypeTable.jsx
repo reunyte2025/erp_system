@@ -39,6 +39,19 @@ export default function ProformaTypeTable({
   removeItem,
   onAddItem,
 }) {
+  // ── Execution: check if ANY item has mat/lab rate breakdown ─────────────────
+  // When true  → show full 4-column rate layout (Mat Rate, Lab Rate, Mat Amt, Lab Amt)
+  // When false → show simplified single "Rate (₹)" column (Professional_amount)
+  const anyExecBreakdown = isExecution && (() => {
+    const source = editMode ? editItems : items;
+    return source.some(it => hasExecutionRateBreakdown(it));
+  })();
+
+  // Colspan: Execution (breakdown)=11, Execution (no breakdown)=8, Regulatory=8
+  const viewColSpan = isExecution
+    ? (anyExecBreakdown ? 11 : 8)
+    : 8;
+
   return (
     <div>
       {/* ── Section header ── */}
@@ -92,7 +105,8 @@ export default function ProformaTypeTable({
                     <th style={{ width: 130, textAlign: 'right' }}>Consultancy / Misc</th>
                     <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
                   </tr>
-                ) : (
+                ) : anyExecBreakdown ? (
+                  /* Full 4-column rate layout */
                   <>
                     <tr>
                       <th rowSpan={2} style={{ width: 32 }}>#</th>
@@ -100,26 +114,38 @@ export default function ProformaTypeTable({
                       <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
                       <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
                       <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                      <th rowSpan={2} style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
                       <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
                       <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total</th>
                     </tr>
                     <tr>
                       <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                      <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
                       <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
+                      <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
                       <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
                     </tr>
                   </>
+                ) : (
+                  /* Simplified single Rate column — no items have breakdown */
+                  <tr>
+                    <th style={{ width: 32 }}>#</th>
+                    <th>Service Description</th>
+                    <th style={{ width: 110 }}>Sub-Category</th>
+                    <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                    <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                    <th style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
+                    <th style={{ width: 120, textAlign: 'right' }}>Rate (₹)</th>
+                    <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                  </tr>
                 )}
               </thead>
 
               {groupItemsByCategory(items).map((grp, gi) => {
                 const grpTotal = grp.items.reduce((s, it) => s + calcItemTotal(it), 0);
-                const colSpan  = isExecution ? 10 : 8;
                 return (
                   <tbody key={gi}>
                     <tr className="vpd-cat-row">
-                      <td colSpan={colSpan}>
+                      <td colSpan={viewColSpan}>
                         <div className="vpd-cat-inner">
                           <span className="vpd-cat-dot" />
                           {grp.catName}
@@ -153,16 +179,15 @@ export default function ProformaTypeTable({
                           <td className="vpd-row-idx">{ii + 1}</td>
                           <td>
                             <div className="vpd-desc">{item.description || item.compliance_name || '—'}</div>
-                            {isExecution && itemSacCode && (
-                              <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>{itemSacCode}</span>
-                              </div>
-                            )}
                           </td>
                           <td>{subCat ? <span className="vpd-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
                           <td style={{ textAlign: 'center' }}><span className="vpd-qty-badge">{parseInt(item.quantity) || 1}</span></td>
                           <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>{item.unit || '—'}</td>
+                          {isExecution && (
+                            <td style={{ textAlign: 'center', fontSize: 12, color: '#0f766e', fontWeight: 700, fontFamily: 'monospace' }}>
+                              {itemSacCode || <span style={{ color: '#e2e8f0' }}>—</span>}
+                            </td>
+                          )}
 
                           {isRegulatory ? (
                             <>
@@ -175,23 +200,31 @@ export default function ProformaTypeTable({
                                   : <span style={{ color: '#e2e8f0' }}>—</span>}
                               </td>
                             </>
-                          ) : showExecBreakdown ? (
-                            <>
-                              <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                          ) : anyExecBreakdown ? (
+                            // Table has breakdown — show 4 columns or colSpan=4 per item
+                            showExecBreakdown ? (
+                              <>
+                                <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                  {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                  {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                </td>
+                                <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                  {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                                  {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                </td>
+                              </>
+                            ) : (
+                              <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
                               </td>
-                              <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                              </td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                              </td>
-                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
-                                {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                              </td>
-                            </>
+                            )
                           ) : (
-                            <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                            // No breakdown — single Rate column
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
                               {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
                             </td>
                           )}
@@ -202,7 +235,7 @@ export default function ProformaTypeTable({
                     })}
 
                     <tr className="vpd-cat-sub">
-                      <td colSpan={colSpan - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
+                      <td colSpan={viewColSpan - 1} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>
                         {grp.catName} subtotal
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>
