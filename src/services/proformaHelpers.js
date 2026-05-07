@@ -260,12 +260,12 @@ export const getExecutionDisplayValues = (item) => {
 };
 
 /**
- * Returns true when at least one of the 4 execution rate/amount fields has a value.
+ * Returns true when the user-entered material/labour rate fields have a value.
+ * Amount fields are derived from rates and can be populated by the backend, so
+ * they should not decide whether the table uses the full breakdown layout.
  */
 export const hasExecutionRateBreakdown = (item) => {
   const matRate = parseFloat(item.material_rate)   || 0;
   const labRate = parseFloat(item.labour_rate)     || 0;
-  const matAmt  = parseFloat(item.material_amount) || 0;
-  const labAmt  = parseFloat(item.labour_amount)   || 0;
-  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
+  return matRate > 0 || labRate > 0;
 };

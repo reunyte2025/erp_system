@@ -168,6 +168,12 @@ export const normalizeInvoiceType = (value = '') => {
  *   6. items rate breakdown analysis     → fallback
  */
 export const detectInvoiceTypeFromData = (invoiceData = {}) => {
+  // Prefer the explicit API/list type when it exists. Professional-only
+  // execution invoices do not have material/labour rates, so rate-based
+  // detection would incorrectly classify them as regulatory.
+  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
+  if (normalizedType) return normalizedType;
+
   // Structural check 1: vendor field present and non-null → vendor invoice
   if (invoiceData?.vendor != null && invoiceData.vendor !== '') return 'vendor';
 
@@ -187,10 +193,6 @@ export const detectInvoiceTypeFromData = (invoiceData = {}) => {
 
   // Structural check 3: vendor_name set but vendor ID null
   if (invoiceData?.vendor_name) return 'vendor';
-
-  // Fallback: trust invoice_type string only when structural fields absent
-  const normalizedType = normalizeInvoiceType(invoiceData?.invoice_type);
-  if (normalizedType) return normalizedType;
 
   // Last resort: items analysis without client/vendor context
   if (Array.isArray(invoiceData?.items)) {
@@ -315,4 +317,17 @@ export const calcItemUnitAmount = (item) => {
     return isNaN(n) ? 0 : n;
   })();
   return parseFloat((prof + consultancy).toFixed(2));
+};
+
+// ─── Execution display helpers ────────────────────────────────────────────────
+
+/**
+ * Returns true when the user-entered material/labour rate fields have a value.
+ * Amount fields are derived from rates and can be populated by the backend, so
+ * they should not decide whether the table uses the full breakdown layout.
+ */
+export const hasExecutionRateBreakdown = (item) => {
+  const matRate = parseFloat(item.material_rate)   || 0;
+  const labRate = parseFloat(item.labour_rate)     || 0;
+  return matRate > 0 || labRate > 0;
 };

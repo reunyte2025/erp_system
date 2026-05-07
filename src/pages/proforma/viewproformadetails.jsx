@@ -518,7 +518,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      unit:                    (it.unit && it.unit !== 'N/A') ? it.unit : '',
+      unit:                    it.unit || '',
       sac_code:                it.sac_code || it.item_sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
       miscellaneous_amount:    (it.consultancy_charges ?? it.miscellaneous_amount) === '--' || (it.consultancy_charges ?? it.miscellaneous_amount) === null ? '' : ((it.consultancy_charges ?? it.miscellaneous_amount) || ''),
@@ -1104,10 +1104,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-misc-note{color:#d97706;font-style:italic;font-size:11px;border-bottom:1px dashed #fcd34d;cursor:help}
         .vpd-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
         .vpd-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
-        .vpd-sum-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
-        .vpd-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}
+        .vpd-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
+        .vpd-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vpd-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vpd-sum-lbl{font-size:11px;color:#94a3b8;font-weight:500}
+        .vpd-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
         .vpd-sum-val{font-size:13px;font-weight:700;color:#1e293b}
         .vpd-remarks{margin-top:18px}
         .vpd-rem-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:6px}
@@ -1519,11 +1519,11 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <div>
               <div className="vpd-sum-title">Proforma Summary</div>
               <div className="vpd-sum-grid">
-                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Total Items</span><span className="vpd-sum-val">{editMode ? editItems.length : items.length}</span></div>
-                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Total Quantity</span><span className="vpd-sum-val">{editMode ? editItems.reduce((s, it) => s + (parseInt(it.quantity) || 1), 0) : totalQty}</span></div>
-                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Compliance Groups</span><span className="vpd-sum-val">{editMode ? [...new Set(editItems.map(it => it.compliance_category))].length : groups.length}</span></div>
-                <div className="vpd-sum-item"><span className="vpd-sum-lbl">SAC Code</span><span className="vpd-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{editMode ? (editSacCode || '—') : (proforma.sac_code || '—')}</span></div>
-                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Version</span><span className="vpd-sum-val">v{proforma.version || 1}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Proforma Type</span><span className="vpd-sum-val" style={{ color: isExecution ? '#7c3aed' : '#0369a1' }}>{pTypeRaw || '—'}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Total Items</span><span className="vpd-sum-val">{items.length}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Total Quantity</span><span className="vpd-sum-val">{totalQty}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">Compliance Groups</span><span className="vpd-sum-val">{groups.length}</span></div>
+                <div className="vpd-sum-item"><span className="vpd-sum-lbl">SAC Code</span><span className="vpd-sum-val" style={{ color: '#0f766e', fontFamily: 'monospace' }}>{proforma.sac_code || '—'}</span></div>
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Status</span><span><StatusPill status={status} /></span></div>
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Client</span><span className="vpd-sum-val">{clientName}</span></div>
                 <div className="vpd-sum-item"><span className="vpd-sum-lbl">Project</span><span className="vpd-sum-val">{projName}</span></div>
@@ -1534,7 +1534,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               </div>
 
               {/* Execution-specific breakdown */}
-              {isExecution && items.length > 0 && !editMode && (
+              {isExecution && items.length > 0 && (
                 <div style={{ marginTop: 14, padding: '12px 14px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Wrench size={11} /> Execution Cost Breakdown

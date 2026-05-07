@@ -359,14 +359,14 @@ const SelectInvoiceModal = ({ isOpen, onClose, onProceed, selectedCompanyId }) =
   const filteredProformas  = proformas.filter(p => String(p.proforma_number||'').toLowerCase().includes(proformaSearch.toLowerCase()) || (p.notes||'').toLowerCase().includes(proformaSearch.toLowerCase()));
 
   const formatQNumber = (number) => {
-    if (!number) return 'N/A';
+    if (!number) return '—';
     if (String(number).startsWith('QT-')) return number;
     const s = String(number);
     if (s.length >= 8) return `QT-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;
     return `QT-2026-${String(number).padStart(5, '0')}`;
   };
   const formatPNumber = (number) => {
-    if (!number) return 'N/A';
+    if (!number) return '—';
     if (String(number).startsWith('PF-')) return number;
     const s = String(number);
     if (s.length >= 8) return `PF-${s.substring(0, 4)}-${s.substring(4).padStart(5, '0')}`;

@@ -4,10 +4,15 @@
  * Renders the line-items section of the Quotation Details page.
  *
  * Responsibilities:
- *   • Section header ("Regulatory Compliance Items" / "Execution Work Items")
+ *   • Section header — dynamic per quotation type:
+ *       "Regulatory Compliance Items" / "Execution Work Items" / "Architecture Compliance Items"
  *   • "+ Add Item" button in edit mode
  *   • VIEW MODE table  — correct columns per quotation type
  *   • EDIT MODE table  — editable inputs, correct columns per quotation type
+ *
+ * Architecture type:
+ *   Columns: #, Service Description, Qty, Unit, Consultancy (₹), Professional (₹), Item Total (₹)
+ *   No Sub-Category column. No material/labour rate columns.
  *
  * What this component does NOT own:
  *   • Any state (all state lives in viewquotationdetails.jsx)
@@ -15,13 +20,10 @@
  *   • Any modals
  *   • Any CSS classes (all classes are defined in viewquotationdetails.jsx's
  *     <style> block which is always mounted first in the same page render)
- *
- * PIXEL-PERFECT RULE: The JSX inside this file is the EXACT same JSX that was
- * previously inside viewquotationdetails.jsx. Zero design changes.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { FileText, Wrench, Plus, Trash2 } from 'lucide-react';
+import { FileText, Wrench, Plus, Trash2, Landmark } from 'lucide-react';
 import {
   COMPLIANCE_CATEGORIES,
   SUB_COMPLIANCE_CATEGORIES,
@@ -37,7 +39,9 @@ import {
  * Props
  * ─────
  * isExecution      {boolean}  — true when quotation_type includes "execution"
- * isRegulatory     {boolean}  — !isExecution  (passed explicitly for clarity)
+ * isRegulatory     {boolean}  — true for regulatory compliance quotations
+ * isArchitecture   {boolean}  — true for architecture compliance quotations
+ * quotationType    {string}   — raw quotation_type string from backend (for header display)
  * editMode         {boolean}  — true when the page is in edit mode
  * items            {Array}    — view-mode items from quotation.items
  * editItems        {Array}    — edit-mode item array (live-edited copies)
@@ -48,6 +52,8 @@ import {
 export default function QuotationTypeTable({
   isExecution,
   isRegulatory,
+  isArchitecture,
+  quotationType,
   editMode,
   items,
   editItems,
@@ -57,6 +63,16 @@ export default function QuotationTypeTable({
 }) {
   // ── Derived counts ─────────────────────────────────────────────────────────
   const displayCount = editMode ? editItems.length : items.length;
+
+  // ── Determine section header text and icon ─────────────────────────────────
+  const sectionLabel = isExecution
+    ? 'Execution Work Items'
+    : isArchitecture
+      ? (quotationType || 'Architecture Compliance') + ' Items'
+      : 'Regulatory Compliance Items';
+
+  const SectionIcon = isExecution ? Wrench : isArchitecture ? Landmark : FileText;
+  const sectionIconColor = isExecution ? '#7c3aed' : isArchitecture ? '#9333ea' : '#0f766e';
 
   // ── Group view-mode items by compliance category ───────────────────────────
   const viewGroups = (() => {
@@ -96,8 +112,26 @@ export default function QuotationTypeTable({
     return groups;
   })();
 
+  // ── Execution: check if ANY item has per-unit material/labour RATES ─────────
+  // Only check material_rate / labour_rate (per-unit rates entered by user).
+  // Do NOT check material_amount / labour_amount — the backend auto-populates
+  // those from Professional_amount for execution items, giving false positives.
+  const anyExecBreakdown = isExecution && (() => {
+    const source = editMode ? editItems : items;
+    return source.some(it =>
+      (parseFloat(it.material_rate) || 0) > 0 ||
+      (parseFloat(it.labour_rate)  || 0) > 0
+    );
+  })();
+
   // ── colspan constants ──────────────────────────────────────────────────────
-  const viewColSpan = isExecution ? 10 : 8;
+  // Architecture: #, Desc, Qty, Unit, Consultancy, Professional, Total = 7
+  // Regulatory:   #, Desc, SubCat, Qty, Unit, Professional, Consultancy, Total = 8
+  // Execution (with breakdown):    #, Desc, SubCat, Qty, Unit, SAC, MatRate, LabRate, MatAmt, LabAmt, Total = 11
+  // Execution (no breakdown):      #, Desc, SubCat, Qty, Unit, SAC, Rate, Total = 8
+  const viewColSpan = isExecution
+    ? (anyExecBreakdown ? 11 : 8)
+    : isArchitecture ? 7 : 8;
 
   // ──────────────────────────────────────────────────────────────────────────
   return (
@@ -105,10 +139,8 @@ export default function QuotationTypeTable({
 
       {/* ── Section header ── */}
       <div className="vqd-sec-hdr">
-        {isExecution
-          ? <Wrench size={15} color="#7c3aed" />
-          : <FileText size={15} color="#0f766e" />}
-        {isExecution ? 'Execution Work Items' : 'Regulatory Compliance Items'}
+        <SectionIcon size={15} color={sectionIconColor} />
+        {sectionLabel}
         <span className="vqd-sec-badge">
           {displayCount} {displayCount === 1 ? 'item' : 'items'}
         </span>
@@ -140,7 +172,18 @@ export default function QuotationTypeTable({
           <div className="vqd-table-wrap">
             <table className="vqd-table">
               <thead>
-                {isRegulatory ? (
+                {isArchitecture ? (
+                  /* ── Architecture header — no Sub-Category, shows Consultancy + Professional ── */
+                  <tr>
+                    <th style={{ width: 32 }}>#</th>
+                    <th>Service Description</th>
+                    <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                    <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                    <th style={{ width: 130, textAlign: 'right' }}>Consultancy (₹)</th>
+                    <th style={{ width: 120, textAlign: 'right' }}>Professional (₹)</th>
+                    <th style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
+                  </tr>
+                ) : isRegulatory ? (
                   /* ── Regulatory header — single row ── */
                   <tr>
                     <th style={{ width: 32 }}>#</th>
@@ -153,24 +196,40 @@ export default function QuotationTypeTable({
                     <th style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
                   </tr>
                 ) : (
-                  /* ── Execution header — two rows with sub-columns ── */
-                  <>
+                  /* ── Execution header — dynamic based on whether any item has rate breakdown ── */
+                  anyExecBreakdown ? (
+                    /* Full 4-column rate layout */
+                    <>
+                      <tr>
+                        <th rowSpan={2} style={{ width: 32 }}>#</th>
+                        <th rowSpan={2}>Service Description</th>
+                        <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
+                        <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                        <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                        <th rowSpan={2} style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
+                        <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
+                        <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
+                      </tr>
+                      <tr>
+                        <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
+                        <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
+                        <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
+                        <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
+                      </tr>
+                    </>
+                  ) : (
+                    /* Simplified single Rate column — no items have mat/lab breakdown */
                     <tr>
-                      <th rowSpan={2} style={{ width: 32 }}>#</th>
-                      <th rowSpan={2}>Service Description</th>
-                      <th rowSpan={2} style={{ width: 110 }}>Sub-Category</th>
-                      <th rowSpan={2} style={{ width: 54, textAlign: 'center' }}>Qty</th>
-                      <th rowSpan={2} style={{ width: 70, textAlign: 'center' }}>Unit</th>
-                      <th colSpan={4} style={{ textAlign: 'center' }}>Rates</th>
-                      <th rowSpan={2} style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
+                      <th style={{ width: 32 }}>#</th>
+                      <th>Service Description</th>
+                      <th style={{ width: 110 }}>Sub-Category</th>
+                      <th style={{ width: 54, textAlign: 'center' }}>Qty</th>
+                      <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                      <th style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
+                      <th style={{ width: 120, textAlign: 'right' }}>Rate (₹)</th>
+                      <th style={{ width: 115, textAlign: 'right' }}>Item Total (₹)</th>
                     </tr>
-                    <tr>
-                      <th style={{ width: 100, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                      <th style={{ width: 100, textAlign: 'right' }}>Lab. Rate (₹)</th>
-                      <th style={{ width: 110, textAlign: 'right' }}>Material Amt (₹)</th>
-                      <th style={{ width: 110, textAlign: 'right' }}>Labour Amt (₹)</th>
-                    </tr>
-                  </>
+                  )
                 )}
               </thead>
 
@@ -184,12 +243,12 @@ export default function QuotationTypeTable({
                         <div className="vqd-cat-inner">
                           <span
                             className="vqd-cat-dot"
-                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : undefined}
+                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : isArchitecture ? { background: 'linear-gradient(135deg,#9333ea,#c084fc)' } : undefined}
                           />
                           {grp.catName}
                           <span
                             className="vqd-cat-cnt"
-                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}
+                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : isArchitecture ? { background: '#fdf4ff', color: '#9333ea' } : {}}
                           >
                             {grp.items.length} item{grp.items.length !== 1 ? 's' : ''}
                           </span>
@@ -221,30 +280,23 @@ export default function QuotationTypeTable({
                             <div className="vqd-desc">
                               {item.description || item.compliance_name || '—'}
                             </div>
-                            {/* Per-item SAC code for execution */}
-                            {isExecution && itemSacCode && (
-                              <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontSize: 10, color: '#94a3b8' }}>SAC:</span>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', fontFamily: 'monospace' }}>
-                                  {itemSacCode}
-                                </span>
-                              </div>
-                            )}
                           </td>
 
-                          {/* Sub-category */}
-                          <td>
-                            {subCat
-                              ? (
-                                <span
-                                  className="vqd-subcat"
-                                  style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}
-                                >
-                                  {subCat.name}
-                                </span>
-                              )
-                              : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
-                          </td>
+                          {/* Sub-category — NOT shown for Architecture */}
+                          {!isArchitecture && (
+                            <td>
+                              {subCat
+                                ? (
+                                  <span
+                                    className="vqd-subcat"
+                                    style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}
+                                  >
+                                    {subCat.name}
+                                  </span>
+                                )
+                                : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
+                            </td>
+                          )}
 
                           {/* Qty */}
                           <td style={{ textAlign: 'center' }}>
@@ -256,8 +308,26 @@ export default function QuotationTypeTable({
                             {item.unit || '—'}
                           </td>
 
+                          {isExecution && (
+                            <td style={{ textAlign: 'center', fontSize: 12, color: '#0f766e', fontWeight: 700, fontFamily: 'monospace' }}>
+                              {itemSacCode || <span style={{ color: '#e2e8f0' }}>—</span>}
+                            </td>
+                          )}
+
                           {/* Type-specific columns */}
-                          {isRegulatory ? (
+                          {isArchitecture ? (
+                            /* ── Architecture columns: Consultancy + Professional ── */
+                            <>
+                              <td style={{ textAlign: 'right', fontSize: 12 }}>
+                                {consultancyStr
+                                  ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
+                                  : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                ₹&nbsp;{fmtINR(prof)}
+                              </td>
+                            </>
+                          ) : isRegulatory ? (
                             <>
                               <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
                                 ₹&nbsp;{fmtINR(prof)}
@@ -269,30 +339,39 @@ export default function QuotationTypeTable({
                               </td>
                             </>
                           ) : (
-                            // Execution — show 4 rate columns when breakdown is present,
-                            // otherwise collapse all 4 into one cell (Professional_amount).
-                            showExecBreakdown ? (
-                              <>
-                                <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                  {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                            // Execution columns — dynamic based on table-level breakdown check
+                            anyExecBreakdown ? (
+                              // Full 4-column breakdown
+                              showExecBreakdown ? (
+                                <>
+                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                    {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                    {matAmt > 0
+                                      ? <>₹&nbsp;{fmtINR(matAmt)}</>
+                                      : (matRate > 0 ? <>₹&nbsp;{fmtINR(matRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                                    {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                                    {labAmt > 0
+                                      ? <>₹&nbsp;{fmtINR(labAmt)}</>
+                                      : (labRate > 0 ? <>₹&nbsp;{fmtINR(labRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
+                                  </td>
+                                </>
+                              ) : (
+                                // This item has only Professional_amount but table has breakdown — span 4 cols
+                                <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                                  {parseFloat(item.Professional_amount || 0) > 0
+                                    ? <>₹&nbsp;{fmtINR(parseFloat(item.Professional_amount))}</>
+                                    : <span style={{ color: '#e2e8f0' }}>—</span>}
                                 </td>
-                                <td style={{ textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                  {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                                  {matAmt > 0
-                                    ? <>₹&nbsp;{fmtINR(matAmt)}</>
-                                    : (matRate > 0 ? <>₹&nbsp;{fmtINR(matRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 13 }}>
-                                  {labAmt > 0
-                                    ? <>₹&nbsp;{fmtINR(labAmt)}</>
-                                    : (labRate > 0 ? <>₹&nbsp;{fmtINR(labRate * qty)}</> : <span style={{ color: '#e2e8f0' }}>—</span>)}
-                                </td>
-                              </>
+                              )
                             ) : (
-                              // Only Professional_amount — span all 4 rate columns
-                              <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                              // Simplified single Rate column — no items in the quotation have breakdown
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
                                 {parseFloat(item.Professional_amount || 0) > 0
                                   ? <>₹&nbsp;{fmtINR(parseFloat(item.Professional_amount))}</>
                                   : <span style={{ color: '#e2e8f0' }}>—</span>}
@@ -346,7 +425,19 @@ export default function QuotationTypeTable({
               style={{ tableLayout: 'fixed', width: '100%' }}
             >
               <colgroup>
-                {isRegulatory ? (
+                {isArchitecture ? (
+                  /* Architecture edit: #, Desc, Qty, Unit, Consultancy, Professional, Total, Delete */
+                  <>
+                    <col style={{ width: 36 }} />
+                    <col />
+                    <col style={{ width: 56 }} />
+                    <col style={{ width: 80 }} />
+                    <col style={{ width: 128 }} />
+                    <col style={{ width: 128 }} />
+                    <col style={{ width: 112 }} />
+                    <col style={{ width: 38 }} />
+                  </>
+                ) : isRegulatory ? (
                   <>
                     <col style={{ width: 36 }} />
                     <col />
@@ -375,7 +466,25 @@ export default function QuotationTypeTable({
               </colgroup>
 
               <thead>
-                {isRegulatory ? (
+                {isArchitecture ? (
+                  /* ── Architecture edit header ── */
+                  <tr>
+                    <th style={{ textAlign: 'center' }}>#</th>
+                    <th>
+                      Description{' '}
+                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    </th>
+                    <th style={{ textAlign: 'center' }}>Qty</th>
+                    <th style={{ textAlign: 'center' }}>
+                      Unit{' '}
+                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    </th>
+                    <th style={{ textAlign: 'right' }}>Consultancy (₹)</th>
+                    <th style={{ textAlign: 'right' }}>Professional (₹)</th>
+                    <th style={{ textAlign: 'right' }}>Item Total</th>
+                    <th></th>
+                  </tr>
+                ) : isRegulatory ? (
                   /* ── Regulatory edit header — single row ── */
                   <tr>
                     <th style={{ textAlign: 'center' }}>#</th>
@@ -456,20 +565,22 @@ export default function QuotationTypeTable({
               {/* Edit table body — grouped by compliance category */}
               {Object.values(editGroups).map((grp, gi) => {
                 const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
+                // Edit colSpan: Architecture=8, Regulatory=8, Execution=12
+                const editTotalColSpan = isExecution ? 12 : 8;
                 return (
                   <tbody key={gi}>
                     {/* Category header row */}
                     <tr className="vqd-cat-row">
-                      <td colSpan={isRegulatory ? 8 : 12}>
+                      <td colSpan={editTotalColSpan}>
                         <div className="vqd-cat-inner">
                           <span
                             className="vqd-cat-dot"
-                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : {}}
+                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : isArchitecture ? { background: 'linear-gradient(135deg,#9333ea,#c084fc)' } : {}}
                           />
                           {grp.catName}
                           <span
                             className="vqd-cat-cnt"
-                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}
+                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : isArchitecture ? { background: '#fdf4ff', color: '#9333ea' } : {}}
                           >
                             {grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}
                           </span>
@@ -512,7 +623,46 @@ export default function QuotationTypeTable({
                           </td>
 
                           {/* Type-specific editable columns */}
-                          {isRegulatory ? (
+                          {isArchitecture ? (
+                            /* ── Architecture edit columns ── */
+                            <>
+                              {/* Unit */}
+                              <td style={{ verticalAlign: 'middle' }}>
+                                <input
+                                  type="text"
+                                  className="vqd-edit-input"
+                                  value={it.unit || ''}
+                                  onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                  placeholder="e.g. Nos"
+                                  style={{ textAlign: 'center', width: '100%' }}
+                                />
+                              </td>
+                              {/* Consultancy */}
+                              <td>
+                                <input
+                                  type="number"
+                                  className="vqd-edit-input"
+                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : it.consultancy_charges}
+                                  onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
+                                  placeholder="0.00"
+                                  style={{ textAlign: 'right', width: '100%' }}
+                                />
+                              </td>
+                              {/* Professional amount */}
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="vqd-edit-input"
+                                  value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                  onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                  placeholder="0.00"
+                                  style={{ textAlign: 'right', width: '100%' }}
+                                />
+                              </td>
+                            </>
+                          ) : isRegulatory ? (
                             <>
                               {/* Unit */}
                               <td style={{ verticalAlign: 'middle' }}>
@@ -653,7 +803,7 @@ export default function QuotationTypeTable({
                               ₹&nbsp;{fmtINR(itemTotal)}
                             </span>
                             <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>
-                              {isRegulatory
+                              {(isRegulatory || isArchitecture)
                                 ? '(Prof+Misc)×Qty'
                                 : (hasExecutionRateBreakdown(it) ? 'Mat+Lab' : 'Rate×Qty')}
                             </div>
@@ -679,7 +829,7 @@ export default function QuotationTypeTable({
                     {/* Category subtotal row */}
                     <tr className="vqd-cat-sub">
                       <td
-                        colSpan={isRegulatory ? 6 : 10}
+                        colSpan={(isExecution ? 10 : 6)}
                         style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}
                       >
                         {grp.catName} subtotal

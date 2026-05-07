@@ -82,14 +82,14 @@ const formatCurrency = (amount) => {
 };
 
 const formatDate = (dateString) => {
-  if (!dateString) return 'N/A';
+  if (!dateString) return '—';
   try {
     const date  = new Date(dateString);
     const day   = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year  = date.getFullYear();
     return `${day}-${month}-${year}`;
-  } catch { return 'N/A'; }
+  } catch { return '—'; }
 };
 
 const formatTimestamp = (dateString) => {
@@ -118,7 +118,7 @@ const getClientName = (row) => {
     const name = `${row.client.first_name || ''} ${row.client.last_name || ''}`.trim();
     return name.length > 25 ? name.substring(0, 25) + '...' : name;
   }
-  return 'N/A';
+  return '—';
 };
 
 const truncateText = (text, maxLength = 30) => {

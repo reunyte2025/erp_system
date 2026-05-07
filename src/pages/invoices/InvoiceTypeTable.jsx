@@ -1,22 +1,6 @@
 /**
  * InvoiceTypeTable.jsx
- * ─────────────────────────────────────────────────────────────────────────────
- * Owns ONLY the items table rendering for viewinvoicedetails.jsx.
- * Renders the correct table columns for one of three invoice types:
- *
- *   • Regulatory   — Consultancy + Professional + Item Total columns
- *   • Execution    — Mat.Rate + Lab.Rate + Mat.Amt + Lab.Amt + Prof + Total
- *   • Vendor (PO)  — Exact same columns as Execution (hasRateColumns = true)
- *                    The "BILL TO" difference (client vs vendor) is handled
- *                    upstream in viewinvoicedetails.jsx — this table only
- *                    renders the correct columns.
- *
- * Props:
- *   isRegulatory    {boolean}  — true for Regulatory Compliance invoices
- *   isExecution     {boolean}  — true for Execution Compliance invoices
- *   isPurchaseOrder {boolean}  — true for Vendor / Purchase Order invoices
- *   items           {Array}    — invoice.items array (view-mode only, no edit)
- * ─────────────────────────────────────────────────────────────────────────────
+ * Owns the items table rendering for viewinvoicedetails.jsx.
  */
 
 import { FileText } from 'lucide-react';
@@ -26,26 +10,21 @@ import {
   isMiscNumeric,
   groupItemsByCategory,
   calcItemTotal,
+  hasExecutionRateBreakdown,
 } from '../../services/invoiceHelpers';
 
 export default function InvoiceTypeTable({
   isExecution,
   isPurchaseOrder,
-  items,
+  items = [],
 }) {
-  // Execution and Vendor share the same rate-column layout.
-  // The only difference between them is the "Bill To" party shown in the
-  // parties section (handled by viewinvoicedetails.jsx, not this component).
   const hasRateColumns = isExecution || isPurchaseOrder;
+  const anyBreakdown   = hasRateColumns && items.some(it => hasExecutionRateBreakdown(it));
+  const groups         = groupItemsByCategory(items);
 
-  const groups = groupItemsByCategory(items);
-
-  // Column count for colSpan calculations:
-  // Rate columns layout: #, Description, Sub-Category, Unit, Qty,
-  //                      Mat.Rate, Lab.Rate, Mat.Amt, Lab.Amt, Professional, Total = 11
-  // Regulatory layout:   #, Description, Sub-Category, Qty, Consultancy,
-  //                      Professional, Total = 7
-  const colSpanCount = hasRateColumns ? 11 : 7;
+  const colSpanCount = hasRateColumns
+    ? (anyBreakdown ? 11 : 8)
+    : 7;
 
   return (
     <div className="vid-table-wrap">
@@ -57,26 +36,44 @@ export default function InvoiceTypeTable({
       ) : (
         <table className="vid-table">
           <thead>
-            <tr>
-              <th style={{ width: 32 }}>#</th>
-              <th>Description</th>
-              <th style={{ width: 80 }}>Sub-Category</th>
-              {/* Unit column only exists in rate-column (execution/vendor) layout */}
-              {hasRateColumns && <th style={{ width: 70 }}>Unit</th>}
-              <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
-              {hasRateColumns ? (
-                <>
+            {hasRateColumns ? (
+              anyBreakdown ? (
+                <tr>
+                  <th style={{ width: 32 }}>#</th>
+                  <th>Description</th>
+                  <th style={{ width: 80 }}>Sub-Category</th>
+                  <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
+                  <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                  <th style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
                   <th style={{ width: 115, textAlign: 'right' }}>Mat. Rate (₹)</th>
-                  <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
                   <th style={{ width: 115, textAlign: 'right' }}>Material Amt (₹)</th>
+                  <th style={{ width: 115, textAlign: 'right' }}>Lab. Rate (₹)</th>
                   <th style={{ width: 115, textAlign: 'right' }}>Labour Amt (₹)</th>
-                </>
+                  <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                </tr>
               ) : (
+                <tr>
+                  <th style={{ width: 32 }}>#</th>
+                  <th>Description</th>
+                  <th style={{ width: 80 }}>Sub-Category</th>
+                  <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
+                  <th style={{ width: 70, textAlign: 'center' }}>Unit</th>
+                  <th style={{ width: 88, textAlign: 'center' }}>SAC Code</th>
+                  <th style={{ width: 120, textAlign: 'right' }}>Rate (₹)</th>
+                  <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+                </tr>
+              )
+            ) : (
+              <tr>
+                <th style={{ width: 32 }}>#</th>
+                <th>Description</th>
+                <th style={{ width: 80 }}>Sub-Category</th>
+                <th style={{ width: 44, textAlign: 'center' }}>Qty</th>
                 <th style={{ width: 130, textAlign: 'right' }}>Consultancy</th>
-              )}
-              <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
-              <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
-            </tr>
+                <th style={{ width: 115, textAlign: 'right' }}>Professional</th>
+                <th style={{ width: 115, textAlign: 'right' }}>Item Total</th>
+              </tr>
+            )}
           </thead>
 
           {groups.map((grp, gi) => {
@@ -84,7 +81,6 @@ export default function InvoiceTypeTable({
 
             return (
               <tbody key={gi}>
-                {/* ── Category header row ── */}
                 <tr className="vid-cat-row">
                   <td colSpan={colSpanCount}>
                     <div className="vid-cat-inner">
@@ -97,7 +93,6 @@ export default function InvoiceTypeTable({
                   </td>
                 </tr>
 
-                {/* ── Line item rows ── */}
                 {grp.items.map((item, ii) => {
                   const prof   = parseFloat(item.Professional_amount || 0);
                   const qty    = parseInt(item.quantity) || 1;
@@ -105,12 +100,12 @@ export default function InvoiceTypeTable({
                   const subCat = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
 
                   if (hasRateColumns) {
-                    // ── Execution & Vendor columns ──────────────────────────
-                    // Mat. Rate | Lab. Rate | Material Amt | Labour Amt | Professional | Total
-                    const matRate = parseFloat(item.material_rate)   || 0;
-                    const labRate = parseFloat(item.labour_rate)     || 0;
-                    const matAmt  = parseFloat(item.material_amount) || 0;
-                    const labAmt  = parseFloat(item.labour_amount)   || 0;
+                    const matRate          = parseFloat(item.material_rate)   || 0;
+                    const labRate          = parseFloat(item.labour_rate)     || 0;
+                    const matAmt           = parseFloat(item.material_amount) || 0;
+                    const labAmt           = parseFloat(item.labour_amount)   || 0;
+                    const itemHasBreakdown = hasExecutionRateBreakdown(item);
+                    const sacCode          = item.sac_code;
 
                     return (
                       <tr key={ii} className="vid-row">
@@ -121,25 +116,41 @@ export default function InvoiceTypeTable({
                             ? <span className="vid-subcat">{subCat.name}</span>
                             : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
                         </td>
-                        <td style={{ fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
                         <td style={{ textAlign: 'center' }}>
                           <span className="vid-qty-badge">{qty}</span>
                         </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                          {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                        <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b' }}>{item.unit || '—'}</td>
+                        <td style={{ textAlign: 'center', fontSize: 12, color: '#0f766e', fontWeight: 700, fontFamily: 'monospace' }}>
+                          {sacCode || <span style={{ color: '#e2e8f0' }}>—</span>}
                         </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                          {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                          {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                          {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
-                          ₹&nbsp;{fmtINR(prof)}
-                        </td>
+
+                        {anyBreakdown ? (
+                          itemHasBreakdown ? (
+                            <>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                {matRate > 0 ? <>₹&nbsp;{fmtINR(matRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                {matAmt > 0 ? <>₹&nbsp;{fmtINR(matAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                {labRate > 0 ? <>₹&nbsp;{fmtINR(labRate)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                                {labAmt > 0 ? <>₹&nbsp;{fmtINR(labAmt)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                              </td>
+                            </>
+                          ) : (
+                            <td colSpan={4} style={{ textAlign: 'center', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                              {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                            </td>
+                          )
+                        ) : (
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                            {prof > 0 ? <>₹&nbsp;{fmtINR(prof)}</> : <span style={{ color: '#e2e8f0' }}>—</span>}
+                          </td>
+                        )}
+
                         <td style={{ textAlign: 'right', fontWeight: 800, color: '#1e293b', fontSize: 13 }}>
                           ₹&nbsp;{fmtINR(total)}
                         </td>
@@ -147,8 +158,6 @@ export default function InvoiceTypeTable({
                     );
                   }
 
-                  // ── Regulatory columns ──────────────────────────────────
-                  // Consultancy | Professional | Total
                   const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
                   const consultancyStr = consultancyRaw &&
                     String(consultancyRaw).trim() &&
@@ -185,7 +194,6 @@ export default function InvoiceTypeTable({
                   );
                 })}
 
-                {/* ── Category subtotal row ── */}
                 <tr className="vid-cat-sub">
                   <td
                     colSpan={colSpanCount - 1}

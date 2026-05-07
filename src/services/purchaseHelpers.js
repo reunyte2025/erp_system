@@ -217,12 +217,14 @@ export const getExecutionDisplayValues = (item) => {
 
 /**
  * hasRateBreakdown
- * Returns true when at least one rate/amount field has a positive value.
+ * Returns true when the user-entered material/labour rate fields are present.
+ *
+ * We intentionally ignore material_amount/labour_amount here because those can
+ * be derived from rates or backend totals; using them for table layout can make
+ * professional-only items look like they have a material/labour breakdown.
  */
 export const hasRateBreakdown = (item) => {
   const matRate = parseFloat(item.material_rate)   || 0;
   const labRate = parseFloat(item.labour_rate)     || 0;
-  const matAmt  = parseFloat(item.material_amount) || 0;
-  const labAmt  = parseFloat(item.labour_amount)   || 0;
-  return matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
+  return matRate > 0 || labRate > 0;
 };
