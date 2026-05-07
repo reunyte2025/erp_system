@@ -932,7 +932,7 @@ export default function QuotationsList() {
 
         const enrichedResults = quotationResults.map((q) => ({
           ...q,
-          project_name: projectMap[q.project]?.name || q.project_name || (q.project ? `Project #${q.project}` : 'N/A'),
+          project_name: projectMap[q.project]?.name || q.project_name || (q.project ? `Project #${q.project}` : '—'),
           project_cts_number: projectMap[q.project]?.cts_number || q.project_cts_number || '',
           company_name: q.company_name || getQuotationCompanyName(q.company) || 'ERP System',
         }));

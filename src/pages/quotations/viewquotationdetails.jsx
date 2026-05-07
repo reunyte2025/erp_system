@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
   CheckCircle, Clock, Send, FileText, XCircle,
@@ -114,6 +114,8 @@ const ErrorView = ({ message, onRetry, onBack }) => (
 export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const { id }   = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const quotationTypeHint = location.state?.quotationType || location.state?.quotationData?.quotation_type || '';
 
   const [quotation,     setQuotation]     = useState(null);
   const [client,        setClient]        = useState(null);
@@ -147,7 +149,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     if (!id) { setFetchError('No quotation ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
     try {
-      const res = await getQuotationById(id);
+      const res = await getQuotationById(id, quotationTypeHint);
       if (res.status !== 'success' || !res.data) throw new Error('Failed to load quotation');
       const q = res.data;
       setQuotation(q);
@@ -191,7 +193,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, quotationTypeHint]);
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
@@ -306,7 +308,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      unit:                    it.unit && it.unit !== 'N/A' ? it.unit : null,
+      unit:                    it.unit || null,
       compliance_category:     it.compliance_category ?? (isExec ? 5 : 1),
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
@@ -599,7 +601,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       const proformaNum = String(data?.proforma_number || data?.data?.proforma_number || '');
       setProformaModal({ open: true, proformaId: proformaId || null, proformaNum, alreadyExists: false, genericError: '' });
       try {
-        const refreshed = await getQuotationById(id);
+        const refreshed = await getQuotationById(id, quotation?.quotation_type || quotationTypeHint);
         if (refreshed.status === 'success' && refreshed.data) {
           setQuotation(refreshed.data);
         } else {
@@ -1094,6 +1096,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           <QuotationTypeTable
             isExecution={isExecution}
             isRegulatory={isRegulatory}
+            isArchitecture={isArchitecture}
+            quotationType={qTypeRaw}
             editMode={editMode}
             items={items}
             editItems={editItems}

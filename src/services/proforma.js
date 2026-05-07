@@ -89,18 +89,12 @@ export const getProformaById = async (id, proformaType) => {
     if (typeHint.includes('execution')) {
       const result = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
       if (result) return result;
-      // Fallback (should never be needed) in case the hint was stale
-      const fallback = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
-      if (fallback) return fallback;
       throw new Error('Server error: 404');
     }
 
-    if (typeHint.includes('regulatory')) {
+    if (typeHint.includes('regulatory') || typeHint.includes('architecture')) {
       const result = await tryEndpoint(ENDPOINTS.GET_REGULATORY);
       if (result) return result;
-      // Fallback
-      const fallback = await tryEndpoint(ENDPOINTS.GET_EXECUTION);
-      if (fallback) return fallback;
       throw new Error('Server error: 404');
     }
 
