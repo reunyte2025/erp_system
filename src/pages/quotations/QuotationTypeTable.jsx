@@ -31,7 +31,13 @@ import {
   calcItemTotal,
   getExecutionDisplayValues,
   hasExecutionRateBreakdown,
+  isBlankOptionalValue,
 } from '../../services/quotationHelpers';
+
+const getSubComplianceName = (value) => {
+  if (!value) return '';
+  return SUB_COMPLIANCE_CATEGORIES[value]?.name || String(value);
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -258,8 +264,8 @@ export default function QuotationTypeTable({
 
                     {/* Item rows */}
                     {grp.items.map((item, ii) => {
-                      const total    = parseFloat(item.total_amount) || calcItemTotal(item);
-                      const subCat   = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
+                      const total    = calcItemTotal(item);
+                      const subCatName = getSubComplianceName(item.sub_compliance_category);
                       const prof     = parseFloat(item.Professional_amount || 0);
                       const consultancy    = item.consultancy_charges ?? item.miscellaneous_amount;
                       const consultancyStr = (() => {
@@ -268,6 +274,7 @@ export default function QuotationTypeTable({
                         return s !== '' && !isNaN(parseFloat(s)) ? s : null;
                       })();
                       const { qty, matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
+                      const unitDisplay = isBlankOptionalValue(item.unit) ? '—' : item.unit;
                       const itemSacCode        = item.sac_code;
                       const showExecBreakdown  = hasExecutionRateBreakdown(item);
 
@@ -285,13 +292,13 @@ export default function QuotationTypeTable({
                           {/* Sub-category — NOT shown for Architecture */}
                           {!isArchitecture && (
                             <td>
-                              {subCat
+                              {subCatName
                                 ? (
                                   <span
                                     className="vqd-subcat"
                                     style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : {}}
                                   >
-                                    {subCat.name}
+                                    {subCatName}
                                   </span>
                                 )
                                 : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
@@ -305,7 +312,7 @@ export default function QuotationTypeTable({
 
                           {/* Unit */}
                           <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                            {item.unit || '—'}
+                            {unitDisplay}
                           </td>
 
                           {isExecution && (
@@ -631,7 +638,7 @@ export default function QuotationTypeTable({
                                 <input
                                   type="text"
                                   className="vqd-edit-input"
-                                  value={it.unit || ''}
+                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
                                   onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
                                   placeholder="e.g. Nos"
                                   style={{ textAlign: 'center', width: '100%' }}
@@ -642,7 +649,7 @@ export default function QuotationTypeTable({
                                 <input
                                   type="number"
                                   className="vqd-edit-input"
-                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : it.consultancy_charges}
+                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
                                   onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
                                   placeholder="0.00"
                                   style={{ textAlign: 'right', width: '100%' }}
@@ -669,7 +676,7 @@ export default function QuotationTypeTable({
                                 <input
                                   type="text"
                                   className="vqd-edit-input"
-                                  value={it.unit || ''}
+                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
                                   onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
                                   placeholder="e.g. Nos"
                                   style={{ textAlign: 'center', width: '100%' }}
@@ -693,7 +700,7 @@ export default function QuotationTypeTable({
                                 <input
                                   type="number"
                                   className="vqd-edit-input"
-                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : it.consultancy_charges}
+                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
                                   onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
                                   placeholder="0.00"
                                   style={{ textAlign: 'right', width: '100%' }}
@@ -707,7 +714,7 @@ export default function QuotationTypeTable({
                                 <input
                                   type="text"
                                   className="vqd-edit-input"
-                                  value={it.unit || ''}
+                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
                                   onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
                                   placeholder="Unit"
                                   style={{ textAlign: 'center', width: '100%' }}

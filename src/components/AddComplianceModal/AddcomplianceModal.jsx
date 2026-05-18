@@ -83,12 +83,14 @@ const SUB_COMPLIANCE_CATEGORIES = {
 
 const REGULATORY_CATS    = [1, 2, 3, 4];
 const EXECUTION_CATS     = [5, 6, 7];
+const OTHER_SUB_COMPLIANCE_VALUE = 0;
 const ARCHITECTURE_CATS  = [8]; // Architecture — no sub-category, manual description, regulatory-style fields
 
 const BLANK_ITEM_FORM = {
   compliance_name:      '',
   compliance_id:        null,
   sub_compliance_id:    null,
+  custom_sub_compliance: '',
   quantity:             1,
   unit:                 '',
   item_sac_code:        '',
@@ -129,6 +131,20 @@ const calcItemTotalExecution = (item) => {
   return Math.round((prof * qty) * 100) / 100;
 };
 
+const resolveSubComplianceValue = (form, isArchCategory) => {
+  if (isArchCategory) return null;
+  if (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+    return String(form.custom_sub_compliance || '').trim();
+  }
+  return form.sub_compliance_id || null;
+};
+
+const getSubComplianceLabel = (value) => {
+  if (!value) return '';
+  if (SUB_COMPLIANCE_CATEGORIES[value]) return SUB_COMPLIANCE_CATEGORIES[value].name;
+  return String(value);
+};
+
 /**
  * Resolve which modal type to show from the quotation_type string.
  * Returns 'execution' or 'regulatory'.
@@ -163,9 +179,12 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const list = SUB_COMPLIANCE_BY_CATEGORY[categoryId] || [];
+  const list = [
+    ...(SUB_COMPLIANCE_BY_CATEGORY[categoryId] || []),
+    { id: OTHER_SUB_COMPLIANCE_VALUE, name: 'Other' },
+  ];
   const filtered = list.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-  const selected = list.find(i => i.id === value);
+  const selected = list.find(i => String(i.id) === String(value));
 
   return (
     <div ref={ref} className="relative w-full">
@@ -245,6 +264,7 @@ export default function AddComplianceModal({
   const [descSelectedFromDropdown, setDescSelectedFromDropdown] = useState(false);
 
   const descCacheRef  = useRef({});
+  const descRequestRef = useRef(0);
   const descFieldRef  = useRef(null);
   const descPanelRef  = useRef(null);
 
@@ -333,21 +353,24 @@ export default function AddComplianceModal({
       setDescriptionMode(cached.length > 0 ? 'dropdown' : 'manual');
       return;
     }
+    const requestId = ++descRequestRef.current;
     setComplianceDescLoading(true);
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     try {
       const results = await fetchDescriptions(categoryId, subCategoryId);
+      if (requestId !== descRequestRef.current) return;
       const arr = Array.isArray(results) ? results : [];
       descCacheRef.current[cacheKey] = arr;
       setComplianceDescriptions(arr);
       setDescriptionMode(arr.length > 0 ? 'dropdown' : 'manual');
     } catch {
+      if (requestId !== descRequestRef.current) return;
       descCacheRef.current[cacheKey] = [];
       setComplianceDescriptions([]);
       setDescriptionMode('manual');
     } finally {
-      setComplianceDescLoading(false);
+      if (requestId === descRequestRef.current) setComplianceDescLoading(false);
     }
   };
 
@@ -428,13 +451,14 @@ export default function AddComplianceModal({
     const form = getItemForm();
     if (!form.compliance_name.trim()) return;
     // Regulatory cats 1,2 require sub_compliance_id; Architecture (8) does NOT
-    if (!isExecCategory && !isArchCategory && [1, 2].includes(activeCategoryId) && !form.sub_compliance_id) return;
+    if (!isExecCategory && !isArchCategory && [1, 2].includes(activeCategoryId) && (form.sub_compliance_id === null || form.sub_compliance_id === undefined || form.sub_compliance_id === '')) return;
+    if (!isArchCategory && form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(form.custom_sub_compliance || '').trim()) return;
 
     const newItem = {
       compliance_name:   form.compliance_name.trim(),
       compliance_id:     form.compliance_id  || null,
       // Architecture always uses sub_compliance_category = 0
-      sub_compliance_id: isArchCategory ? null : (form.sub_compliance_id || null),
+      sub_compliance_id: resolveSubComplianceValue(form, isArchCategory),
       quantity:          parseInt(form.quantity, 10) || 1,
       unit:              String(form.unit || '').trim(),
       ...(isExecCategory ? {
@@ -486,7 +510,8 @@ export default function AddComplianceModal({
     setItemForm({
       compliance_name:      item.compliance_name,
       compliance_id:        item.compliance_id   || null,
-      sub_compliance_id:    item.sub_compliance_id || null,
+      sub_compliance_id:    SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? item.sub_compliance_id : (item.sub_compliance_id ? OTHER_SUB_COMPLIANCE_VALUE : null),
+      custom_sub_compliance: SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? '' : (item.sub_compliance_id || ''),
       quantity:             item.quantity || 1,
       unit:                 item.unit || '',
       // Regulatory
@@ -501,7 +526,7 @@ export default function AddComplianceModal({
     });
     setEditingIdx(index);
     setDescSelectedFromDropdown(true);
-    if (item.sub_compliance_id) {
+    if (item.sub_compliance_id && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]) {
       fetchDescForCategory(activeCategoryId, item.sub_compliance_id);
     } else if (isExecCategory || [3, 4].includes(activeCategoryId)) {
       fetchDescForCategory(activeCategoryId, null);
@@ -572,7 +597,8 @@ export default function AddComplianceModal({
     const used = new Set();
     activeItems.forEach((item, i) => {
       if (i === editingIdx) return;
-      if (item.sub_compliance_id === itemForm.sub_compliance_id && item.compliance_name) {
+      const formSubCompliance = resolveSubComplianceValue(itemForm, isArchCategory);
+      if (item.sub_compliance_id === formSubCompliance && item.compliance_name) {
         used.add(item.compliance_name);
       }
     });
@@ -586,7 +612,8 @@ export default function AddComplianceModal({
 
   const addItemDisabled = (
     !itemForm.compliance_name.trim() ||
-    (subCompRequired && !itemForm.sub_compliance_id)
+    (subCompRequired && (itemForm.sub_compliance_id === null || itemForm.sub_compliance_id === undefined || itemForm.sub_compliance_id === '')) ||
+    (itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(itemForm.custom_sub_compliance || '').trim())
   );
 
   const catIds = resolvedType === 'execution'
@@ -737,14 +764,37 @@ export default function AddComplianceModal({
                         value={itemForm.sub_compliance_id}
                         categoryId={activeCategoryId}
                         onChange={(id) => {
-                          setItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
+                          setItemForm(prev => ({ ...prev, sub_compliance_id: id, custom_sub_compliance: id === OTHER_SUB_COMPLIANCE_VALUE ? prev.custom_sub_compliance : '', compliance_name: '' }));
                           setDescriptionSearch('');
                           setShowDescDropdown(false);
                           setDescSelectedFromDropdown(false);
-                          fetchDescForCategory(activeCategoryId, id);
+                          if (id === OTHER_SUB_COMPLIANCE_VALUE) {
+                            fetchDescForCategory(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                          } else {
+                            fetchDescForCategory(activeCategoryId, id);
+                          }
                         }}
                         placeholder="Select sub-compliance category"
                       />
+                      {itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && (
+                        <input
+                          type="text"
+                          value={itemForm.custom_sub_compliance || ''}
+                          onChange={e => {
+                            setItemForm(prev => ({ ...prev, custom_sub_compliance: e.target.value }));
+                            if (descriptionMode !== 'dropdown' || complianceDescriptions.length === 0) {
+                              fetchDescForCategory(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                            }
+                          }}
+                          onBlur={async e => {
+                            if (e.target.value.trim()) {
+                              await fetchDescForCategory(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                            }
+                          }}
+                          placeholder="Enter sub-compliance category"
+                          className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                        />
+                      )}
                     </div>
                   )}
 
@@ -1108,7 +1158,7 @@ export default function AddComplianceModal({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                            {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>}
+                            {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{getSubComplianceLabel(item.sub_compliance_id)}</span>}
                             <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                             {isExec ? (
                               <>

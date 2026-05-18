@@ -40,6 +40,21 @@ import {
 // ─── Table component ─────────────────────────────────────────────────────────
 import ProformaTypeTable from './ProformaTypeTable';
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const normalizeEditableMisc = (...values) => {
+  const raw = values.find(value => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '--');
+  if (raw === null || raw === undefined) return '';
+  const text = String(raw).trim();
+  return text === '0' || text === '0.00' ? '' : text;
+};
+
 // ─── Company GST applicability ────────────────────────────────────────────────
 // Company ID 1 (Constructive India) is GST applicable.
 // Company IDs 2, 3, 4 are NOT GST applicable.
@@ -360,6 +375,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   const [pdfScheduleDate,  setPdfScheduleDate]  = useState('');
   const [pdfState,         setPdfState]         = useState('');
   const [pdfCode,          setPdfCode]          = useState('');
+  const [pdfItemSelections, setPdfItemSelections] = useState({});
+  const [pdfNotes,          setPdfNotes]          = useState(['']);
   const [visible,       setVisible]       = useState(false);
 
   const [editMode,    setEditMode]    = useState(false);
@@ -452,7 +469,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
   // ── Compliance modal helpers ─────────────────────────────────────────────────
 
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    const res = await getComplianceByCategory(categoryId, subCategoryId || null);
+    const res = await getComplianceByCategory(categoryId, subCategoryId ?? null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
   };
@@ -473,7 +490,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       const base = {
         id:                      null,
         compliance_category:     complianceCat,
-        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
         // Empty unit → null so backend stores null and UI shows "—"
@@ -494,8 +511,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         const miscRaw = item.miscellaneous_amount ?? item.consultancy_charges ?? '';
         return {
           ...base,
-          consultancy_charges:  (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
-          miscellaneous_amount: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '' : String(miscRaw),
+          consultancy_charges:  normalizeEditableMisc(miscRaw),
+          miscellaneous_amount: normalizeEditableMisc(miscRaw),
         };
       }
     }).filter(Boolean); // drop any items that had no compliance_category
@@ -521,8 +538,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       unit:                    it.unit || '',
       sac_code:                it.sac_code || it.item_sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
-      miscellaneous_amount:    (it.consultancy_charges ?? it.miscellaneous_amount) === '--' || (it.consultancy_charges ?? it.miscellaneous_amount) === null ? '' : ((it.consultancy_charges ?? it.miscellaneous_amount) || ''),
-      consultancy_charges:     (it.consultancy_charges === '--' || it.consultancy_charges === null) ? '' : (it.consultancy_charges || ''),
+      miscellaneous_amount:    normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
+      consultancy_charges:     normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
       material_rate:           parseFloat(it.material_rate || 0),
       material_amount:         parseFloat(it.material_amount || 0),
       labour_rate:             parseFloat(it.labour_rate || 0),
@@ -561,6 +578,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     setEditItems(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, [field]: value };
+      if (field === 'consultancy_charges' || field === 'miscellaneous_amount') {
+        updated.consultancy_charges = value;
+        updated.miscellaneous_amount = value;
+      }
       const qty = parseInt(updated.quantity) || 1;
 
       if (field === 'material_rate') {
@@ -594,8 +615,10 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
       if ((parseInt(it.quantity) || 0) <= 0) { setSaveError('All quantities must be ≥ 1.'); return; }
       const isExecutionItem =
         [5, 6, 7].includes(Number(it.compliance_category)) ||
-        it.material_rate != null || it.material_amount != null ||
-        it.labour_rate != null || it.labour_amount != null;
+        (parseFloat(it.material_rate) || 0) > 0 ||
+        (parseFloat(it.material_amount) || 0) > 0 ||
+        (parseFloat(it.labour_rate) || 0) > 0 ||
+        (parseFloat(it.labour_amount) || 0) > 0;
       const hasExecutionValue =
         (parseFloat(it.material_rate) || 0) > 0 ||
         (parseFloat(it.material_amount) || 0) > 0 ||
@@ -665,7 +688,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           total_amount:  sub, total_gst_amount: gst, grand_total: grand,
           items: updated.items || editItems.map(it => ({
             ...it,
-            miscellaneous_amount: String(it.consultancy_charges ?? it.miscellaneous_amount ?? '').trim() || '--',
+            miscellaneous_amount: normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
+            consultancy_charges: normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
             total_amount: calcItemTotal(it),
           })),
         }));
@@ -914,11 +938,42 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
   useEffect(() => { fetchData(); window.scrollTo(0, 0); }, [fetchData]);
 
+  const calcPdfItemUnitAmount = (item) => {
+    const qty = parseInt(item?.quantity) || 1;
+    const prof = parseFloat(item?.Professional_amount) || 0;
+    const matRate = parseFloat(item?.material_rate) || 0;
+    const labRate = parseFloat(item?.labour_rate) || 0;
+    const matAmt = parseFloat(item?.material_amount) || 0;
+    const labAmt = parseFloat(item?.labour_amount) || 0;
+    const consultancyRaw = item?.consultancy_charges ?? item?.miscellaneous_amount;
+    const consultancy = (() => {
+      if (consultancyRaw === '--' || consultancyRaw == null || consultancyRaw === '') return 0;
+      const n = parseFloat(String(consultancyRaw).trim());
+      return isNaN(n) ? 0 : n;
+    })();
+
+    if (matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0) {
+      const matPerUnit = matRate > 0 ? matRate : (matAmt > 0 ? matAmt / qty : 0);
+      const labPerUnit = labRate > 0 ? labRate : (labAmt > 0 ? labAmt / qty : 0);
+      return parseFloat((matPerUnit + labPerUnit).toFixed(2));
+    }
+
+    return parseFloat((prof + consultancy).toFixed(2));
+  };
+
   const handleOpenPdfModal = () => {
     setScopeOfWork(''); setScopeError(''); setPdfError('');
     setPdfCompanyName(''); setPdfAddress(''); setPdfGstNo(''); setPdfSacCode('');
     setPdfInvoiceDate(''); setPdfWorkOrderDate(''); setPdfValidFrom(''); setPdfValidTill('');
     setPdfVendorCode(''); setPdfPoNo(''); setPdfScheduleDate(''); setPdfState(''); setPdfCode('');
+    const initSelections = {};
+    (proforma?.items || []).forEach((item, idx) => {
+      const key = item.id != null ? String(item.id) : `idx_${idx}`;
+      const qty = parseInt(item.quantity) || 1;
+      initSelections[key] = { selected: true, quantity: qty, maxQty: qty, item, idx };
+    });
+    setPdfItemSelections(initSelections);
+    setPdfNotes(['']);
     setShowPdfModal(true);
   };
 
@@ -926,6 +981,13 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     if (!scopeOfWork.trim()) { setScopeError('Scope of work is required to generate the PDF.'); return; }
     if (!pdfCompanyName.trim()) { setPdfError('Company name is required to generate the PDF.'); return; }
     if (!pdfAddress.trim()) { setPdfError('Address is required to generate the PDF.'); return; }
+    const selectedItems = Object.values(pdfItemSelections)
+      .filter(sel => sel.selected)
+      .map(sel => ({
+        item_id: sel.item?.id != null ? Number(sel.item.id) : sel.idx,
+        quantity: Number(sel.quantity),
+      }));
+    if (selectedItems.length === 0) { setPdfError('Please select at least one item to include in the PDF.'); return; }
     setScopeError(''); setPdfError('');
     setPdfLoading(true);
     try {
@@ -950,6 +1012,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           schedule_date: pdfScheduleDate.trim() ? pdfScheduleDate : null,
           state: pdfState.trim() || null,
           code: pdfCode.trim() || null,
+          items: selectedItems,
+          notes: pdfNotes.map(note => note.trim()).filter(Boolean),
         }, fileName);
       } else {
         await generateOtherProformaPdf({
@@ -963,6 +1027,8 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
           sac_code: pdfSacCode.trim() || null,
           state: pdfState.trim() || null,
           code: pdfCode.trim() || null,
+          items: selectedItems,
+          notes: pdfNotes.map(note => note.trim()).filter(Boolean),
         }, fileName);
       }
       setShowPdfModal(false);
@@ -1919,6 +1985,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                 {(() => {
                   const companyId      = parseInt(proforma?.company) || 0;
                   const isConstructive = companyId === 1;
+                  const allItems = proforma?.items || [];
+                  const modalIsExecution = isExecution;
+                  const selectedTotal = parseFloat(
+                    Object.values(pdfItemSelections)
+                      .filter(s => s.selected)
+                      .reduce((sum, s) => sum + (s.item ? calcPdfItemUnitAmount(s.item) : 0) * (parseInt(s.quantity) || 0), 0)
+                      .toFixed(2)
+                  );
 
                   const fieldWrap  = { marginBottom: 14 };
                   const labelStyle = { fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 5 };
@@ -2021,6 +2095,193 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
                             <AlertCircle size={11} /> {scopeError}
                           </div>
                         )}
+                      </div>
+
+                      {allItems.length > 0 && (() => {
+                        const checklistGroups = groupItemsByCategory(allItems)
+                          .slice()
+                          .sort((a, b) => {
+                            if (a.catId == null && b.catId == null) return 0;
+                            if (a.catId == null) return 1;
+                            if (b.catId == null) return -1;
+                            return Number(a.catId) - Number(b.catId);
+                          });
+
+                        return (
+                          <div style={{ marginBottom: 20 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                                Select Items for PDF
+                                <span style={{ marginLeft: 8, background: '#f0fdf4', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: 20, padding: '1px 8px', fontSize: 10.5, fontWeight: 700 }}>
+                                  {Object.values(pdfItemSelections).filter(s => s.selected).length} / {allItems.length} selected
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                  onClick={() => setPdfItemSelections(prev => {
+                                    const next = {};
+                                    Object.keys(prev).forEach(k => { next[k] = { ...prev[k], selected: true }; });
+                                    return next;
+                                  })}
+                                  style={{ fontSize: 11, fontWeight: 600, color: '#0f766e', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                                >Select All</button>
+                                <button
+                                  onClick={() => setPdfItemSelections(prev => {
+                                    const next = {};
+                                    Object.keys(prev).forEach(k => { next[k] = { ...prev[k], selected: false }; });
+                                    return next;
+                                  })}
+                                  style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                                >Deselect All</button>
+                              </div>
+                            </div>
+
+                            <div style={{ border: '1.5px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                              {checklistGroups.map((grp, grpIdx) => {
+                                const isLastGroup = grpIdx === checklistGroups.length - 1;
+                                return (
+                                  <div key={grp.catId ?? 'other'}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', borderTop: grpIdx > 0 ? '1.5px solid #e2e8f0' : 'none' }}>
+                                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#0f766e', flexShrink: 0, display: 'inline-block' }} />
+                                      <span style={{ fontSize: 10.5, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.08em' }}>{grp.catName}</span>
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{grp.items.length} item{grp.items.length !== 1 ? 's' : ''}</span>
+                                    </div>
+
+                                    {grp.items.map((item, itemIdx) => {
+                                      const key = item.id != null ? String(item.id) : `idx_${allItems.indexOf(item)}`;
+                                      const sel = pdfItemSelections[key] || { selected: false, quantity: parseInt(item.quantity) || 1, maxQty: parseInt(item.quantity) || 1, item, idx: allItems.indexOf(item) };
+                                      const selQty = parseInt(sel.quantity) || 0;
+                                      const prof = parseFloat(item.Professional_amount) || 0;
+                                      const matRate = parseFloat(item.material_rate) || 0;
+                                      const labRate = parseFloat(item.labour_rate) || 0;
+                                      const matAmt = parseFloat(item.material_amount) || 0;
+                                      const labAmt = parseFloat(item.labour_amount) || 0;
+                                      const originalQty = parseInt(item.quantity) || 1;
+                                      const matRatePerUnit = matRate > 0 ? matRate : (matAmt > 0 ? matAmt / originalQty : 0);
+                                      const labRatePerUnit = labRate > 0 ? labRate : (labAmt > 0 ? labAmt / originalQty : 0);
+                                      const dynamicMatAmt = parseFloat((matRatePerUnit * selQty).toFixed(2));
+                                      const dynamicLabAmt = parseFloat((labRatePerUnit * selQty).toFixed(2));
+                                      const dynamicProfAmt = parseFloat((prof * selQty).toFixed(2));
+                                      const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount;
+                                      const consultancyNum = (() => {
+                                        if (consultancyRaw === '--' || consultancyRaw == null || consultancyRaw === '') return 0;
+                                        const n = parseFloat(String(consultancyRaw).trim());
+                                        return isNaN(n) ? 0 : n;
+                                      })();
+                                      const lineTotal = parseFloat((calcPdfItemUnitAmount(item) * selQty).toFixed(2));
+                                      const showExecBreakdown = modalIsExecution && (matRatePerUnit > 0 || labRatePerUnit > 0);
+                                      const isLastItemInGroup = itemIdx === grp.items.length - 1;
+                                      const showBottomBorder = !(isLastGroup && isLastItemInGroup);
+
+                                      return (
+                                        <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 14px', borderBottom: showBottomBorder ? '1px solid #f0f4f8' : 'none', background: sel.selected ? '#fafffe' : '#fff', transition: 'background .1s' }}>
+                                          <div
+                                            onClick={() => setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, selected: !sel.selected } }))}
+                                            style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 2, border: `2px solid ${sel.selected ? '#0f766e' : '#cbd5e1'}`, background: sel.selected ? '#0f766e' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .12s' }}
+                                          >
+                                            {sel.selected && (
+                                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                                <path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                              </svg>
+                                            )}
+                                          </div>
+
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: sel.selected ? '#1e293b' : '#94a3b8', lineHeight: 1.45, marginBottom: 3, transition: 'color .1s' }}>
+                                              {item.description || item.compliance_name || '—'}
+                                            </div>
+                                            {showExecBreakdown ? (
+                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 11, color: '#64748b' }}>
+                                                {matRatePerUnit > 0 && <span>Mat: ₹{fmtINR(dynamicMatAmt)}</span>}
+                                                {labRatePerUnit > 0 && <span>Lab: ₹{fmtINR(dynamicLabAmt)}</span>}
+                                                {prof > 0 && <span>Prof: ₹{fmtINR(dynamicProfAmt)}</span>}
+                                              </div>
+                                            ) : (
+                                              <div style={{ fontSize: 11, color: '#64748b' }}>
+                                                Prof: ₹{fmtINR(prof * selQty)}
+                                                {consultancyNum > 0 && <span style={{ marginLeft: 10 }}>Cons: ₹{fmtINR(consultancyNum * selQty)}</span>}
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>Qty</span>
+                                              <input
+                                                type="number"
+                                                min={1}
+                                                max={sel.maxQty}
+                                                value={sel.quantity}
+                                                disabled={!sel.selected}
+                                                onChange={e => {
+                                                  const raw = e.target.value;
+                                                  if (raw === '' || raw === '-') {
+                                                    setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: raw } }));
+                                                    return;
+                                                  }
+                                                  let v = parseInt(raw, 10);
+                                                  if (isNaN(v)) return;
+                                                  if (v < 1) v = 1;
+                                                  if (v > sel.maxQty) v = sel.maxQty;
+                                                  setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: v } }));
+                                                }}
+                                                onBlur={e => {
+                                                  let v = parseInt(e.target.value, 10);
+                                                  if (isNaN(v) || v < 1) v = 1;
+                                                  if (v > sel.maxQty) v = sel.maxQty;
+                                                  setPdfItemSelections(prev => ({ ...prev, [key]: { ...sel, quantity: v } }));
+                                                }}
+                                                style={{ width: 52, padding: '4px 6px', fontSize: 13, fontWeight: 700, border: `1.5px solid ${sel.selected ? '#0f766e' : '#e2e8f0'}`, borderRadius: 7, textAlign: 'center', outline: 'none', color: sel.selected ? '#1e293b' : '#94a3b8', background: sel.selected ? '#fff' : '#f8fafc', fontFamily: 'inherit' }}
+                                              />
+                                              <span style={{ fontSize: 10, color: '#94a3b8' }}>/ {sel.maxQty}</span>
+                                            </div>
+                                            <div style={{ fontSize: 11.5, fontWeight: 700, color: sel.selected ? '#0f766e' : '#d1d5db' }}>₹ {fmtINR(lineTotal)}</div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10 }}>
+                              <span style={{ fontSize: 12, color: '#064e3b', fontWeight: 600 }}>Selected Items Total:</span>
+                              <span style={{ fontSize: 15, fontWeight: 900, color: '#0f766e' }}>₹ {fmtINR(selectedTotal)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Notes <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none', fontWeight: 400 }}>(optional)</span></div>
+                        {pdfNotes.map((note, ni) => (
+                          <div key={ni} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                            <input
+                              value={note}
+                              onChange={e => setPdfNotes(prev => prev.map((n, i) => i === ni ? e.target.value : n))}
+                              placeholder={`Note ${ni + 1}`}
+                              disabled={pdfLoading}
+                              style={{ flex: 1, padding: '7px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                            />
+                            {pdfNotes.length > 1 && (
+                              <button
+                                onClick={() => setPdfNotes(prev => prev.filter((_, i) => i !== ni))}
+                                disabled={pdfLoading}
+                                style={{ padding: '6px 10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, cursor: pdfLoading ? 'not-allowed' : 'pointer', color: '#dc2626', fontSize: 12 }}
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => setPdfNotes(prev => [...prev, ''])}
+                          disabled={pdfLoading}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 7, fontSize: 12, fontWeight: 600, color: '#475569', cursor: pdfLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                        >
+                          <Plus size={12} /> Add Note
+                        </button>
                       </div>
                     </>
                   );

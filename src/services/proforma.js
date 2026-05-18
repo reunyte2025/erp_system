@@ -40,6 +40,22 @@ const calculateStatsFromTotal = (totalCount) => ({
   verified: Math.floor(totalCount * 0.60),
 });
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const optionalMoneyOrBlank = (value) => {
+  if (value === null || value === undefined) return '';
+  const text = String(value).trim();
+  if (!text || text === '--' || text === '0' || text === '0.00') return '';
+  const num = parseFloat(text);
+  return isNaN(num) ? '' : num.toFixed(2);
+};
+
 export const getProformas = async (params = {}) => {
   try {
     const queryParams = { page: 1, page_size: 10, ...params };
@@ -280,12 +296,8 @@ export const updateRegulatoryProforma = async (proformaData) => {
       const itemId = rawId && rawId > 0 ? rawId : null;
       const quantity = parseInt(item.quantity) || 1;
       const prof = parseFloat(item.Professional_amount) || 0;
-      const consultancy = (() => {
-        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
-        const num = parseFloat(String(raw).trim());
-        return isNaN(num) ? '0.00' : num.toFixed(2);
-      })();
-      const total = parseFloat(item.total_amount) || parseFloat(((prof + parseFloat(consultancy || 0)) * quantity).toFixed(2));
+      const consultancy = optionalMoneyOrBlank(item.consultancy_charges ?? item.miscellaneous_amount);
+      const total = parseFloat(((prof + parseFloat(consultancy || 0)) * quantity).toFixed(2));
       return {
         id:                      itemId,
         description:             String(item.description || '').trim(),
@@ -295,7 +307,7 @@ export const updateRegulatoryProforma = async (proformaData) => {
         Professional_amount:     String(prof.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
         compliance_category:     parseInt(item.compliance_category) || 1,
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
       };
     }),
   };
@@ -358,7 +370,7 @@ export const updateExecutionProforma = async (proformaData) => {
         labour_amount:           String(labAmt.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
         compliance_category:     parseInt(item.compliance_category) || 5,
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
       };
     }),
   };
@@ -390,11 +402,13 @@ export const updateProformaFull = async (proformaData) => {
   const isExec = pType.includes('execution') ||
     (proformaData.items || []).some(item => {
       const catId = Number(item?.compliance_category || 0);
+      const hasExecutionValues =
+        (parseFloat(item?.material_rate) || 0) > 0 ||
+        (parseFloat(item?.material_amount) || 0) > 0 ||
+        (parseFloat(item?.labour_rate) || 0) > 0 ||
+        (parseFloat(item?.labour_amount) || 0) > 0;
       return [5, 6, 7].includes(catId)
-        || item?.material_rate   != null
-        || item?.material_amount != null
-        || item?.labour_rate     != null
-        || item?.labour_amount   != null;
+        || hasExecutionValues;
     });
 
   serviceLogger.log(
@@ -419,7 +433,9 @@ export const getComplianceByCategory = async (categoryId, subCategoryId = null) 
     if (!categoryId) throw new Error('Category ID is required');
     serviceLogger.log(`[Proforma Service] Fetching compliance for category: ${categoryId}`);
     const params = { category: categoryId, page_size: 100 };
-    if (subCategoryId) params.sub_category = subCategoryId;
+    if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+      params.sub_category = subCategoryId;
+    }
     const response = await api.get('/compliance/get_compliance_by_category/', { params });
     serviceLogger.log('[Proforma Service] Compliance response:', response.data);
     return response.data;
@@ -538,6 +554,8 @@ export const generateConstructiveProformaPdf = async (params, fileName = 'profor
       schedule_date:   orNull(params.schedule_date),
       state:           orNull(params.state),
       code:            orNull(params.code),
+      items:           Array.isArray(params.items) ? params.items : [],
+      notes:           Array.isArray(params.notes) ? params.notes : [],
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_CONSTRUCTIVE, payload, {
@@ -594,6 +612,8 @@ export const generateOtherProformaPdf = async (params, fileName = 'proforma.pdf'
       sac_code:      orNull(params.sac_code),
       state:         orNull(params.state),
       code:          orNull(params.code),
+      items:         Array.isArray(params.items) ? params.items : [],
+      notes:         Array.isArray(params.notes) ? params.notes : [],
     };
 
     const response = await api.post(ENDPOINTS.GENERATE_PDF_OTHER, payload, {
