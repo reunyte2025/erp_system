@@ -26,6 +26,7 @@ import {
   fmtQNum, fmtINR, fmtDate,
   groupItemsByCategory, numberToWords,
   calcItemTotal, getExecutionDisplayValues, hasExecutionRateBreakdown,
+  isBlankOptionalValue, optionalTextOrNull, optionalMoneyOrNull,
   STATUS_CONFIG, COMPLIANCE_CATEGORIES, SUB_COMPLIANCE_CATEGORIES,
 } from '../../services/quotationHelpers';
 
@@ -36,6 +37,24 @@ import QuotationTypeTable from './QuotationTypeTable';
 // Company ID 1 (Constructive India) is GST applicable.
 // Company IDs 2, 3, 4 are NOT GST applicable.
 const GST_APPLICABLE_COMPANY_ID = 1;
+
+const supportsQuotationPdfColumnOptions = (quotationType = '') => {
+  const normalizedType = String(quotationType).trim().toLowerCase();
+  return normalizedType === 'regulatory compliance' || normalizedType === 'architecture compliance';
+};
+
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const normalizeUnitForEdit = (value) => {
+  if (isBlankOptionalValue(value)) return '';
+  return String(value).trim();
+};
 
 // ─── Status config — attach Lucide Icon references here (kept in main file
 //     so this file retains full control of icon imports) ──────────────────────
@@ -136,6 +155,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [pdfContactPerson, setPdfContactPerson] = useState('');
   const [pdfSubject,       setPdfSubject]       = useState('');
   const [pdfExtraNotes,    setPdfExtraNotes]    = useState(['']);
+  const [pdfShowProfessional, setPdfShowProfessional] = useState(true);
+  const [pdfShowConsultancy,  setPdfShowConsultancy]  = useState(true);
   const [pdfFormError,     setPdfFormError]     = useState('');
   const [pdfApiError,      setPdfApiError]      = useState('');
 
@@ -238,7 +259,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [showAddSection, setShowAddSection] = useState(false);
 
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    const res = await getComplianceByCategory(categoryId, subCategoryId || null);
+    const res = await getComplianceByCategory(categoryId, subCategoryId ?? null);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
   };
@@ -264,18 +285,18 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         // compliance_category is the field that determines which section this
         // item appears under. It must ALWAYS be set from the item, never inferred.
         compliance_category:     complianceCat,
-        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
         // null for empty unit — backend stores null, UI shows "—"
-        unit:                    String(item.unit || '').trim() || null,
+        unit:                    optionalTextOrNull(item.unit),
         Professional_amount:     parseFloat(item.Professional_amount) || 0,
         total_amount:            parseFloat(item.total_amount) || 0,
       };
       if (isExec) {
         return {
           ...base,
-          sac_code:        String(item.sac_code || '').trim() || null,
+          sac_code:        optionalTextOrNull(item.sac_code),
           material_rate:   parseFloat(item.material_rate)   || 0,
           material_amount: parseFloat(item.material_amount) || 0,
           labour_rate:     parseFloat(item.labour_rate)     || 0,
@@ -285,7 +306,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         const miscRaw = item.miscellaneous_amount ?? item.consultancy_charges ?? '';
         return {
           ...base,
-          consultancy_charges: (miscRaw === '--' || miscRaw === '' || miscRaw == null) ? '0' : String(miscRaw),
+          consultancy_charges: optionalMoneyOrNull(miscRaw),
         };
       }
     }).filter(Boolean); // remove any nulls from the safety guard above
@@ -308,21 +329,23 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      unit:                    it.unit || null,
+      unit:                    normalizeUnitForEdit(it.unit),
       compliance_category:     it.compliance_category ?? (isExec ? 5 : 1),
       sub_compliance_category: it.sub_compliance_category ?? 0,
       total_amount:            parseFloat(it.total_amount || 0),
       Professional_amount:     parseFloat(it.Professional_amount || 0),
       consultancy_charges:     (() => {
         const raw = it.consultancy_charges ?? it.miscellaneous_amount ?? '';
-        if (raw === '--' || raw === null || raw === undefined) return '0';
+        if (isBlankOptionalValue(raw)) return '';
         return String(raw);
       })(),
-      material_rate:   parseFloat(it.material_rate   || 0),
-      material_amount: parseFloat(it.material_amount || 0),
-      labour_rate:     parseFloat(it.labour_rate     || 0),
-      labour_amount:   parseFloat(it.labour_amount   || 0),
-      sac_code:        it.sac_code || '',
+      ...(isExec ? {
+        material_rate:   parseFloat(it.material_rate   || 0),
+        material_amount: parseFloat(it.material_amount || 0),
+        labour_rate:     parseFloat(it.labour_rate     || 0),
+        labour_amount:   parseFloat(it.labour_amount   || 0),
+        sac_code:        isBlankOptionalValue(it.sac_code) ? '' : String(it.sac_code),
+      } : {}),
     })));
     setSaveError(''); setSaveSuccess(false);
     setEditMode(true);
@@ -354,7 +377,13 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const updateItem = (idx, field, value) => {
     setEditItems(prev => prev.map((it, i) => {
       if (i !== idx) return it;
-      const updated = { ...it, [field]: value };
+      const nextValue = field === 'unit' ? String(value ?? '') : value;
+      const updated = { ...it, [field]: nextValue };
+
+      if (field === 'consultancy_charges' || field === 'miscellaneous_amount') {
+        updated.consultancy_charges = value;
+        updated.miscellaneous_amount = value;
+      }
 
       const qty = parseInt(updated.quantity) || 1;
 
@@ -416,7 +445,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         project:          parseInt(quotation.project),
         company:          parseInt(editCompany) || 1,
         status:           resolvedStatus,
-        sac_code:         editSacCode.trim(),
+        sac_code:         optionalTextOrNull(editSacCode),
         // GST fix: always send "0.00" for non-GST companies
         gst_rate:         isGSTApplicable
                             ? String(parseFloat(editGstRate  || 0).toFixed(2))
@@ -432,7 +461,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           const rawId  = it.id != null ? parseInt(it.id) : null;
           const itemId = rawId && rawId > 0 ? rawId : null;
           const compCat    = parseInt(it.compliance_category)     || (isExec ? 5 : 1);
-          const subCompCat = parseInt(it.sub_compliance_category) || 0;
+          const subCompCat = normalizeSubComplianceCategory(it.sub_compliance_category, 0);
 
           if (isExec) {
             const qty     = parseInt(it.quantity) || 1;
@@ -443,17 +472,14 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
             const labAmt  = parseFloat(it.labour_amount)   || (labRate > 0 ? parseFloat((labRate * qty).toFixed(2)) : 0);
             const finalMatRate = matRate > 0 ? matRate : (qty > 0 ? parseFloat((matAmt / qty).toFixed(6)) : 0);
             const finalLabRate = labRate > 0 ? labRate : (qty > 0 ? parseFloat((labAmt / qty).toFixed(6)) : 0);
-            const consultancy = (() => {
-              const num = parseFloat(String(it.consultancy_charges ?? '').trim());
-              return isNaN(num) ? '0.00' : num.toFixed(2);
-            })();
+            const consultancy = optionalMoneyOrNull(it.consultancy_charges ?? it.miscellaneous_amount);
             return {
               id:                      itemId,
               description:             String(it.description).trim(),
               quantity:                qty,
               // Empty unit → null so backend stores null and detail page shows "—"
-              unit:                    String(it.unit || '').trim() || null,
-              sac_code:                String(it.sac_code || '').trim(),
+              unit:                    normalizeUnitForEdit(it.unit),
+              sac_code:                optionalTextOrNull(it.sac_code),
               consultancy_charges:     consultancy,
               Professional_amount:     String(prof.toFixed(2)),
               material_rate:           String(finalMatRate.toFixed(6)),
@@ -467,16 +493,13 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           }
 
           // Regulatory item
-          const consultancy = (() => {
-            const num = parseFloat(String(it.consultancy_charges ?? it.miscellaneous_amount ?? '').trim());
-            return isNaN(num) ? '0.00' : num.toFixed(2);
-          })();
+          const consultancy = optionalMoneyOrNull(it.consultancy_charges ?? it.miscellaneous_amount);
           return {
             id:                      itemId,
             description:             String(it.description).trim(),
             quantity:                parseInt(it.quantity) || 1,
             // Empty unit → null so backend stores null and detail page shows "—"
-            unit:                    String(it.unit || '').trim() || null,
+            unit:                    normalizeUnitForEdit(it.unit),
             consultancy_charges:     consultancy,
             Professional_amount:     String((parseFloat(it.Professional_amount) || 0).toFixed(2)),
             total_amount:            String(parseFloat(calcItemTotal(it).toFixed(2)).toFixed(2)),
@@ -491,15 +514,29 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
       if (data && (data.id || data.quotation_number || data?.status === 'success')) {
         const updated = data.data || data;
+        const responseItems = Array.isArray(updated.items) ? updated.items : [];
+        const submittedItems = Array.isArray(payload.items) ? payload.items : [];
+        const mergedItems = (responseItems.length ? responseItems : submittedItems).map((item, index) => {
+          const submitted = submittedItems.find(sub =>
+            sub?.id != null && item?.id != null && Number(sub.id) === Number(item.id)
+          ) || submittedItems[index] || {};
+          const responseUnit = optionalTextOrNull(item?.unit);
+          const submittedUnit = optionalTextOrNull(submitted?.unit);
+          return {
+            ...submitted,
+            ...item,
+            unit: responseUnit ?? submittedUnit,
+          };
+        });
         setQuotation(prev => ({
           ...prev, ...updated,
           company:       editCompany,
           company_name:  QUOTATION_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || prev.company_name,
-          sac_code:      editSacCode.trim(),
+          sac_code:      optionalTextOrNull(editSacCode),
           gst_rate:      isGSTApplicable ? String(editGstRate) : '0',
           discount_rate: String(editDiscRate),
           total_amount: sub, total_gst_amount: gst, grand_total: grand,
-          items: updated.items || editItems.map(it => ({
+          items: mergedItems.length ? mergedItems : editItems.map(it => ({
             ...it,
             total_amount: calcItemTotal(it),
           })),
@@ -551,6 +588,8 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     setPdfContactPerson('');
     setPdfSubject('');
     setPdfExtraNotes(['']);
+    setPdfShowProfessional(true);
+    setPdfShowConsultancy(true);
     setPdfFormError('');
     setPdfApiError('');
     setShowPdfModal(true);
@@ -558,17 +597,38 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
 
   const handleConfirmPdfDownload = async () => {
     if (!pdfCompanyName.trim()) { setPdfFormError('Company name is required.'); return; }
+    const shouldShowColumnOptions = supportsQuotationPdfColumnOptions(quotation?.quotation_type);
+    if (shouldShowColumnOptions && !pdfShowProfessional && !pdfShowConsultancy) {
+      setPdfFormError('Please select at least one amount column for the PDF.');
+      return;
+    }
     setPdfFormError(''); setPdfApiError('');
     setPdfLoading(true);
     try {
       const fileName = `${fmtQNum(quotation?.quotation_number) || `Quotation_${id}`}.pdf`;
-      await generateQuotationPdf(id, {
+      const pdfPayload = {
         company_name:   pdfCompanyName.trim(),
-        address:        pdfAddress.trim(),
-        contact_person: pdfContactPerson.trim(),
-        subject:        pdfSubject.trim(),
-        extra_notes:    pdfExtraNotes.map(n => n.trim()).filter(Boolean),
-      }, fileName);
+        address:        optionalTextOrNull(pdfAddress),
+        contact_person: optionalTextOrNull(pdfContactPerson),
+        subject:        optionalTextOrNull(pdfSubject),
+        extra_notes:    pdfExtraNotes.map(n => optionalTextOrNull(n)).filter(Boolean),
+        quotation_type: quotation?.quotation_type || '',
+        items:          (quotation?.items || []).map(item => ({
+          ...item,
+          unit: optionalTextOrNull(item.unit),
+          sac_code: optionalTextOrNull(item.sac_code),
+          item_sac_code: optionalTextOrNull(item.item_sac_code ?? item.sac_code),
+          consultancy_charges: optionalMoneyOrNull(item.consultancy_charges ?? item.miscellaneous_amount),
+          miscellaneous_amount: optionalMoneyOrNull(item.miscellaneous_amount ?? item.consultancy_charges),
+        })),
+      };
+
+      if (shouldShowColumnOptions) {
+        pdfPayload.show_professional = pdfShowProfessional;
+        pdfPayload.show_consultancy  = pdfShowConsultancy;
+      }
+
+      await generateQuotationPdf(id, pdfPayload, fileName);
       setShowPdfModal(false);
     } catch (e) {
       setPdfApiError(e.message || 'Failed to generate PDF. Please try again.');
@@ -655,7 +715,10 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   // ── Derived values ─────────────────────────────────────────────────────────
   const status     = getStatusWithIcon(quotation.status_display || quotation.status);
   const qNum       = fmtQNum(quotation.quotation_number);
-  const subtotal   = parseFloat(quotation.total_amount  || 0);
+  const itemSubtotal = (quotation.items || []).length
+    ? parseFloat((quotation.items || []).reduce((s, it) => s + calcItemTotal(it), 0).toFixed(2))
+    : parseFloat(quotation.total_amount || 0);
+  const subtotal   = itemSubtotal;
   const gstRate    = parseFloat(quotation.gst_rate      || 0);
   const discRate   = parseFloat(quotation.discount_rate || 0);
   const discAmt    = parseFloat(((subtotal * discRate) / 100).toFixed(2));
@@ -675,6 +738,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
     (items.length > 0 && items.every(it => Number(it.compliance_category ?? it.category) === 8))
   );
   const isRegulatory = !isExecution && !isArchitecture;
+  const showPdfColumnOptions = supportsQuotationPdfColumnOptions(qTypeRaw);
 
   // Display names
   const clientName = quotation.client_name
@@ -1378,6 +1442,66 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
                       style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
                     />
                   </div>
+                  {/* Column Visibility - Regulatory Compliance only */}
+                  {showPdfColumnOptions && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <CreditCard size={11} /> Select Columns for PDF
+                        </label>
+                        <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>
+                          {(pdfShowProfessional ? 1 : 0) + (pdfShowConsultancy ? 1 : 0)} / 2 selected
+                        </span>
+                      </div>
+                      <div style={{ border: `1.5px solid ${pdfFormError && !pdfShowProfessional && !pdfShowConsultancy ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                        {[
+                          {
+                            key: 'professional',
+                            label: 'Professional (₹)',
+                            checked: pdfShowProfessional,
+                            onChange: () => {
+                              setPdfShowProfessional(prev => !prev);
+                              setPdfFormError('');
+                            },
+                          },
+                          {
+                            key: 'consultancy',
+                            label: 'Consultancy / Misc',
+                            checked: pdfShowConsultancy,
+                            onChange: () => {
+                              setPdfShowConsultancy(prev => !prev);
+                              setPdfFormError('');
+                            },
+                          },
+                        ].map((column, index) => (
+                          <label
+                            key={column.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '11px 14px',
+                              borderBottom: index === 0 ? '1px solid #f0f4f8' : 'none',
+                              background: column.checked ? '#fafffe' : '#fff',
+                              cursor: pdfLoading ? 'not-allowed' : 'pointer',
+                              transition: 'background .12s',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={column.checked}
+                              disabled={pdfLoading}
+                              onChange={column.onChange}
+                              style={{ width: 16, height: 16, accentColor: '#0f766e', cursor: pdfLoading ? 'not-allowed' : 'pointer', flexShrink: 0 }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: column.checked ? '#1e293b' : '#94a3b8' }}>
+                              {column.label}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {/* Extra Notes */}
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>

@@ -431,7 +431,8 @@ const _extractPdfErrorMessage = async (error, fallback) => {
  *   id, company_name, address, gst_no, state, sac_code, code,
  *   invoice_number, invoice_date, work_order_date, valid_from, valid_till,
  *   vendor_code, po_no, schedule_date, scope_of_work,
- *   items: [{ item_id, quantity }]
+ *   items: [{ item_id, quantity }],
+ *   notes: []
  * }
  */
 export const generateConstructiveInvoicePdf = async (payload, fileName = 'invoice.pdf') => {
@@ -457,7 +458,8 @@ export const generateConstructiveInvoicePdf = async (payload, fileName = 'invoic
  * {
  *   id, invoice_number, company_name, address, gst_no, state, sac_code,
  *   po_no, schedule_date, scope_of_work,
- *   items: [{ item_id, quantity }]
+ *   items: [{ item_id, quantity }],
+ *   notes: []
  * }
  */
 export const generateOtherCompanyInvoicePdf = async (payload, fileName = 'invoice.pdf') => {

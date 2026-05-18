@@ -38,6 +38,7 @@ const COMPLIANCE_GROUPS = {
 // All regulatory categories combined (for type-checking)
 const REGULATORY_CATS     = [1, 2, 3, 4];
 const EXECUTION_CATS      = [5, 6, 7];
+const OTHER_SUB_COMPLIANCE_VALUE = 0;
 const ARCHITECTURE_CATS   = [8]; // Architecture — Company ID 1 only
 
 // ── Company options (matches backend Company class) ──────────────────────────
@@ -71,6 +72,27 @@ const SUB_COMPLIANCE_CATEGORIES = {
   9: { id: 9, name: 'Open Cut Method' },
 };
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const resolveSubComplianceValue = (form, isArch = false) => {
+  if (isArch) return null;
+  if (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+    return String(form.custom_sub_compliance || '').trim();
+  }
+  return form.sub_compliance_id || null;
+};
+
+const getSubComplianceLabel = (value) => {
+  if (!value) return '';
+  return SUB_COMPLIANCE_CATEGORIES[value]?.name || String(value);
+};
+
 // ============================================================================
 // SUB-COMPLIANCE DROPDOWN COMPONENT
 // ============================================================================
@@ -100,13 +122,16 @@ const SubComplianceDropdown = ({
   // Reset search when closed
   useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
 
-  const allSubCategories = SUB_COMPLIANCE_BY_CATEGORY[categoryId] || [];
+  const allSubCategories = [
+    ...(SUB_COMPLIANCE_BY_CATEGORY[categoryId] || []),
+    { id: OTHER_SUB_COMPLIANCE_VALUE, name: 'Other' },
+  ];
 
   const filteredList = allSubCategories.filter(item =>
     item.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const selectedItem = allSubCategories.find(item => item.id === value);
+  const selectedItem = allSubCategories.find(item => String(item.id) === String(value));
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -487,6 +512,7 @@ export default function Quotations({ onUpdateNavigation }) {
   // Compliance descriptions fetched by category + sub_category
   // Keyed by `${categoryId}_${subCategoryId}` so switching tabs preserves cache
   const [descriptionsCacheRef] = useState({ current: {} });
+  const descriptionRequestRef = React.useRef(0);
   const [complianceDescriptions, setComplianceDescriptions] = useState([]);
   const [complianceDescLoading, setComplianceDescLoading] = useState(false);
   const [descriptionMode, setDescriptionMode] = useState("dropdown");
@@ -647,7 +673,7 @@ export default function Quotations({ onUpdateNavigation }) {
   // Regulatory fields: Professional_amount, miscellaneous_amount
   // Execution fields:  material_rate, material_amount, labour_rate, labour_amount, unit, sac_code
   const BLANK_ITEM_FORM = {
-    compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1,
+    compliance_name: '', compliance_id: null, sub_compliance_id: null, custom_sub_compliance: '', quantity: 1,
     miscellaneous_amount: '', Professional_amount: 0,
     unit: '', item_sac_code: '',
     // execution_rate = the "Rate (Rs.) per unit" field — stored in Professional_amount for execution
@@ -764,15 +790,23 @@ export default function Quotations({ onUpdateNavigation }) {
       setDescriptionMode(cached.length > 0 ? 'dropdown' : 'manual');
       return;
     }
+    const requestId = ++descriptionRequestRef.current;
     setComplianceDescLoading(true);
     setComplianceDescriptions([]);
     setDescriptionMode("dropdown");
     try {
       const params = { category: categoryId, page_size: 100 };
-      if (subCategoryId) params.sub_category = subCategoryId;
+      if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+        params.sub_category = subCategoryId;
+      }
       const response = await api.get("/compliance/get_compliance_by_category/", { params });
-      if (response?.data?.status === "success" && response?.data?.data?.results) {
-        const results = response.data.data.results;
+      if (requestId !== descriptionRequestRef.current) return;
+      const results =
+        response?.data?.data?.results ||
+        response?.data?.results ||
+        (Array.isArray(response?.data?.data) ? response.data.data : null) ||
+        (Array.isArray(response?.data) ? response.data : null);
+      if (Array.isArray(results)) {
         descriptionsCacheRef.current[cacheKey] = results;
         setComplianceDescriptions(results);
         setDescriptionMode(results.length > 0 ? 'dropdown' : 'manual');
@@ -782,11 +816,12 @@ export default function Quotations({ onUpdateNavigation }) {
         setDescriptionMode("manual");
       }
     } catch {
+      if (requestId !== descriptionRequestRef.current) return;
       descriptionsCacheRef.current[cacheKey] = [];
       setComplianceDescriptions([]);
       setDescriptionMode("manual");
     } finally {
-      setComplianceDescLoading(false);
+      if (requestId === descriptionRequestRef.current) setComplianceDescLoading(false);
     }
   };
 
@@ -1025,12 +1060,13 @@ export default function Quotations({ onUpdateNavigation }) {
     if (!itemForm.compliance_name.trim()) return;
     const isExec = EXECUTION_CATS.includes(activeCategoryId);
     const isArch = ARCHITECTURE_CATS.includes(activeCategoryId);
+    if (!isArch && itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(itemForm.custom_sub_compliance || '').trim()) return;
 
     const newItem = {
       compliance_name:      itemForm.compliance_name.trim(),
       compliance_id:        itemForm.compliance_id || null,
       // Architecture: sub_compliance_id always null
-      sub_compliance_id:    isArch ? null : (itemForm.sub_compliance_id || null),
+      sub_compliance_id:    resolveSubComplianceValue(itemForm, isArch),
       quantity:             parseInt(itemForm.quantity, 10) || 1,
       total_amount:         calcItemTotal(itemForm, activeCategoryId),
       _categoryId:          activeCategoryId,
@@ -1064,6 +1100,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setActiveItemForm(prev => ({
       ...BLANK_ITEM_FORM,
       sub_compliance_id: prev.sub_compliance_id,
+      custom_sub_compliance: prev.custom_sub_compliance,
     }));
     setDescriptionSearch('');
     setShowDescriptionDropdown(false);
@@ -1076,7 +1113,8 @@ export default function Quotations({ onUpdateNavigation }) {
     setActiveItemForm({
       compliance_name:      item.compliance_name,
       compliance_id:        item.compliance_id || null,
-      sub_compliance_id:    item.sub_compliance_id || null,
+      sub_compliance_id:    SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? item.sub_compliance_id : (item.sub_compliance_id ? OTHER_SUB_COMPLIANCE_VALUE : null),
+      custom_sub_compliance: SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? '' : (item.sub_compliance_id || ''),
       quantity:             item.quantity || 1,
       miscellaneous_amount: item.miscellaneous_amount || '',
       Professional_amount:  item.Professional_amount  || 0,
@@ -1090,7 +1128,7 @@ export default function Quotations({ onUpdateNavigation }) {
     setActiveEditingIndex(index);
     setDescSelectedFromDropdown(true);
     // Re-fetch descriptions for this item's sub-category
-    if (item.sub_compliance_id) {
+    if (item.sub_compliance_id && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]) {
       fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
     } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
       fetchComplianceDescriptions(activeCategoryId, null);
@@ -1470,7 +1508,7 @@ export default function Quotations({ onUpdateNavigation }) {
           // Sub-compliance only relevant for categories 1,2,5,6,7; architecture always 0
           const hasSub = [1, 2, 5, 6, 7].includes(compliance_category);
           const sub_compliance_category = (hasSub && !isArch)
-            ? (item.sub_compliance_id ? parseInt(item.sub_compliance_id) : 0)
+            ? normalizeSubComplianceCategory(item.sub_compliance_id, 0)
             : 0;
 
           if (!description) throw new Error('Item description cannot be empty');
@@ -1705,14 +1743,15 @@ export default function Quotations({ onUpdateNavigation }) {
   // Used descriptions for uniqueness enforcement
   const modalUsedDescriptions = (() => {
     const used = new Set();
+    const currentSubCompliance = resolveSubComplianceValue(modalItemForm, ARCHITECTURE_CATS.includes(activeCategoryId));
     modalActiveItems.forEach((item, i) => {
       if (i === modalEditingItemIndex) return;
-      if (item.sub_compliance_id === modalItemForm.sub_compliance_id && item.compliance_name) {
+      if (item.sub_compliance_id === currentSubCompliance && item.compliance_name) {
         used.add(item.compliance_name);
       }
     });
     if (!isEditSectionMode) {
-      const globalUsed = getUsedDescriptionsForSub(modalItemForm.sub_compliance_id);
+      const globalUsed = getUsedDescriptionsForSub(currentSubCompliance);
       globalUsed.forEach(d => used.add(d));
       if (modalEditingItemIndex !== null && modalActiveItems[modalEditingItemIndex]?.compliance_name) {
         used.delete(modalActiveItems[modalEditingItemIndex].compliance_name);
@@ -1739,11 +1778,12 @@ export default function Quotations({ onUpdateNavigation }) {
         if (!itemForm.compliance_name.trim()) return;
         const _isExec = EXECUTION_CATS.includes(activeCategoryId);
         const _isArch = ARCHITECTURE_CATS.includes(activeCategoryId);
+        if (!_isArch && itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(itemForm.custom_sub_compliance || '').trim()) return;
         const newItem = {
           compliance_name:      itemForm.compliance_name.trim(),
           compliance_id:        itemForm.compliance_id || null,
           // Architecture: sub_compliance_id is always null (backend gets sub_compliance_category=0)
-          sub_compliance_id:    _isArch ? null : (itemForm.sub_compliance_id || null),
+          sub_compliance_id:    resolveSubComplianceValue(itemForm, _isArch),
           quantity:             parseInt(itemForm.quantity, 10) || 1,
           total_amount:         calcItemTotal(itemForm, activeCategoryId),
           _categoryId:          activeCategoryId,
@@ -1768,7 +1808,7 @@ export default function Quotations({ onUpdateNavigation }) {
         } else {
           setActiveItems(prev => [...prev, newItem]);
         }
-        modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id }));
+        modalSetItemForm(prev => ({ ...BLANK_ITEM_FORM, sub_compliance_id: prev.sub_compliance_id, custom_sub_compliance: prev.custom_sub_compliance }));
         setDescriptionSearch('');
         setShowDescriptionDropdown(false);
         setDescSelectedFromDropdown(false);
@@ -1782,7 +1822,8 @@ export default function Quotations({ onUpdateNavigation }) {
         modalSetItemForm({
           compliance_name:      item.compliance_name,
           compliance_id:        item.compliance_id || null,
-          sub_compliance_id:    item.sub_compliance_id || null,
+          sub_compliance_id:    SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? item.sub_compliance_id : (item.sub_compliance_id ? OTHER_SUB_COMPLIANCE_VALUE : null),
+          custom_sub_compliance: SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? '' : (item.sub_compliance_id || ''),
           quantity:             item.quantity || 1,
           miscellaneous_amount: item.miscellaneous_amount || '',
           Professional_amount:  item.Professional_amount  || 0,
@@ -1797,7 +1838,7 @@ export default function Quotations({ onUpdateNavigation }) {
         setDescSelectedFromDropdown(true);
         // Architecture = manual, no fetch; others fetch as normal
         if (!ARCHITECTURE_CATS.includes(activeCategoryId)) {
-          if (item.sub_compliance_id) {
+          if (item.sub_compliance_id && SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]) {
             fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id);
           } else if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
             fetchComplianceDescriptions(activeCategoryId, null);
@@ -2355,7 +2396,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                             <p className="text-sm text-gray-900 leading-relaxed">{item.compliance_name}</p>
                                             {item.sub_compliance_id && (
                                               <span className="inline-block mt-1 text-[11px] font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                                {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}
+                                                {getSubComplianceLabel(item.sub_compliance_id)}
                                               </span>
                                             )}
                                           </td>
@@ -2431,7 +2472,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                           {/* Sub Cat. */}
                                           <td className="px-2 py-3.5 align-top">
                                             <span className="text-xs font-semibold text-gray-600 leading-snug">
-                                              {SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name || '—'}
+                                              {getSubComplianceLabel(item.sub_compliance_id) || '—'}
                                             </span>
                                           </td>
                                           {/* Unit */}
@@ -2763,7 +2804,7 @@ export default function Quotations({ onUpdateNavigation }) {
                             <SubComplianceDropdown
                               value={modalItemForm.sub_compliance_id}
                               onChange={(id) => {
-                                modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
+                                modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, custom_sub_compliance: id === OTHER_SUB_COMPLIANCE_VALUE ? prev.custom_sub_compliance : '', compliance_name: '' }));
                                 setDescriptionSearch('');
                                 setShowDescriptionDropdown(false);
                                 setDescSelectedFromDropdown(false);
@@ -2772,6 +2813,25 @@ export default function Quotations({ onUpdateNavigation }) {
                               categoryId={activeCategoryId}
                               placeholder="Select sub-compliance category"
                             />
+                            {modalItemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && (
+                              <input
+                                type="text"
+                                value={modalItemForm.custom_sub_compliance || ''}
+                                onChange={e => {
+                                  modalSetItemForm(prev => ({ ...prev, custom_sub_compliance: e.target.value }));
+                                  if (descriptionMode !== 'dropdown' || complianceDescriptions.length === 0) {
+                                    fetchComplianceDescriptions(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                                  }
+                                }}
+                                onBlur={async e => {
+                                  if (e.target.value.trim()) {
+                                    await fetchComplianceDescriptions(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                                  }
+                                }}
+                                placeholder="Enter sub-compliance category"
+                                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                              />
+                            )}
                           </div>
                         )}
 
@@ -3168,7 +3228,8 @@ export default function Quotations({ onUpdateNavigation }) {
                             disabled={
                               !modalItemForm.compliance_name.trim() ||
                               // Sub-compliance required only for cats 1,2,5,6,7 (not arch)
-                              (activeCategoryId && !ARCHITECTURE_CATS.includes(activeCategoryId) && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && !modalItemForm.sub_compliance_id) ||
+                              (activeCategoryId && !ARCHITECTURE_CATS.includes(activeCategoryId) && (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (modalItemForm.sub_compliance_id === null || modalItemForm.sub_compliance_id === undefined || modalItemForm.sub_compliance_id === '')) ||
+                              (modalItemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(modalItemForm.custom_sub_compliance || '').trim()) ||
                               // Professional_amount required for regulatory + architecture; execution uses rates
                               (!EXECUTION_CATS.includes(activeCategoryId) && !(parseFloat(modalItemForm.Professional_amount) > 0))
                             }
@@ -3196,7 +3257,7 @@ export default function Quotations({ onUpdateNavigation }) {
                                 <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
                                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                                   {item.sub_compliance_id && (
-                                    <span className="text-xs text-indigo-600 font-medium">{SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id]?.name}</span>
+                                    <span className="text-xs text-indigo-600 font-medium">{getSubComplianceLabel(item.sub_compliance_id)}</span>
                                   )}
                                   <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                                   {EXECUTION_CATS.includes(activeCategoryId) ? (

@@ -205,13 +205,14 @@ export function numberToWords(n) {
  *                        falls back to Professional_amount×qty if no rates present.
  *   • Regulatory item →  (Professional_amount + consultancy_charges) × qty
  */
+const isBlankOptionalValue = (value) => {
+  if (value === null || value === undefined) return true;
+  const text = String(value).trim();
+  return !text || text === '--' || text === '0' || text === '0.00';
+};
+
 export const calcItemTotal = (item) => {
   // ── 1. Trust the backend value when it is a valid positive number ────────────
-  const backendTotal = parseFloat(item.total_amount);
-  if (!isNaN(backendTotal) && backendTotal > 0) {
-    return parseFloat(backendTotal.toFixed(2));
-  }
-
   // ── 2. Calculated fallback (edit-mode new items, or backend returned 0) ──────
   const qty     = parseInt(item.quantity)              || 1;
   const prof    = parseFloat(item.Professional_amount) || 0;
@@ -221,7 +222,9 @@ export const calcItemTotal = (item) => {
   const labAmt  = parseFloat(item.labour_amount)       || 0;
 
   // Execution item: at least one execution-specific field has a positive value.
-  const isExecItem = matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
+  const catId = Number(item.compliance_category ?? item.category);
+  const isExecCategory = [5, 6, 7].includes(catId);
+  const isExecItem = isExecCategory || matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
 
   if (isExecItem) {
     const effectiveMat = matAmt > 0 ? matAmt : (matRate > 0 ? matRate * qty : 0);
@@ -235,7 +238,7 @@ export const calcItemTotal = (item) => {
   // Regulatory item — parse consultancy_charges (string from API) correctly.
   const consultancy = (() => {
     const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw === null || raw === undefined || raw === '') return 0;
+    if (isBlankOptionalValue(raw)) return 0;
     const n = parseFloat(String(raw).trim());
     return isNaN(n) ? 0 : n;
   })();
