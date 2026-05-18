@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Download, Loader2, AlertCircle,
@@ -411,6 +411,31 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     return () => onUpdateNavigation?.(null);
   }, [onUpdateNavigation]);
 
+  // ── Scroll lock — prevent background page scroll whenever PDF or other modals are open
+  useEffect(() => {
+    const anyModalOpen = showPdfModal || showPaymentPdfModal || showCreatePOModal || showCancelModal || sendModal || showCreatePOModal;
+    if (anyModalOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    } else {
+      const scrollY = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+    }
+    return () => {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+    };
+  }, [showPdfModal, showPaymentPdfModal, showCreatePOModal, showCancelModal, sendModal]);
+
   const fetchData = useCallback(async () => {
     if (!id) { setFetchError('No invoice ID provided'); setLoading(false); return; }
     setLoading(true); setFetchError('');
@@ -697,9 +722,61 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     setShowPdfModal(true);
   };
 
+  // Parse API validation errors into field-level errors and a user-friendly message
+  const parseApiValidationError = (err) => {
+    // Human-readable labels for known API field names
+    const FIELD_LABELS = {
+      company_name:    'Company Name',
+      address:         'Address',
+      scope_of_work:   'Scope of Work',
+      schedule_date:   'Schedule Date',
+      received_amount: 'Received Amount',
+      invoice_date:    'Invoice Date',
+      work_order_date: 'Work Order Date',
+      valid_from:      'Valid From',
+      valid_till:      'Valid Till',
+      vendor_code:     'Vendor Code',
+      po_no:           'PO No.',
+      gst_no:          'GST No.',
+      state:           'State',
+      sac_code:        'SAC Code',
+    };
+    try {
+      const resp = err?.response?.data || {};
+      const errs = resp.errors || (resp.data && resp.data.errors) || null;
+      if (!errs || typeof errs !== 'object') {
+        const msg = resp?.message || err?.message || 'Failed to generate PDF. Please try again.';
+        return { fieldErrors: {}, message: msg };
+      }
+      const fieldErrors = {};
+      const missingFields = [];
+      Object.keys(errs).forEach(key => {
+        const v = errs[key];
+        const text = Array.isArray(v) ? v.join(' ') : String(v);
+        fieldErrors[key] = text;
+        // Collect human-readable field names for the summary message
+        const label = FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        if (text.toLowerCase().includes('blank') || text.toLowerCase().includes('required')) {
+          missingFields.push(label);
+        }
+      });
+      let message;
+      if (missingFields.length > 0) {
+        message = `Please fill in the required field${missingFields.length > 1 ? 's' : ''}: ${missingFields.join(', ')}.`;
+      } else {
+        const allMsgs = Object.values(errs).map(v => Array.isArray(v) ? v.join(' ') : String(v));
+        message = allMsgs.join(' ') || 'Validation failed. Please fix the highlighted fields.';
+      }
+      return { fieldErrors, message };
+    } catch {
+      return { fieldErrors: {}, message: err?.message || 'Failed to generate PDF. Please try again.' };
+    }
+  };
+
   /** Validate and submit invoice PDF download (constructive or other-company) */
   const handleConfirmPdfDownload = async () => {
     const errors = {};
+    if (!pdfForm.company_name?.trim())  errors.company_name  = 'Company name is required for the invoice PDF.';
     if (!pdfForm.address?.trim())       errors.address       = 'Address is required for the invoice PDF.';
     if (!pdfForm.scope_of_work?.trim()) errors.scope_of_work = 'Scope of work is required.';
     if (!pdfForm.schedule_date)         errors.schedule_date  = 'Schedule date is required.';
@@ -769,7 +846,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
       }
       setShowPdfModal(false);
     } catch (e) {
-      setPdfError(e.message || 'Failed to generate PDF. Please try again.');
+      const parsed = parseApiValidationError(e);
+      if (parsed.fieldErrors && Object.keys(parsed.fieldErrors).length > 0) {
+        setPdfFormErrors(prev => ({ ...prev, ...parsed.fieldErrors }));
+      }
+      setPdfError(parsed.message || 'Failed to generate PDF. Please try again.');
     } finally {
       setPdfLoading(false);
     }
@@ -780,7 +861,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
     const today = new Date().toISOString().split('T')[0];
     setPaymentPdfForm({
       invoice_number: invoice?.invoice_number || '',
-      company_name:   invoice?.company_name   || '',
+      company_name:   '',
       address:        invoice?.address        || '',
       gst_no:         invoice?.gst_no         || '',
       state:          invoice?.state          || '',
@@ -798,6 +879,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   /** Validate and submit Payment Received PDF download */
   const handleConfirmPaymentPdfDownload = async () => {
     const errors = {};
+    if (!paymentPdfForm.company_name?.trim())  errors.company_name  = 'Company name is required.';
+    if (!paymentPdfForm.address?.trim())       errors.address       = 'Address is required.';
     if (!paymentPdfForm.scope_of_work?.trim())  errors.scope_of_work  = 'Scope of work is required.';
     if (!paymentPdfForm.received_amount?.trim()) errors.received_amount = 'Received amount is required.';
     if (!paymentPdfForm.schedule_date)           errors.schedule_date   = 'Schedule date is required.';
@@ -823,7 +906,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
       }, fileName);
       setShowPaymentPdfModal(false);
     } catch (e) {
-      setPaymentPdfError(e.message || 'Failed to generate PDF. Please try again.');
+      const parsed = parseApiValidationError(e);
+      if (parsed.fieldErrors && Object.keys(parsed.fieldErrors).length > 0) {
+        setPaymentPdfFormErrors(prev => ({ ...prev, ...parsed.fieldErrors }));
+      }
+      setPaymentPdfError(parsed.message || 'Failed to generate PDF. Please try again.');
     } finally {
       setPaymentPdfLoading(false);
     }
@@ -1210,7 +1297,6 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               className="vid-btn-p"
               onClick={handleOpenPaymentPdf}
               disabled={paymentPdfLoading}
-              style={{ background: 'linear-gradient(135deg,#0d9488,#0891b2)', boxShadow: '0 2px 8px rgba(8,145,178,.25)' }}
             >
               {paymentPdfLoading ? <><Loader2 size={14} className="vid-spin" /> Generating…</> : <><Receipt size={14} /> Payment Received PDF</>}
             </button>
@@ -1536,7 +1622,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 className="vid-dl-btn"
                 onClick={handleOpenPaymentPdf}
                 disabled={paymentPdfLoading}
-                style={{ marginTop: 8, background: 'linear-gradient(135deg,#0d9488,#0891b2)' }}
+                style={{ marginTop: 8 }}
               >
                 {paymentPdfLoading ? <><Loader2 size={15} className="vid-spin" /> Generating…</> : <><Receipt size={15} /> Payment Received PDF</>}
               </button>
@@ -1568,6 +1654,12 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         defaultBody={`Dear ${billedToName},\n\nPlease find attached your invoice ${invNum}${invoice.issue_date || invoice.created_at ? `, issued on ${fmtDate(invoice.issue_date || invoice.created_at)}` : ''}.\n\nKindly review the details and make the payment at the earliest convenience.\n\nBest regards,\n${companyName}`}
         onSuccess={() => setSendModal(false)}
       />
+
+      <style>{`
+        .vpd-pdf-body { overflow-y: auto; flex: 1; scrollbar-width: none; -ms-overflow-style: none; }
+        .vpd-pdf-body::-webkit-scrollbar { width: 8px; }
+        .vpd-pdf-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 8px; }
+      `}</style>
 
       {/* ═══════════ CREATE PURCHASE ORDER MODAL ═══════════ */}
       {showCreatePOModal && (() => {
@@ -1831,11 +1923,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 </div>
 
                 {/* ── Body ── */}
-                <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+                <div className="vpd-pdf-body" style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
 
                   {/* ── Form fields grid ── */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                    {field('company_name',   'Company Name', false)}
+                    {field('company_name',   'Company Name', true)}
                     {field('address',        'Address', true)}
                     {field('gst_no',         'GST No.', false)}
                     {field('state',          'State', false)}
@@ -2167,6 +2259,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                       <div>
                         <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
                         <div style={{ fontWeight: 400 }}>{pdfError}</div>
+                        {Object.keys(pdfFormErrors).length > 0 && (
+                          <div style={{ marginTop: 6, fontSize: 11.5, color: '#b91c1c', fontWeight: 600 }}>
+                            ↑ Please scroll up and fill in the highlighted fields marked with <span style={{ color: '#dc2626' }}>*</span>.
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2234,7 +2331,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
               </div>
 
               {/* ── Body ── */}
-              <div style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
+              <div className="vpd-pdf-body" style={{ padding: '22px 24px 24px', background: '#fafafa' }}>
                 {/* Info */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
                   <AlertCircle size={14} color="#0d9488" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -2247,8 +2344,8 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                   {[
                     ['invoice_number', 'Invoice Number', false, 'text'],
-                    ['company_name',   'Company Name',   false, 'text'],
-                    ['address',        'Address',        false, 'text'],
+                    ['company_name',   'Company Name',   true,  'text'],
+                    ['address',        'Address',        true,  'text'],
                     ['gst_no',         'GST No.',        false, 'text'],
                     ['state',          'State',          false, 'text'],
                     ['sac_code',       'SAC Code',       false, 'text'],
@@ -2346,6 +2443,11 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                     <div>
                       <div style={{ fontWeight: 700, marginBottom: 2 }}>PDF generation failed</div>
                       <div style={{ fontWeight: 400 }}>{paymentPdfError}</div>
+                      {Object.keys(paymentPdfFormErrors).length > 0 && (
+                        <div style={{ marginTop: 6, fontSize: 11.5, color: '#b91c1c', fontWeight: 600 }}>
+                          ↑ Please scroll up and fill in the highlighted fields marked with <span style={{ color: '#dc2626' }}>*</span>.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
