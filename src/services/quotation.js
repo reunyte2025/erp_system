@@ -1,4 +1,5 @@
 import api, { normalizeError } from './api';
+import { optionalMoneyOrNull, optionalTextOrNull } from './quotationHelpers';
 
 /**
  * ============================================================================
@@ -227,6 +228,16 @@ export const getExecutionQuotationById = async (id) => {
 const isExecutionQuotation = (items = []) =>
   items.some(item => [5, 6, 7].includes(parseInt(item.compliance_category || 0)));
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const optionalTextOrBlank = (value) => optionalTextOrNull(value) ?? '';
+
 const buildExecutionItemsPayload = (items = []) =>
   items.map(item => {
     const qty      = parseInt(item.quantity) || 1;
@@ -241,8 +252,8 @@ const buildExecutionItemsPayload = (items = []) =>
     return {
       description:             String(item.description || '').trim().slice(0, 255),
       quantity:                qty,
-      unit:                    String(item.unit || '').trim() || null,
-      sac_code:                String(item.sac_code || '').trim(),
+      unit:                    optionalTextOrNull(item.unit),
+      sac_code:                optionalTextOrNull(item.sac_code),
       Professional_amount:     profRate.toFixed(2),
       material_rate:           matRate.toFixed(2),
       material_amount:         matAmt.toFixed(2),
@@ -250,7 +261,7 @@ const buildExecutionItemsPayload = (items = []) =>
       labour_amount:           labAmt.toFixed(2),
       total_amount:            total.toFixed(2),
       compliance_category:     parseInt(item.compliance_category) || null,
-      sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
     };
   });
 
@@ -293,7 +304,7 @@ const _createQuotationInternal = async (quotationData, endpoint) => {
     company:          parseInt(quotationData.company) || 1,
     gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
     discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
-    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    sac_code:         optionalTextOrNull(quotationData.sac_code)?.slice(0, 6) || null,
     total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
     total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
     grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
@@ -306,14 +317,13 @@ const _createQuotationInternal = async (quotationData, endpoint) => {
     basePayload.items = quotationData.items.map(item => ({
       description:             String(item.description).trim(),
       quantity:                parseInt(item.quantity),
-      unit:                    String(item.unit || '').trim() || null,
-      sac_code:                String(item.sac_code || '').trim(),
-      consultancy_charges:     String(item.consultancy_charges ?? item.miscellaneous_amount ?? '').trim()
-                               || String((parseFloat(String(item.miscellaneous_amount ?? '').trim()) || 0).toFixed(2)),
+      unit:                    optionalTextOrNull(item.unit),
+      sac_code:                optionalTextOrNull(item.sac_code),
+      consultancy_charges:     optionalMoneyOrNull(item.consultancy_charges ?? item.miscellaneous_amount),
       Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
       total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
       compliance_category:     parseInt(item.compliance_category)  || null,
-      sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
     }));
   }
 
@@ -374,8 +384,8 @@ export const createQuotation = async (quotationData) => {
  * Update a Regulatory Compliance quotation.
  * PUT /quotations/update_quotation/
  *
- * Swagger payload: id, client, project, company, sac_code, gst_rate,
- * discount_rate, total_amount, total_gst_amount, grand_total, status,
+ * Swagger payload: id, company, gst_rate, discount_rate, sac_code,
+ * total_amount, total_gst_amount, grand_total,
  * items[]: { id, description, quantity, unit, consultancy_charges,
  *            Professional_amount, total_amount,
  *            compliance_category, sub_compliance_category }
@@ -386,34 +396,27 @@ export const updateRegulatoryQuotation = async (quotationData) => {
 
   const payload = {
     id:               parseInt(quotationData.id),
-    client:           quotationData.client ? parseInt(quotationData.client) : null,
-    project:          parseInt(quotationData.project),
     company:          parseInt(quotationData.company) || 1,
-    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    sac_code:         optionalTextOrNull(quotationData.sac_code)?.slice(0, 6) || null,
     gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
     discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
     total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
     total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
     grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
-    status:           parseInt(quotationData.status) || 1,
     items: (quotationData.items || []).map(item => {
       const rawId  = item.id != null ? parseInt(item.id) : null;
       const itemId = rawId && rawId > 0 ? rawId : null;
-      const consultancy = (() => {
-        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
-        const num = parseFloat(String(raw).trim());
-        return isNaN(num) ? '0.00' : num.toFixed(2);
-      })();
+      const consultancy = optionalMoneyOrNull(item.consultancy_charges ?? item.miscellaneous_amount);
       return {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
-        unit:                    String(item.unit || '').trim() || null,
+        unit:                    optionalTextOrBlank(item.unit),
         consultancy_charges:     consultancy,
         Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
         total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
         compliance_category:     parseInt(item.compliance_category)  || 1,
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
       };
     }),
   };
@@ -431,9 +434,9 @@ export const updateRegulatoryQuotation = async (quotationData) => {
  * Update an Execution Compliance quotation.
  * PUT /quotations/update_execution_quotation/
  *
- * Swagger payload: id, client, vendor, project, company, sac_code, gst_rate,
- * discount_rate, total_amount, total_gst_amount, grand_total, status,
- * items[]: { id, description, quantity, unit, sac_code, consultancy_charges,
+ * Swagger payload: id, company, gst_rate, discount_rate, sac_code,
+ * total_amount, total_gst_amount, grand_total,
+ * items[]: { id, description, quantity, unit, sac_code,
  *            Professional_amount, material_rate, material_amount,
  *            labour_rate, labour_amount, total_amount,
  *            compliance_category, sub_compliance_category }
@@ -444,17 +447,13 @@ export const updateExecutionQuotation = async (quotationData) => {
 
   const payload = {
     id:               parseInt(quotationData.id),
-    client:           quotationData.client ? parseInt(quotationData.client) : null,
-    vendor:           quotationData.vendor ? parseInt(quotationData.vendor) : null,
-    project:          parseInt(quotationData.project),
     company:          parseInt(quotationData.company) || 1,
-    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    sac_code:         optionalTextOrNull(quotationData.sac_code)?.slice(0, 6) || null,
     gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
     discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
     total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
     total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
     grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
-    status:           parseInt(quotationData.status) || 1,
     items: (quotationData.items || []).map(item => {
       const rawId  = item.id != null ? parseInt(item.id) : null;
       const itemId = rawId && rawId > 0 ? rawId : null;
@@ -467,18 +466,12 @@ export const updateExecutionQuotation = async (quotationData) => {
       const total   = (matAmt + labAmt) > 0
         ? parseFloat((matAmt + labAmt).toFixed(2))
         : parseFloat((prof * qty).toFixed(2));
-      const consultancy = (() => {
-        const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
-        const num = parseFloat(String(raw).trim());
-        return isNaN(num) ? '0.00' : num.toFixed(2);
-      })();
       return {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                qty,
-        unit:                    String(item.unit || '').trim() || null,
-        sac_code:                String(item.sac_code || item.item_sac_code || '').trim(),
-        consultancy_charges:     consultancy,
+        unit:                    optionalTextOrBlank(item.unit),
+        sac_code:                optionalTextOrNull(item.sac_code || item.item_sac_code),
         Professional_amount:     String(prof.toFixed(2)),
         material_rate:           String(matRate.toFixed(2)),
         material_amount:         String(matAmt.toFixed(2)),
@@ -486,7 +479,7 @@ export const updateExecutionQuotation = async (quotationData) => {
         labour_amount:           String(labAmt.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
         compliance_category:     parseInt(item.compliance_category) || 5,
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
       };
     }),
   };
@@ -545,13 +538,52 @@ export const deleteQuotation = deleteQuotationById;
 // PDF
 // ============================================================================
 
-export const generateQuotationPdf = async (id, { company_name = '', address = '', contact_person = '', subject = '', extra_notes = [] } = {}, fileName = null) => {
+export const generateQuotationPdf = async (
+  id,
+  {
+    company_name = '',
+    address = '',
+    contact_person = '',
+    subject = '',
+    extra_notes = [],
+    quotation_type,
+    items,
+    show_consultancy,
+    show_professional,
+  } = {},
+  fileName = null
+) => {
   if (!id) throw new Error('Quotation ID is required');
   try {
     serviceLogger.log(`Generating PDF for quotation ${id}…`);
+    const payload = {
+      id: parseInt(id),
+      company_name,
+      address,
+      contact_person,
+      subject,
+      extra_notes,
+    };
+
+    if (quotation_type) payload.quotation_type = quotation_type;
+
+    if (Array.isArray(items)) {
+      payload.items = items.map(item => ({
+        ...item,
+        unit: optionalTextOrNull(item?.unit),
+        sac_code: optionalTextOrNull(item?.sac_code ?? item?.item_sac_code),
+        item_sac_code: optionalTextOrNull(item?.item_sac_code ?? item?.sac_code),
+        consultancy_charges: optionalMoneyOrNull(item?.consultancy_charges ?? item?.miscellaneous_amount),
+        miscellaneous_amount: optionalMoneyOrNull(item?.miscellaneous_amount ?? item?.consultancy_charges),
+      }));
+    }
+
+    if (typeof show_consultancy === 'boolean') payload.show_consultancy = show_consultancy;
+    if (typeof show_professional === 'boolean') payload.show_professional = show_professional;
+
     const response = await api.post(
       ENDPOINTS.GENERATE_PDF,
-      { id: parseInt(id), company_name, address, contact_person, subject, extra_notes },
+      payload,
       { responseType: 'blob' }
     );
     const url  = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
@@ -621,7 +653,9 @@ export const getComplianceDescriptions = async (categoryId, subCategoryId = null
     if (!categoryId) throw new Error('Category ID is required');
     serviceLogger.log(`Fetching compliance descriptions for category ${categoryId}`);
     const params = { category: categoryId, page_size: 100 };
-    if (subCategoryId) params.sub_category = subCategoryId;
+    if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+      params.sub_category = subCategoryId;
+    }
     const response = await api.get('/compliance/get_compliance_by_category/', { params });
     if (response?.data?.status === 'success' && response?.data?.data?.results) {
       return response.data.data.results;

@@ -29,6 +29,14 @@ import {
   hasExecutionRateBreakdown,
 } from '../../services/proformaHelpers';
 
+const getSubComplianceName = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const text = String(value).trim();
+  if (!text || text === '0') return '';
+  if (SUB_COMPLIANCE_CATEGORIES[text]) return SUB_COMPLIANCE_CATEGORIES[text].name;
+  return text;
+};
+
 export default function ProformaTypeTable({
   isExecution,
   isRegulatory,
@@ -39,6 +47,11 @@ export default function ProformaTypeTable({
   removeItem,
   onAddItem,
 }) {
+  const getEditableMiscValue = (item) => {
+    const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+    const text = String(raw).trim();
+    return text === '0' || text === '0.00' || text === '--' ? '' : text;
+  };
   // ── Execution: check if ANY item has mat/lab rate breakdown ─────────────────
   // When true  → show full 4-column rate layout (Mat Rate, Lab Rate, Mat Amt, Lab Amt)
   // When false → show simplified single "Rate (₹)" column (Professional_amount)
@@ -157,19 +170,20 @@ export default function ProformaTypeTable({
                     {grp.items.map((item, ii) => {
                       const prof    = parseFloat(item.Professional_amount || 0);
                       const total   = calcItemTotal(item);
-                      const subCat  = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
+                      const subCatName = getSubComplianceName(item.sub_compliance_category);
 
                       // ── Consultancy / Misc display value ──────────────────────────────────
                       // Priority: consultancy_charges (proforma API field) → miscellaneous_amount
                       // We must NOT use a truthy check for the raw value because "0" is valid.
                       const rawConsultancy = item.consultancy_charges ?? item.miscellaneous_amount ?? null;
                       // Normalise to a trimmed string or null
+                      const consultancyText = rawConsultancy === null || rawConsultancy === undefined ? '' : String(rawConsultancy).trim();
                       const consultancyStr = (
-                        rawConsultancy !== null &&
-                        rawConsultancy !== undefined &&
-                        String(rawConsultancy).trim() !== '' &&
-                        String(rawConsultancy).trim() !== '--'
-                      ) ? String(rawConsultancy).trim() : null;
+                        consultancyText &&
+                        consultancyText !== '--' &&
+                        consultancyText !== '0' &&
+                        consultancyText !== '0.00'
+                      ) ? consultancyText : null;
                       const { matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
                       const itemSacCode        = item.sac_code;
                       const showExecBreakdown  = hasExecutionRateBreakdown(item);
@@ -180,7 +194,7 @@ export default function ProformaTypeTable({
                           <td>
                             <div className="vpd-desc">{item.description || item.compliance_name || '—'}</div>
                           </td>
-                          <td>{subCat ? <span className="vpd-subcat">{subCat.name}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
+                          <td>{subCatName ? <span className="vpd-subcat">{subCatName}</span> : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}</td>
                           <td style={{ textAlign: 'center' }}><span className="vpd-qty-badge">{parseInt(item.quantity) || 1}</span></td>
                           <td style={{ textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>{item.unit || '—'}</td>
                           {isExecution && (
@@ -366,19 +380,17 @@ export default function ProformaTypeTable({
                               <label style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', marginBottom: 4 }}>Consultancy / Misc</label>
                               <input
                                 type="text"
+                                inputMode="text"
                                 className="vpd-edit-input"
-                                value={it.consultancy_charges ?? it.miscellaneous_amount ?? ''}
-                                onChange={e => {
-                                  updateItem(globalIdx, 'consultancy_charges', e.target.value);
-                                  updateItem(globalIdx, 'miscellaneous_amount', e.target.value);
-                                }}
+                                value={getEditableMiscValue(it)}
+                                onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
                                 placeholder="Amount or note"
                                 style={{
                                   textAlign: 'right', width: '100%',
-                                  borderColor: (it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) ? '#fbbf24' : undefined,
+                                  borderColor: getEditableMiscValue(it) && !isMiscNumeric(getEditableMiscValue(it)) ? '#fbbf24' : undefined,
                                 }}
                               />
-                              {(it.consultancy_charges ?? it.miscellaneous_amount) && !isMiscNumeric(it.consultancy_charges ?? it.miscellaneous_amount) && (
+                              {getEditableMiscValue(it) && !isMiscNumeric(getEditableMiscValue(it)) && (
                                 <div style={{ fontSize: 10, color: '#d97706', marginTop: 3 }}>⚠ Note only — not included in calculation</div>
                               )}
                             </div>

@@ -102,6 +102,21 @@ export const isMiscNumeric = (v) => {
   return s !== '' && !isNaN(s) && !isNaN(parseFloat(s));
 };
 
+export const isBlankOptionalValue = (v) => {
+  if (v === '' || v === null || v === undefined) return true;
+  const s = String(v).trim().toLowerCase();
+  return s === '' || s === '--' || s === 'n/a' || s === 'na';
+};
+
+export const optionalTextOrNull = (v) =>
+  isBlankOptionalValue(v) ? null : String(v).trim();
+
+export const optionalMoneyOrNull = (v) => {
+  if (isBlankOptionalValue(v)) return null;
+  const n = parseFloat(String(v).trim());
+  return isNaN(n) ? null : n.toFixed(2);
+};
+
 export const getStatus = (s) =>
   STATUS_CONFIG[String(s || '').toLowerCase()] || STATUS_CONFIG['1'];
 
@@ -166,14 +181,13 @@ export const calcItemTotal = (item) => {
   const matAmt  = parseFloat(item.material_amount)     || 0;
   const labAmt  = parseFloat(item.labour_amount)       || 0;
 
-  // Execution item: any of the four rate/amount fields is present (not undefined/null).
-  // Uses != null which covers both undefined and null in one check.
-  const isExecItem = (
-    item.material_rate   != null ||
-    item.labour_rate     != null ||
-    item.material_amount != null ||
-    item.labour_amount   != null
-  );
+  const catId = Number(item.compliance_category ?? item.category);
+  const isExecCategory = [5, 6, 7].includes(catId);
+
+  // Treat a row as execution only when it belongs to execution categories or
+  // has a real material/labour value. Regulatory rows may carry zero-value
+  // material fields from older state; those must not hide consultancy charges.
+  const isExecItem = isExecCategory || matRate > 0 || labRate > 0 || matAmt > 0 || labAmt > 0;
 
   if (isExecItem) {
     // Prefer direct amounts from API; fall back to rate * qty
@@ -189,7 +203,7 @@ export const calcItemTotal = (item) => {
   // Regulatory item — consultancy_charges replaces the old miscellaneous_amount
   const consultancy = (() => {
     const raw = item.consultancy_charges ?? item.miscellaneous_amount;
-    if (raw === '--' || raw === null || raw === undefined || raw === '') return 0;
+    if (isBlankOptionalValue(raw)) return 0;
     const n = parseFloat(String(raw).trim());
     return isNaN(n) ? 0 : n;
   })();

@@ -370,6 +370,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
   const [pdfFormErrors, setPdfFormErrors] = useState({});
   // Item checklist: { [itemKey]: { selected: bool, quantity: number } }
   const [pdfItemSelections, setPdfItemSelections] = useState({});
+  const [pdfNotes, setPdfNotes] = useState(['']);
 
   // ── Payment Received PDF modal ────────────────────────────────────────────
   const [showPaymentPdfModal,   setShowPaymentPdfModal]   = useState(false);
@@ -678,6 +679,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
       scope_of_work:  '',
     });
     setPdfFormErrors({});
+    setPdfNotes(['']);
     // Initialise item checklist — all selected, quantity = item's actual quantity
     const initSelections = {};
     (invoice?.items || []).forEach((item, idx) => {
@@ -747,6 +749,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           schedule_date:  pdfForm.schedule_date,
           scope_of_work:  pdfForm.scope_of_work,
           items:          selectedItems,
+          notes:          pdfNotes.map(note => note.trim()).filter(Boolean),
         }, fileName);
       } else {
         await generateOtherCompanyInvoicePdf({
@@ -761,6 +764,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
           schedule_date:  pdfForm.schedule_date,
           scope_of_work:  pdfForm.scope_of_work,
           items:          selectedItems,
+          notes:          pdfNotes.map(note => note.trim()).filter(Boolean),
         }, fileName);
       }
       setShowPdfModal(false);
@@ -2101,6 +2105,60 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                       </div>
                     );
                   })()}
+
+                  {/* Notes */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                        Notes
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPdfNotes(prev => [...prev, ''])}
+                        disabled={pdfLoading}
+                        style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', background: 'none', border: 'none', cursor: pdfLoading ? 'not-allowed' : 'pointer', padding: '2px 6px' }}
+                      >
+                        + Add Note
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {pdfNotes.map((note, noteIndex) => (
+                        <div key={noteIndex} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <textarea
+                            rows={2}
+                            value={note}
+                            onChange={e => setPdfNotes(prev => prev.map((n, i) => i === noteIndex ? e.target.value : n))}
+                            disabled={pdfLoading}
+                            placeholder={`Note ${noteIndex + 1}`}
+                            style={{
+                              flex: 1, width: '100%', padding: '9px 11px',
+                              border: '1.5px solid #e2e8f0',
+                              borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#1e293b',
+                              resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                              background: pdfLoading ? '#f8fafc' : '#fff',
+                            }}
+                          />
+                          {pdfNotes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setPdfNotes(prev => prev.filter((_, i) => i !== noteIndex))}
+                              disabled={pdfLoading}
+                              style={{
+                                width: 32, height: 32, borderRadius: 8,
+                                border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626',
+                                cursor: pdfLoading ? 'not-allowed' : 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                              title="Remove note"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                   {/* API error */}
                   {pdfError && (
