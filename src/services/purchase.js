@@ -28,6 +28,25 @@ const serviceLogger = {
   error: (...args) => console.error('[Purchase Service]', ...args),
 };
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const optionalText = (value) => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+};
+
+const itemUnitString = (item = {}) => {
+  const values = [item.unit, item.Unit, item.item_unit, item.service_unit, item.uom, item.UOM];
+  const found = values.find(value => value !== null && value !== undefined && String(value).trim() !== '');
+  return found == null ? '' : String(found).trim();
+};
+
 // ============================================================================
 // API ENDPOINTS
 // ============================================================================
@@ -69,23 +88,25 @@ const buildExecutionItemsPayload = (items = []) =>
     const labRate  = parseFloat(item.labour_rate)         || 0;
     const matAmt   = parseFloat(item.material_amount)     || 0;
     const labAmt   = parseFloat(item.labour_amount)       || 0;
-    const total    = (matAmt || labAmt)
-      ? parseFloat((matAmt + labAmt).toFixed(2))
+    const finalMatAmt = matAmt || (matRate > 0 ? matRate * qty : 0);
+    const finalLabAmt = labAmt || (labRate > 0 ? labRate * qty : 0);
+    const total    = (finalMatAmt || finalLabAmt)
+      ? parseFloat((finalMatAmt + finalLabAmt).toFixed(2))
       : parseFloat((profRate * qty).toFixed(2));
 
     return {
       description:             String(item.description || '').trim().slice(0, 255),
       quantity:                qty,
-      unit:                    String(item.unit || '').trim() || null,
-      sac_code:                String(item.sac_code || '').trim(),
+      unit:                    itemUnitString(item),
+      sac_code:                optionalText(item.sac_code || item.item_sac_code),
       Professional_amount:     profRate.toFixed(2),
       material_rate:           matRate.toFixed(2),
-      material_amount:         matAmt.toFixed(2),
+      material_amount:         finalMatAmt.toFixed(2),
       labour_rate:             labRate.toFixed(2),
-      labour_amount:           labAmt.toFixed(2),
+      labour_amount:           finalLabAmt.toFixed(2),
       total_amount:            total.toFixed(2),
       compliance_category:     parseInt(item.compliance_category) || null,
-      sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+      sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
     };
   });
 
@@ -171,7 +192,7 @@ export const createPurchaseOrder = async (quotationData) => {
       company:          parseInt(quotationData.company) || 1,
       gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
       discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
-      sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+      sac_code:         String(quotationData.sac_code || '').trim(),
       total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
       total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
       grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
@@ -216,7 +237,7 @@ export const updatePurchaseOrder = async (quotationData) => {
     vendor:           quotationData.vendor  ? parseInt(quotationData.vendor)  : null,
     project:          parseInt(quotationData.project),
     company:          parseInt(quotationData.company) || 1,
-    sac_code:         String(quotationData.sac_code || '').slice(0, 6),
+    sac_code:         String(quotationData.sac_code || '').trim(),
     gst_rate:         String((parseFloat(quotationData.gst_rate)         || 0).toFixed(2)),
     discount_rate:    String((parseFloat(quotationData.discount_rate)    || 0).toFixed(2)),
     total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
@@ -245,8 +266,8 @@ export const updatePurchaseOrder = async (quotationData) => {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                qty,
-        unit:                    String(item.unit || '').trim() || null,
-        sac_code:                String(item.sac_code || '').trim(),
+        unit:                    itemUnitString(item),
+        sac_code:                optionalText(item.sac_code || item.item_sac_code),
         consultancy_charges:     consultancy,
         Professional_amount:     String(prof.toFixed(2)),
         material_rate:           String(matRate.toFixed(2)),
@@ -255,7 +276,7 @@ export const updatePurchaseOrder = async (quotationData) => {
         labour_amount:           String(labAmt.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
         compliance_category:     parseInt(item.compliance_category) || 5,
-        sub_compliance_category: parseInt(item.sub_compliance_category || 0),
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
       };
     }),
   };
@@ -421,7 +442,9 @@ export const getComplianceDescriptions = async (categoryId, subCategoryId = null
     serviceLogger.log(`Fetching compliance descriptions for category ${categoryId}`);
 
     const params = { category: categoryId, page_size: 100 };
-    if (subCategoryId) params.sub_category = subCategoryId;
+    if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+      params.sub_category = subCategoryId;
+    }
 
     const response = await api.get(ENDPOINTS.GET_COMPLIANCE_BY_CATEGORY, { params });
 

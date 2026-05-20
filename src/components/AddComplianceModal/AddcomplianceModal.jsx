@@ -104,6 +104,11 @@ const BLANK_ITEM_FORM = {
   labour_amount:   0,
 };
 
+const normalizeUnit = (value) => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const isMiscNumeric = (value) => {
@@ -447,12 +452,32 @@ export default function AddComplianceModal({
   const isExecCategory = activeCategoryId ? EXECUTION_CATS.includes(activeCategoryId) : false;
   const isArchCategory = activeCategoryId ? ARCHITECTURE_CATS.includes(activeCategoryId) : false;
 
+  const isItemFormInvalid = (form) => {
+    const requiresSubCompliance = isExecCategory
+      ? (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0)
+      : [1, 2].includes(activeCategoryId);
+    const quantity = parseInt(form.quantity, 10) || 0;
+    const professionalAmount = parseFloat(form.Professional_amount) || 0;
+    const hasExecutionAmount = [
+      form.Professional_amount,
+      form.material_rate,
+      form.material_amount,
+      form.labour_rate,
+      form.labour_amount,
+    ].some(value => (parseFloat(value) || 0) > 0);
+
+    return (
+      !String(form.compliance_name || '').trim() ||
+      quantity <= 0 ||
+      (requiresSubCompliance && (form.sub_compliance_id === null || form.sub_compliance_id === undefined || form.sub_compliance_id === '')) ||
+      (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(form.custom_sub_compliance || '').trim()) ||
+      (isExecCategory ? !hasExecutionAmount : professionalAmount <= 0)
+    );
+  };
+
   const handleAddItem = () => {
     const form = getItemForm();
-    if (!form.compliance_name.trim()) return;
-    // Regulatory cats 1,2 require sub_compliance_id; Architecture (8) does NOT
-    if (!isExecCategory && !isArchCategory && [1, 2].includes(activeCategoryId) && (form.sub_compliance_id === null || form.sub_compliance_id === undefined || form.sub_compliance_id === '')) return;
-    if (!isArchCategory && form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(form.custom_sub_compliance || '').trim()) return;
+    if (isItemFormInvalid(form)) return;
 
     const newItem = {
       compliance_name:   form.compliance_name.trim(),
@@ -460,7 +485,7 @@ export default function AddComplianceModal({
       // Architecture always uses sub_compliance_category = 0
       sub_compliance_id: resolveSubComplianceValue(form, isArchCategory),
       quantity:          parseInt(form.quantity, 10) || 1,
-      unit:              String(form.unit || '').trim(),
+      unit:              normalizeUnit(form.unit),
       ...(isExecCategory ? {
         // Execution-specific fields
         item_sac_code:   String(form.item_sac_code || '').trim(),
@@ -557,14 +582,14 @@ export default function AddComplianceModal({
           id:                      null, // new item — backend assigns
           description:             item.compliance_name.trim(),
           quantity:                parseInt(item.quantity) || 1,
-          // Pass null for any empty optional string field — backend renders it as "–"
-          unit:                    String(item.unit || '').trim() || null,
+          // Preserve entered unit; '' when blank
+          unit:                    normalizeUnit(item.unit ?? item.Unit ?? item.item_unit ?? item.service_unit ?? item.uom ?? item.UOM),
           compliance_category:     catId,
           sub_compliance_category: item.sub_compliance_id || 0,
           total_amount:            isExec ? calcItemTotalExecution(item) : calcItemTotalRegulatory(item),
           // Regulatory fields
           Professional_amount:     parseFloat(item.Professional_amount) || 0,
-          miscellaneous_amount:    isExec ? null : (String(item.miscellaneous_amount ?? '').trim() || null),
+          miscellaneous_amount:    isExec ? '' : String(item.miscellaneous_amount ?? '').trim(),
           // Execution fields
           ...(isExec ? {
             sac_code:        String(item.item_sac_code || '').trim() || null,
@@ -590,7 +615,21 @@ export default function AddComplianceModal({
   const editingIdx     = getEditingIdx();
   const activeItems    = getActiveItems();
   const totalItemCount = Object.values(categoryItemsMap).reduce((s, c) => s + (c.items?.length || 0), 0);
-  const saveDisabled   = totalItemCount === 0;
+  const hasDraftItemInput = [
+    itemForm.compliance_name,
+    itemForm.unit,
+    itemForm.miscellaneous_amount,
+    itemForm.custom_sub_compliance,
+    itemForm.item_sac_code,
+  ].some(value => String(value ?? '').trim() !== '') ||
+    [
+      itemForm.Professional_amount,
+      itemForm.material_rate,
+      itemForm.material_amount,
+      itemForm.labour_rate,
+      itemForm.labour_amount,
+    ].some(value => (parseFloat(value) || 0) > 0);
+  const saveDisabled   = totalItemCount === 0 || (hasDraftItemInput && isItemFormInvalid(itemForm));
 
   // Description uniqueness guard (same sub-category, same tab)
   const usedDescriptions = (() => {
@@ -610,11 +649,7 @@ export default function AddComplianceModal({
     ? (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0)
     : [1, 2].includes(activeCategoryId);
 
-  const addItemDisabled = (
-    !itemForm.compliance_name.trim() ||
-    (subCompRequired && (itemForm.sub_compliance_id === null || itemForm.sub_compliance_id === undefined || itemForm.sub_compliance_id === '')) ||
-    (itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(itemForm.custom_sub_compliance || '').trim())
-  );
+  const addItemDisabled = isItemFormInvalid(itemForm);
 
   const catIds = resolvedType === 'execution'
     ? EXECUTION_CATS
@@ -1174,6 +1209,7 @@ export default function AddComplianceModal({
                               </>
                             ) : (
                               <>
+                                {item.unit && <span className="text-xs text-gray-400">Unit: {item.unit}</span>}
                                 <span className="text-xs text-gray-400">Prof: Rs.{parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>
                                 {String(item.miscellaneous_amount ?? '').trim() !== '' && (
                                   isMiscNumeric(item.miscellaneous_amount)

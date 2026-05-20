@@ -48,12 +48,19 @@ const normalizeSubComplianceCategory = (value, fallback = 0) => {
   return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
 };
 
-const optionalMoneyOrBlank = (value) => {
+const consultancyChargeValue = (value, blankValue = '') => {
   if (value === null || value === undefined) return '';
   const text = String(value).trim();
-  if (!text || text === '--' || text === '0' || text === '0.00') return '';
+  if (!text || text === '--') return blankValue;
   const num = parseFloat(text);
-  return isNaN(num) ? '' : num.toFixed(2);
+  return !isNaN(num) && !isNaN(Number(text)) ? num.toFixed(2) : text;
+};
+
+const numericConsultancyAmount = (value) => {
+  const normalized = consultancyChargeValue(value, '');
+  if (!normalized) return 0;
+  const num = Number(normalized);
+  return !isNaN(num) ? num : 0;
 };
 
 export const getProformas = async (params = {}) => {
@@ -296,13 +303,14 @@ export const updateRegulatoryProforma = async (proformaData) => {
       const itemId = rawId && rawId > 0 ? rawId : null;
       const quantity = parseInt(item.quantity) || 1;
       const prof = parseFloat(item.Professional_amount) || 0;
-      const consultancy = optionalMoneyOrBlank(item.consultancy_charges ?? item.miscellaneous_amount);
-      const total = parseFloat(((prof + parseFloat(consultancy || 0)) * quantity).toFixed(2));
+      const consultancy = consultancyChargeValue(item.consultancy_charges ?? item.miscellaneous_amount, '');
+      const consultancyAmount = numericConsultancyAmount(consultancy);
+      const total = parseFloat(((prof + consultancyAmount) * quantity).toFixed(2));
       return {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity,
-        unit:                    String(item.unit || '').trim() || null,
+        unit:                    String(item.unit || '').trim(),
         consultancy_charges:     consultancy,
         Professional_amount:     String(prof.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
@@ -361,7 +369,7 @@ export const updateExecutionProforma = async (proformaData) => {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity,
-        unit:                    String(item.unit || '').trim() || null,
+        unit:                    String(item.unit || '').trim(),
         sac_code:                String(item.sac_code || item.item_sac_code || '').trim(),
         Professional_amount:     String(prof.toFixed(2)),
         material_rate:           String(finalMatRate.toFixed(2)),

@@ -103,7 +103,7 @@ const StatusPill = ({ status }) => {
 
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-    <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
       {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
@@ -146,10 +146,10 @@ const QuickInfoCard = ({ proforma, client, project }) => {
     : `Client #${proforma.client}`;
 
   return (
-    <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #e8ecf2', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.05)' }}>
+    <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #d1d9e6', overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,.07)' }}>
 
       {/* Card header */}
-      <div style={{ padding: '13px 16px 0', borderBottom: '1.5px solid #f0f4f8' }}>
+      <div style={{ padding: '13px 16px 0', borderBottom: '1.5px solid #d1d9e6' }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 10 }}>Quick Info</div>
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0 }}>
@@ -160,7 +160,7 @@ const QuickInfoCard = ({ proforma, client, project }) => {
             <button key={key} onClick={() => setActiveTab(key)} style={{
               flex: 1, padding: '8px 4px 10px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
-              color: activeTab === key ? '#0f766e' : '#94a3b8',
+              color: activeTab === key ? '#0f766e' : '#64748b',
               borderBottom: activeTab === key ? '2.5px solid #0f766e' : '2.5px solid transparent',
               transition: 'all .15s',
             }}>
@@ -175,8 +175,8 @@ const QuickInfoCard = ({ proforma, client, project }) => {
         <div style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
           {/* Client */}
-          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e8ecf2' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <User size={11} color="#fff" />
               </div>
@@ -219,8 +219,8 @@ const QuickInfoCard = ({ proforma, client, project }) => {
           )}
 
           {/* Key Dates */}
-          <div style={{ borderRadius: 12, border: '1.5px solid #e8ecf2', overflow: 'hidden' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, border: '1.5px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: 7, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Calendar size={11} color="#fff" />
               </div>
@@ -233,7 +233,7 @@ const QuickInfoCard = ({ proforma, client, project }) => {
                 { label: 'Last Updated', value: fmtDate(proforma.updated_at) },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{label}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{value}</span>
                 </div>
               ))}
@@ -241,8 +241,8 @@ const QuickInfoCard = ({ proforma, client, project }) => {
           </div>
 
           {/* Rates */}
-          <div style={{ borderRadius: 12, border: '1.5px solid #e8ecf2', overflow: 'hidden' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, border: '1.5px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: 7, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Percent size={11} color="#fff" />
               </div>
@@ -255,7 +255,7 @@ const QuickInfoCard = ({ proforma, client, project }) => {
                 { label: 'SAC Code', value: proforma.sac_code || '—',                          color: '#0f766e' },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{label}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color }}>{value}</span>
                 </div>
               ))}
@@ -319,8 +319,8 @@ const QuickInfoCard = ({ proforma, client, project }) => {
                     <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: style.color, lineHeight: 1.3 }}>{ev.event || 'Event'}</div>
                       {ev.reason && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>Reason: {ev.reason}</div>}
-                      {ev.updated_by && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>By: {ev.updated_by}</div>}
-                      {ts && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{fmtMetaTime(ts)}</div>}
+                      {ev.updated_by && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>By: {ev.updated_by}</div>}
+                      {ts && <div style={{ fontSize: 10, color: '#475569', fontWeight: 600, marginTop: 2 }}>{fmtMetaTime(ts)}</div>}
                     </div>
                   </div>
                 );
@@ -494,14 +494,14 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
         // Empty unit → null so backend stores null and UI shows "—"
-        unit:                    String(item.unit || '').trim() || null,
+        unit:                    String(item.unit || '').trim(),
         Professional_amount:     parseFloat(item.Professional_amount) || 0,
         total_amount:            parseFloat(item.total_amount) || 0,
       };
       if (isExec) {
         return {
           ...base,
-          sac_code:        String(item.sac_code || '').trim() || null,
+          sac_code:        String(item.sac_code || '').trim(),
           material_rate:   parseFloat(item.material_rate)   || 0,
           material_amount: parseFloat(item.material_amount) || 0,
           labour_rate:     parseFloat(item.labour_rate)     || 0,
@@ -678,15 +678,20 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
       if (data && (data.id || data.proforma_number || data.status === 'success')) {
         const updated = data.data || data;
+        const refreshed = await getProformaById(proforma.id, proforma.proforma_type);
+        const refreshedProforma = refreshed?.data || updated;
         setProforma(prev => ({
           ...prev, ...updated,
-          company:       editCompany,
-          company_name:  QUOTATION_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || prev.company_name,
-          sac_code:      editSacCode.trim(),
-          gst_rate:      isGSTApplicable ? String(editGstRate) : '0',
-          discount_rate: String(editDiscRate),
-          total_amount:  sub, total_gst_amount: gst, grand_total: grand,
-          items: updated.items || editItems.map(it => ({
+          ...refreshedProforma,
+          company:       refreshedProforma.company ?? editCompany,
+          company_name:  refreshedProforma.company_name || QUOTATION_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || prev.company_name,
+          sac_code:      refreshedProforma.sac_code ?? editSacCode.trim(),
+          gst_rate:      refreshedProforma.gst_rate ?? (isGSTApplicable ? String(editGstRate) : '0'),
+          discount_rate: refreshedProforma.discount_rate ?? String(editDiscRate),
+          total_amount:  refreshedProforma.total_amount ?? sub,
+          total_gst_amount: refreshedProforma.total_gst_amount ?? gst,
+          grand_total: refreshedProforma.grand_total ?? grand,
+          items: refreshedProforma.items || updated.items || editItems.map(it => ({
             ...it,
             miscellaneous_amount: normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
             consultancy_charges: normalizeEditableMisc(it.consultancy_charges, it.miscellaneous_amount),
@@ -961,6 +966,74 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     return parseFloat((prof + consultancy).toFixed(2));
   };
 
+  const getPdfSubCategoryName = (value) => {
+    const normalized = normalizeSubComplianceCategory(value, 0);
+    if (!normalized) return '';
+    return SUB_COMPLIANCE_CATEGORIES[normalized]?.name || String(normalized);
+  };
+
+  const buildPdfSelectedItems = () => {
+    const sourceItems = proforma?.items || [];
+    return sourceItems
+      .map((item, idx) => {
+        const key = item.id != null ? String(item.id) : `idx_${idx}`;
+        const sel = pdfItemSelections[key];
+        if (!sel?.selected) return null;
+
+        const originalQty = parseInt(item.quantity) || 1;
+        const selectedQtyRaw = Number(sel.quantity);
+        const selectedQty = Number.isFinite(selectedQtyRaw) && selectedQtyRaw > 0
+          ? selectedQtyRaw
+          : originalQty;
+        const catId = Number(item.compliance_category ?? item.category ?? 0) || 0;
+        const subCat = normalizeSubComplianceCategory(item.sub_compliance_category, 0);
+        const matRate = parseFloat(item.material_rate) || 0;
+        const labRate = parseFloat(item.labour_rate) || 0;
+        const matAmt = parseFloat(item.material_amount) || 0;
+        const labAmt = parseFloat(item.labour_amount) || 0;
+        const matRatePerUnit = matRate > 0 ? matRate : (matAmt > 0 ? matAmt / originalQty : 0);
+        const labRatePerUnit = labRate > 0 ? labRate : (labAmt > 0 ? labAmt / originalQty : 0);
+        const dynamicMatAmt = parseFloat((matRatePerUnit * selectedQty).toFixed(2));
+        const dynamicLabAmt = parseFloat((labRatePerUnit * selectedQty).toFixed(2));
+        const lineTotal = parseFloat((calcPdfItemUnitAmount(item) * selectedQty).toFixed(2));
+        const consultancyRaw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
+        const consultancy = String(consultancyRaw ?? '').trim();
+
+        return {
+          item_id: item.id != null ? Number(item.id) : idx,
+          id: item.id ?? null,
+          source_index: idx,
+          display_order: idx + 1,
+          quantity: selectedQty,
+          selected_quantity: selectedQty,
+          original_quantity: originalQty,
+          description: String(item.description || item.compliance_name || '').trim(),
+          unit: String(item.unit || '').trim(),
+          sac_code: String(item.sac_code || item.item_sac_code || '').trim(),
+          item_sac_code: String(item.item_sac_code || item.sac_code || '').trim(),
+          Professional_amount: String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
+          consultancy_charges: consultancy,
+          miscellaneous_amount: consultancy,
+          material_rate: String(matRatePerUnit.toFixed(2)),
+          material_amount: String(dynamicMatAmt.toFixed(2)),
+          labour_rate: String(labRatePerUnit.toFixed(2)),
+          labour_amount: String(dynamicLabAmt.toFixed(2)),
+          total_amount: String(lineTotal.toFixed(2)),
+          compliance_category: catId,
+          category: catId,
+          compliance_category_name: COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`,
+          category_name: COMPLIANCE_CATEGORIES[catId] || `Category ${catId}`,
+          sub_compliance_category: subCat,
+          sub_category: subCat,
+          sub_compliance_category_name: getPdfSubCategoryName(subCat),
+          sub_category_name: getPdfSubCategoryName(subCat),
+          pdf_group_key: String(catId || 'other'),
+          pdf_sub_group_key: `${catId || 'other'}:${subCat || 'none'}`,
+        };
+      })
+      .filter(Boolean);
+  };
+
   const handleOpenPdfModal = () => {
     setScopeOfWork(''); setScopeError(''); setPdfError('');
     setPdfCompanyName(''); setPdfAddress(''); setPdfGstNo(''); setPdfSacCode('');
@@ -981,12 +1054,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
     if (!scopeOfWork.trim()) { setScopeError('Scope of work is required to generate the PDF.'); return; }
     if (!pdfCompanyName.trim()) { setPdfError('Company name is required to generate the PDF.'); return; }
     if (!pdfAddress.trim()) { setPdfError('Address is required to generate the PDF.'); return; }
-    const selectedItems = Object.values(pdfItemSelections)
-      .filter(sel => sel.selected)
-      .map(sel => ({
-        item_id: sel.item?.id != null ? Number(sel.item.id) : sel.idx,
-        quantity: Number(sel.quantity),
-      }));
+    const selectedItems = buildPdfSelectedItems();
     if (selectedItems.length === 0) { setPdfError('Please select at least one item to include in the PDF.'); return; }
     setScopeError(''); setPdfError('');
     setPdfLoading(true);
@@ -1127,59 +1195,59 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-doc-label{font-size:10px;font-weight:800;color:rgba(255,255,255,.55);letter-spacing:.18em;text-transform:uppercase}
         .vpd-doc-num{font-size:24px;font-weight:900;color:#fff;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:3px}
         .vpd-doc-date{font-size:12px;color:rgba(255,255,255,.6);margin-top:5px;font-weight:400}
-        .vpd-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #e8ecf2}
-        .vpd-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
-        .vpd-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #f0f4f8;background:#fff}
+        .vpd-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #d1d9e6}
+        .vpd-meta-sep{width:1px;height:30px;background:#c4cdd8;margin:0 18px;flex-shrink:0}
+        .vpd-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #d1d9e6;background:#fff}
         .vpd-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px;padding-top:36px}
         .vpd-party{display:flex;flex-direction:column;gap:4px}
-        .vpd-plabel{font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px}
+        .vpd-plabel{font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px}
         .vpd-pavatar{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#0d9488);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:6px}
         .vpd-picon{margin-bottom:6px}
         .vpd-pname{font-size:14px;font-weight:700;color:#1e293b;line-height:1.3}
-        .vpd-pdetail{display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b;margin-top:2px}
+        .vpd-pdetail{display:flex;align-items:center;gap:5px;font-size:11px;color:#475569;margin-top:2px}
         .vpd-party--proj{padding-left:28px}
-        .vpd-party--rates{padding-left:28px;border-left:1.5px solid #f0f4f8}
+        .vpd-party--rates{padding-left:28px;border-left:1.5px solid #d1d9e6}
         .vpd-rates-list{display:flex;flex-direction:column;gap:10px;margin-top:4px}
         .vpd-rate-row{display:flex;align-items:center;gap:10px}
         .vpd-rate-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
         .vpd-rate-v{font-size:14px;font-weight:700;color:#1e293b;line-height:1}
-        .vpd-rate-l{font-size:10px;color:#94a3b8;font-weight:500;margin-top:2px}
-        .vpd-body-wrap{display:grid;grid-template-columns:1fr 280px;gap:24px;padding:0 40px 28px;align-items:start}
+        .vpd-rate-l{font-size:10px;color:#64748b;font-weight:600;margin-top:2px}
+        .vpd-body-wrap{display:grid;grid-template-columns:1fr 280px;gap:24px;padding:20px 40px 28px;align-items:start}
         .vpd-body-left{min-width:0}
         .vpd-body-right{position:sticky;top:20px}
-        .vpd-sec-hdr{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.1em;padding:16px 0 12px;border-bottom:1.5px solid #f0f4f8;margin-bottom:0}
+        .vpd-sec-hdr{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.1em;padding:16px 0 12px;border-bottom:1.5px solid #d1d9e6;margin-bottom:0;margin-top:4px}
         .vpd-sec-badge{background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;text-transform:none;letter-spacing:0}
-        .vpd-table-wrap{overflow-x:auto;margin-top:0}
+        .vpd-table-wrap{overflow-x:auto;margin-top:0;border-radius:12px;border:1.5px solid #d1d9e6;box-shadow:0 1px 4px rgba(0,0,0,.04)}
         .vpd-table{width:100%;border-collapse:collapse;font-size:13px}
-        .vpd-table thead tr{background:#f8fafc}
-        .vpd-table thead th{padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;border-bottom:1.5px solid #e8ecf2;white-space:nowrap}
+        .vpd-table thead tr{background:#f1f5f9}
+        .vpd-table thead th{padding:11px 12px;text-align:left;font-size:11px;font-weight:700;color:#475569;letter-spacing:.07em;text-transform:uppercase;border-bottom:1.5px solid #d1d9e6;white-space:nowrap}
         .vpd-table thead th:first-child{padding-left:16px}
         .vpd-table thead th:last-child{padding-right:16px;text-align:right}
-        .vpd-cat-row td{padding:9px 12px 6px 16px;background:#fafbfc;border-top:1.5px solid #f0f4f8}
-        .vpd-cat-inner{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.08em}
-        .vpd-cat-dot{width:6px;height:6px;border-radius:50%;background:#0d9488;flex-shrink:0}
-        .vpd-cat-cnt{margin-left:auto;font-size:10px;font-weight:600;color:#94a3b8;text-transform:none;letter-spacing:0}
-        .vpd-row td{padding:10px 12px;border-bottom:1px solid #f8fafc;vertical-align:middle}
-        .vpd-row:hover td{background:#f8fafc}
+        .vpd-cat-row td{padding:9px 12px 6px 16px;background:linear-gradient(90deg,#f1f5f9,#f8fafc);border-top:1.5px solid #d1d9e6}
+        .vpd-cat-inner{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;color:#1e293b}
+        .vpd-cat-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
+        .vpd-cat-cnt{background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px}
+        .vpd-row td{padding:11px 12px;border-top:1px solid #e8ecf2;vertical-align:middle}
+        .vpd-row:hover td{background:#f8fffe}
         .vpd-row td:first-child{padding-left:16px}
         .vpd-row td:last-child{padding-right:16px;text-align:right}
-        .vpd-row-idx{font-size:11px;font-weight:700;color:#d1d5db;text-align:center}
-        .vpd-desc{font-size:13px;font-weight:500;color:#334155;line-height:1.55;max-width:300px}
-        .vpd-subcat{display:inline-block;background:#f1f5f9;color:#475569;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;white-space:nowrap}
-        .vpd-qty-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:700}
-        .vpd-misc-note{color:#d97706;font-style:italic;font-size:11px;border-bottom:1px dashed #fcd34d;cursor:help}
-        .vpd-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
-        .vpd-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
+        .vpd-row-idx{font-size:12px;font-weight:700;color:#94a3b8;text-align:center}
+        .vpd-desc{font-size:13px;font-weight:500;color:#0f172a;line-height:1.6;max-width:300px}
+        .vpd-subcat{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+        .vpd-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:7px;background:#e8ecf2;color:#334155;font-size:13px;font-weight:700;padding:0 6px}
+        .vpd-misc-note{display:inline-block;font-size:11.5px;color:#b45309;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:4px 10px;font-style:italic;font-weight:500;max-width:160px;word-break:break-word;line-height:1.4;white-space:normal;vertical-align:top}
+        .vpd-cat-sub td{padding:8px 16px 10px;background:#f8fafc;border-top:1px solid #d1d9e6}
+        .vpd-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:1.5px solid #d1d9e6;align-items:start}
         .vpd-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
         .vpd-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vpd-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vpd-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
+        .vpd-sum-lbl{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em}
         .vpd-sum-val{font-size:13px;font-weight:700;color:#1e293b}
         .vpd-remarks{margin-top:18px}
-        .vpd-rem-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:6px}
-        .vpd-rem-text{font-size:12px;color:#64748b;line-height:1.65;white-space:pre-wrap}
-        .vpd-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
-        .vpd-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
+        .vpd-rem-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#64748b;text-transform:uppercase;margin-bottom:6px}
+        .vpd-rem-text{font-size:12px;color:#475569;line-height:1.65;white-space:pre-wrap}
+        .vpd-tbox{background:#f8fafc;border:1.5px solid #d1d9e6;border-radius:14px;padding:20px 22px}
+        .vpd-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#64748b;text-transform:uppercase;margin-bottom:14px}
         .vpd-trow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#475569;font-weight:500}
         .vpd-trow--disc{color:#ea580c}
         .vpd-trow--sub{color:#94a3b8;font-size:12px}
@@ -1190,7 +1258,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
         .vpd-dl-btn:hover{background:#0d6460}
         .vpd-dl-btn:active{transform:scale(.98)}
         .vpd-dl-btn:disabled{opacity:.6;cursor:not-allowed}
-        .vpd-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #e8ecf2;font-size:11px;color:#94a3b8}
+        .vpd-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #d1d9e6;font-size:11px;color:#64748b}
         .vpd-btn-approve{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#059669,#047857);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(5,150,105,.25)}
         .vpd-btn-approve:hover{background:linear-gradient(135deg,#047857,#065f46);box-shadow:0 4px 12px rgba(5,150,105,.35)}
         .vpd-btn-reject{display:flex;align-items:center;gap:6px;padding:7px 15px;border-radius:8px;background:linear-gradient(135deg,#dc2626,#b91c1c);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(220,38,38,.25)}
@@ -1452,7 +1520,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <div className="vpd-meta-sep" />
             {editMode ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Tag size={10} /> SAC Code <span style={{ color: '#f59e0b' }}>✎</span>
                 </span>
                 <input
@@ -1471,7 +1539,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
             <MetaBlock icon={Hash} label="Proforma No." value={pNum} accent />
             <div className="vpd-meta-sep" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: isExecution ? '#f5f3ff' : isArchitecture ? '#fdf4ff' : '#f0f9ff', border: `1.5px solid ${isExecution ? '#ddd6fe' : isArchitecture ? '#e9d5ff' : '#bae6fd'}`, color: isExecution ? '#7c3aed' : isArchitecture ? '#9333ea' : '#0369a1', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20 }}>
                 {isExecution ? <Wrench size={10} /> : <FileText size={10} />}
                 {isExecution ? 'Execution' : isArchitecture ? 'Architecture' : 'Regulatory'}
@@ -1491,7 +1559,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
               <div className="vpd-pname">{clientName}</div>
               {client?.email && <div className="vpd-pdetail"><User size={11} style={{ opacity: .45, flexShrink: 0 }} />{client.email}</div>}
             </div>
-            <div className="vpd-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
+            <div className="vpd-arrow-col"><ChevronRight size={16} style={{ color: '#94a3b8' }} /></div>
             <div className="vpd-party vpd-party--proj">
               <div className="vpd-plabel">Project</div>
               <div className="vpd-picon"><Building2 size={20} color="#0f766e" /></div>
@@ -1553,7 +1621,7 @@ export default function ViewProformaDetails({ onUpdateNavigation }) {
 
               {/* Proforma type indicator */}
               {proforma.proforma_type && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 14px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 20 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 0, padding: '8px 14px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 20 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#0d6360', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Proforma Type</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>{proforma.proforma_type}</span>
                 </div>
