@@ -49,8 +49,9 @@ export default function ProformaTypeTable({
 }) {
   const getEditableMiscValue = (item) => {
     const raw = item.consultancy_charges ?? item.miscellaneous_amount ?? '';
-    const text = String(raw).trim();
-    return text === '0' || text === '0.00' || text === '--' ? '' : text;
+    const value = String(raw);
+    const normalized = value.trim();
+    return normalized === '0' || normalized === '0.00' || normalized === '--' ? '' : value;
   };
   // ── Execution: check if ANY item has mat/lab rate breakdown ─────────────────
   // When true  → show full 4-column rate layout (Mat Rate, Lab Rate, Mat Amt, Lab Amt)
@@ -206,7 +207,7 @@ export default function ProformaTypeTable({
                           {isRegulatory ? (
                             <>
                               <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: 13 }}>₹&nbsp;{fmtINR(prof)}</td>
-                              <td style={{ textAlign: 'right', fontSize: 12 }}>
+                              <td style={{ textAlign: 'right', fontSize: 12, verticalAlign: 'middle' }}>
                                 {consultancyStr !== null
                                   ? isMiscNumeric(consultancyStr)
                                     ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
@@ -308,9 +309,24 @@ export default function ProformaTypeTable({
 
                         {/* Item header row */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <span style={{ width: 22, height: 22, borderRadius: 6, background: '#0f766e', color: '#fff', fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{globalIdx + 1}</span>
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.06em' }}>Line Item</span>
+                            {/* Sub-compliance category — view-only badge */}
+                            {(() => {
+                              const subCatName = getSubComplianceName(it.sub_compliance_category);
+                              return subCatName ? (
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  padding: '3px 9px', borderRadius: 20,
+                                  background: '#eff6ff', border: '1px solid #bfdbfe',
+                                  color: '#1d4ed8', fontSize: 10, fontWeight: 700,
+                                  letterSpacing: '.01em', whiteSpace: 'nowrap',
+                                }}>
+                                  <span style={{ fontSize: 9, opacity: 0.6 }}>SUB-CAT</span> {subCatName}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 14, fontWeight: 800, color: '#0f766e' }}>₹&nbsp;{fmtINR(calcItemTotal(it))}</span>
@@ -386,7 +402,8 @@ export default function ProformaTypeTable({
                                 onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
                                 placeholder="Amount or note"
                                 style={{
-                                  textAlign: 'right', width: '100%',
+                                  textAlign: getEditableMiscValue(it) && !isMiscNumeric(getEditableMiscValue(it)) ? 'left' : 'right',
+                                  width: '100%',
                                   borderColor: getEditableMiscValue(it) && !isMiscNumeric(getEditableMiscValue(it)) ? '#fbbf24' : undefined,
                                 }}
                               />

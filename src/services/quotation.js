@@ -1,5 +1,5 @@
 import api, { normalizeError } from './api';
-import { optionalMoneyOrNull, optionalTextOrNull } from './quotationHelpers';
+import { consultancyChargeValue, optionalTextOrNull } from './quotationHelpers';
 
 /**
  * ============================================================================
@@ -238,6 +238,14 @@ const normalizeSubComplianceCategory = (value, fallback = 0) => {
 
 const optionalTextOrBlank = (value) => optionalTextOrNull(value) ?? '';
 
+const itemUnitString = (item = {}) => {
+  const values = [item.unit, item.Unit, item.item_unit, item.service_unit, item.uom, item.UOM];
+  const found = values.find(value => value !== null && value !== undefined && String(value).trim() !== '');
+  return found == null ? '' : String(found).trim();
+};
+
+const clonePayload = (payload) => JSON.parse(JSON.stringify(payload));
+
 const buildExecutionItemsPayload = (items = []) =>
   items.map(item => {
     const qty      = parseInt(item.quantity) || 1;
@@ -252,7 +260,7 @@ const buildExecutionItemsPayload = (items = []) =>
     return {
       description:             String(item.description || '').trim().slice(0, 255),
       quantity:                qty,
-      unit:                    optionalTextOrNull(item.unit),
+      unit:                    itemUnitString(item),
       sac_code:                optionalTextOrNull(item.sac_code),
       Professional_amount:     profRate.toFixed(2),
       material_rate:           matRate.toFixed(2),
@@ -317,9 +325,9 @@ const _createQuotationInternal = async (quotationData, endpoint) => {
     basePayload.items = quotationData.items.map(item => ({
       description:             String(item.description).trim(),
       quantity:                parseInt(item.quantity),
-      unit:                    optionalTextOrNull(item.unit),
+      unit:                    itemUnitString(item),
       sac_code:                optionalTextOrNull(item.sac_code),
-      consultancy_charges:     optionalMoneyOrNull(item.consultancy_charges ?? item.miscellaneous_amount),
+      consultancy_charges:     consultancyChargeValue(item.consultancy_charges ?? item.miscellaneous_amount),
       Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
       total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
       compliance_category:     parseInt(item.compliance_category)  || null,
@@ -406,12 +414,12 @@ export const updateRegulatoryQuotation = async (quotationData) => {
     items: (quotationData.items || []).map(item => {
       const rawId  = item.id != null ? parseInt(item.id) : null;
       const itemId = rawId && rawId > 0 ? rawId : null;
-      const consultancy = optionalMoneyOrNull(item.consultancy_charges ?? item.miscellaneous_amount);
+      const consultancy = consultancyChargeValue(item.consultancy_charges ?? item.miscellaneous_amount, '');
       return {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
-        unit:                    optionalTextOrBlank(item.unit),
+        unit:                    itemUnitString(item),
         consultancy_charges:     consultancy,
         Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
         total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
@@ -422,7 +430,9 @@ export const updateRegulatoryQuotation = async (quotationData) => {
   };
 
   try {
-    const response = await api.put(ENDPOINTS.UPDATE_REGULATORY, payload);
+    const requestPayload = clonePayload(payload);
+    serviceLogger.log('updateRegulatoryQuotation payload:', JSON.stringify(requestPayload, null, 2));
+    const response = await api.put(ENDPOINTS.UPDATE_REGULATORY, requestPayload);
     serviceLogger.log(`Regulatory quotation ${quotationData.id} updated`);
     return response.data;
   } catch (error) {
@@ -454,6 +464,7 @@ export const updateExecutionQuotation = async (quotationData) => {
     total_amount:     String((parseFloat(quotationData.total_amount)     || 0).toFixed(2)),
     total_gst_amount: String((parseFloat(quotationData.total_gst_amount) || 0).toFixed(2)),
     grand_total:      String((parseFloat(quotationData.grand_total)      || 0).toFixed(2)),
+    status:           parseInt(quotationData.status) || 1,
     items: (quotationData.items || []).map(item => {
       const rawId  = item.id != null ? parseInt(item.id) : null;
       const itemId = rawId && rawId > 0 ? rawId : null;
@@ -470,7 +481,7 @@ export const updateExecutionQuotation = async (quotationData) => {
         id:                      itemId,
         description:             String(item.description || '').trim(),
         quantity:                qty,
-        unit:                    optionalTextOrBlank(item.unit),
+        unit:                    itemUnitString(item),
         sac_code:                optionalTextOrNull(item.sac_code || item.item_sac_code),
         Professional_amount:     String(prof.toFixed(2)),
         material_rate:           String(matRate.toFixed(2)),
@@ -485,7 +496,9 @@ export const updateExecutionQuotation = async (quotationData) => {
   };
 
   try {
-    const response = await api.put(ENDPOINTS.UPDATE_EXECUTION, payload);
+    const requestPayload = clonePayload(payload);
+    serviceLogger.log('updateExecutionQuotation payload:', JSON.stringify(requestPayload, null, 2));
+    const response = await api.put(ENDPOINTS.UPDATE_EXECUTION, requestPayload);
     serviceLogger.log(`Execution quotation ${quotationData.id} updated`);
     return response.data;
   } catch (error) {
@@ -568,14 +581,12 @@ export const generateQuotationPdf = async (
     if (quotation_type) payload.quotation_type = quotation_type;
 
     if (Array.isArray(items)) {
-      payload.items = items.map(item => ({
-        ...item,
-        unit: optionalTextOrNull(item?.unit),
-        sac_code: optionalTextOrNull(item?.sac_code ?? item?.item_sac_code),
-        item_sac_code: optionalTextOrNull(item?.item_sac_code ?? item?.sac_code),
-        consultancy_charges: optionalMoneyOrNull(item?.consultancy_charges ?? item?.miscellaneous_amount),
-        miscellaneous_amount: optionalMoneyOrNull(item?.miscellaneous_amount ?? item?.consultancy_charges),
-      }));
+      // Items are already fully normalized by buildQuotationPdfItems() in the view.
+      // Do NOT re-process consultancy_charges / miscellaneous_amount here — doing so
+      // would run the value through consultancyChargeValue() a second time and can
+      // silently corrupt a text/string note (e.g. "See attached") into '0.00'.
+      // Pass items exactly as received from the view.
+      payload.items = items;
     }
 
     if (typeof show_consultancy === 'boolean') payload.show_consultancy = show_consultancy;

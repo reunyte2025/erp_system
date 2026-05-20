@@ -86,7 +86,7 @@ const StatusPill = ({ status }) => {
 
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-    <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
       {Icon && <Icon size={10} />} {label}
     </span>
     <span style={{ fontSize: 13, fontWeight: 700, color: accent ? '#0f766e' : '#1e293b', fontFamily: accent ? 'monospace' : 'inherit', letterSpacing: accent ? '0.03em' : 0 }}>
@@ -154,10 +154,10 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
   ) : [];
 
   return (
-    <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #e8ecf2', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.05)' }}>
+    <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #d1d9e6', overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,.07)' }}>
 
       {/* Card header */}
-      <div style={{ padding: '13px 16px 0', borderBottom: '1.5px solid #f0f4f8' }}>
+      <div style={{ padding: '13px 16px 0', borderBottom: '1.5px solid #d1d9e6' }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '.12em', marginBottom: 10 }}>Quick Info</div>
         <div style={{ display: 'flex', gap: 0 }}>
           {[
@@ -167,7 +167,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
             <button key={key} onClick={() => setActiveTab(key)} style={{
               flex: 1, padding: '8px 4px 10px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
-              color: activeTab === key ? '#0f766e' : '#94a3b8',
+              color: activeTab === key ? '#0f766e' : '#64748b',
               borderBottom: activeTab === key ? '2.5px solid #0f766e' : '2.5px solid transparent',
               transition: 'all .15s',
             }}>
@@ -182,8 +182,8 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
         <div style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
           {/* Client */}
-          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e8ecf2' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #d1d9e6' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#0f766e,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <User size={11} color="#fff" />
               </div>
@@ -228,8 +228,8 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
           )}
 
           {/* Key Dates */}
-          <div style={{ borderRadius: 12, border: '1.5px solid #e8ecf2', overflow: 'hidden' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, border: '1.5px solid #d1d9e6', overflow: 'hidden' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: 7, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Calendar size={11} color="#fff" />
               </div>
@@ -242,7 +242,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
                 { label: 'Last Updated', value: fmtDate(invoice.updated_at) },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>{label}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{value}</span>
                 </div>
               ))}
@@ -250,8 +250,8 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
           </div>
 
           {/* Applied Rates */}
-          <div style={{ borderRadius: 12, border: '1.5px solid #e8ecf2', overflow: 'hidden' }}>
-            <div style={{ background: '#f8fafc', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #f0f4f8' }}>
+          <div style={{ borderRadius: 12, border: '1.5px solid #d1d9e6', overflow: 'hidden' }}>
+            <div style={{ background: '#f1f5f9', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ width: 22, height: 22, borderRadius: 7, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Percent size={11} color="#fff" />
               </div>
@@ -271,7 +271,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
                 rows.push({ label: 'SAC Code', value: invoice.sac_code || '—', color: '#0f766e' });
                 return rows.map(({ label, value, color }) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>{label}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color }}>{value}</span>
                   </div>
                 ));
@@ -316,7 +316,7 @@ const QuickInfoCard = ({ invoice, client, project, isPurchaseOrder }) => {
                       <div style={{ fontSize: 12, fontWeight: 700, color: style.color, lineHeight: 1.4, marginBottom: 2, wordBreak: 'break-word' }}>
                         {ev.event || 'Event'}
                       </div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500, marginBottom: 1 }}>
+                      <div style={{ fontSize: 10, color: '#475569', fontWeight: 600, marginBottom: 1 }}>
                         {fmtMetaTime(ts)}
                       </div>
                       {ev.by && (
@@ -1161,14 +1161,14 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         .vid-doc-num{font-size:20px;font-weight:900;color:#fff;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:3px;word-break:break-all}
         .vid-doc-date{font-size:12px;color:rgba(255,255,255,.6);margin-top:5px;font-weight:400}
 
-        .vid-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #e8ecf2}
-        .vid-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
-        .vid-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #f0f4f8;background:#fff}
+        .vid-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #d1d9e6}
+        .vid-meta-sep{width:1px;height:30px;background:#c8d0dc;margin:0 18px;flex-shrink:0}
+        .vid-parties{display:grid;grid-template-columns:1fr 28px 1fr 1fr;padding:28px 40px;gap:0;border-bottom:1.5px solid #d1d9e6;background:#fff}
         .vid-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px;padding-top:36px}
         .vid-party{padding-right:24px}
         .vid-party--proj{padding-left:24px;padding-right:24px}
-        .vid-party--rates{padding-left:24px;border-left:1.5px solid #f0f4f8}
-        .vid-plabel{font-size:9.5px;font-weight:800;letter-spacing:.14em;color:#94a3b8;text-transform:uppercase;margin-bottom:10px}
+        .vid-party--rates{padding-left:24px;border-left:1.5px solid #d1d9e6}
+        .vid-plabel{font-size:9.5px;font-weight:800;letter-spacing:.14em;color:#64748b;text-transform:uppercase;margin-bottom:10px}
         .vid-pavatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
         .vid-picon{width:44px;height:44px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
         .vid-pname{font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:5px}
@@ -1177,49 +1177,49 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         .vid-rate-row{display:flex;align-items:center;gap:10px}
         .vid-rate-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
         .vid-rate-v{font-size:15px;font-weight:800;color:#1e293b;line-height:1.2}
-        .vid-rate-l{font-size:11px;color:#94a3b8;font-weight:500}
+        .vid-rate-l{font-size:11px;color:#64748b;font-weight:600}
 
         /* Two-column layout — same as proforma */
-        .vid-body-wrap{display:grid;grid-template-columns:1fr 310px;gap:20px;padding:0 40px 32px;align-items:start}
+        .vid-body-wrap{display:grid;grid-template-columns:1fr 310px;gap:20px;padding:20px 40px 32px;align-items:start}
         .vid-body-left{min-width:0}
         .vid-body-right{position:sticky;top:20px;display:flex;flex-direction:column;gap:0}
 
-        .vid-sec-hdr{display:flex;align-items:center;gap:8px;padding:22px 0 14px;border-bottom:2px solid #f0f4f8;font-size:13px;font-weight:700;color:#1e293b}
-        .vid-sec-badge{background:#ccfbf1;color:#0f766e;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;border:1px solid #99f6e4}
+        .vid-sec-hdr{display:flex;align-items:center;gap:8px;padding:16px 0 12px;margin-top:4px;border-bottom:1.5px solid #d1d9e6;font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.1em}
+        .vid-sec-badge{background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;text-transform:none;letter-spacing:0}
 
-        .vid-table-wrap{overflow-x:auto;margin-top:0}
+        .vid-table-wrap{overflow-x:auto;margin-top:0;border-radius:12px;border:1.5px solid #d1d9e6;box-shadow:0 1px 4px rgba(0,0,0,.04)}
         .vid-table{width:100%;border-collapse:collapse;font-size:13px}
-        .vid-table thead tr{background:#f8fafc}
-        .vid-table thead th{padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;border-bottom:1.5px solid #e8ecf2;white-space:nowrap}
+        .vid-table thead tr{background:#f1f5f9}
+        .vid-table thead th{padding:11px 12px;text-align:left;font-size:11px;font-weight:700;color:#475569;letter-spacing:.07em;text-transform:uppercase;border-bottom:1.5px solid #d1d9e6;white-space:nowrap}
         .vid-table thead th:first-child{padding-left:16px}
         .vid-table thead th:last-child{padding-right:16px;text-align:right}
 
-        /* Category rows — same white/light style as proforma/quotation */
-        .vid-cat-row td{padding:9px 12px 6px 16px;background:#fafbfc;border-top:1.5px solid #f0f4f8}
-        .vid-cat-inner{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.08em}
-        .vid-cat-dot{width:6px;height:6px;border-radius:50%;background:#0d9488;flex-shrink:0}
-        .vid-cat-cnt{margin-left:auto;font-size:10px;font-weight:600;color:#94a3b8;text-transform:none;letter-spacing:0}
+        /* Category rows */
+        .vid-cat-row td{padding:9px 12px 6px 16px;background:linear-gradient(90deg,#f1f5f9,#f8fafc);border-top:1.5px solid #d1d9e6}
+        .vid-cat-inner{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;color:#1e293b}
+        .vid-cat-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
+        .vid-cat-cnt{background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px}
 
-        .vid-row{border-bottom:1px solid #f8fafc;transition:background .1s}
-        .vid-row:hover{background:#fafffe}
-        .vid-row td{padding:11px 12px;vertical-align:top}
+        .vid-row{border-bottom:1px solid #e8ecf2;transition:background .1s}
+        .vid-row:hover{background:#f8fffe}
+        .vid-row td{padding:11px 12px;vertical-align:middle}
         .vid-row td:first-child{padding-left:16px}
         .vid-row td:last-child{padding-right:16px;text-align:right}
-        .vid-desc{font-size:13px;font-weight:500;color:#334155;line-height:1.55;max-width:300px}
-        .vid-subcat{display:inline-block;background:#f1f5f9;color:#475569;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;white-space:nowrap}
-        .vid-qty-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:700}
-        .vid-misc-note{color:#d97706;font-style:italic;font-size:11px;border-bottom:1px dashed #fcd34d;cursor:help}
-        .vid-cat-sub td{padding:7px 16px 9px;background:#f8fafc;border-bottom:2px solid #e8ecf2}
+        .vid-desc{font-size:13px;font-weight:500;color:#0f172a;line-height:1.6;max-width:300px}
+        .vid-subcat{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+        .vid-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:7px;background:#e8ecf2;color:#334155;font-size:13px;font-weight:700;padding:0 6px}
+        .vid-misc-note{display:inline-block;font-size:11.5px;color:#b45309;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:4px 10px;font-style:italic;font-weight:500;max-width:160px;word-break:break-word;line-height:1.4;white-space:normal;vertical-align:middle}
+        .vid-cat-sub td{padding:8px 16px 10px;background:#f8fafc;border-top:1px solid #d1d9e6}
 
-        .vid-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:2px solid #f0f4f8;align-items:start}
+        .vid-foot{display:grid;grid-template-columns:1fr 310px;gap:32px;padding:28px 40px;border-top:1.5px solid #d1d9e6;align-items:start}
         .vid-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
         .vid-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .vid-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vid-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
+        .vid-sum-lbl{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em}
         .vid-sum-val{font-size:13px;font-weight:700;color:#1e293b}
 
-        .vid-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
-        .vid-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#94a3b8;text-transform:uppercase;margin-bottom:14px}
+        .vid-tbox{background:#f8fafc;border:1.5px solid #d1d9e6;border-radius:14px;padding:20px 22px}
+        .vid-tbox-title{font-size:10px;font-weight:800;letter-spacing:.12em;color:#64748b;text-transform:uppercase;margin-bottom:14px}
         .vid-trow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#475569;font-weight:500}
         .vid-trow--disc{color:#ea580c}
         .vid-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:11px 0}
@@ -1229,7 +1229,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
         .vid-dl-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:11px;background:#0f766e;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s}
         .vid-dl-btn:hover{background:#0d6460}
         .vid-dl-btn:disabled{opacity:.6;cursor:not-allowed}
-        .vid-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #e8ecf2;font-size:11px;color:#94a3b8}
+        .vid-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #d1d9e6;font-size:11px;color:#64748b}
 
         @media(max-width:700px){
           .vid-hdr{flex-direction:column;padding:22px 20px}
@@ -1420,7 +1420,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                 </>
               )}
             </div>
-            <div className="vid-arrow-col"><ChevronRight size={16} style={{ color: '#cbd5e1' }} /></div>
+            <div className="vid-arrow-col"><ChevronRight size={16} style={{ color: '#94a3b8' }} /></div>
             <div className="vid-party vid-party--proj">
               <div className="vid-plabel">Project</div>
               <div className="vid-picon"><Building2 size={20} color="#0f766e" /></div>
@@ -1470,7 +1470,7 @@ export default function ViewInvoiceDetails({ onUpdateNavigation }) {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 10,
-                  marginBottom: 12,
+                  marginBottom: 0,
                   padding: '8px 14px',
                   background: '#f0fdf4',
                   border: '1.5px solid #bbf7d0',

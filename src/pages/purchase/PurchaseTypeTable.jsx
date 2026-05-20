@@ -82,7 +82,16 @@ export default function PurchaseTypeTable({ items = [] }) {
               {grp.items.map((item, ii) => {
                 const { qty, prof, matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
                 const total            = calcItemTotal(item);
-                const subCat           = SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_category] || null;
+                const rawSubCat        = item.sub_compliance_category;
+                const subCat           = SUB_COMPLIANCE_CATEGORIES[rawSubCat] || null;
+                const subCatLabel      = subCat?.name || (
+                  rawSubCat !== null &&
+                  rawSubCat !== undefined &&
+                  String(rawSubCat).trim() !== '' &&
+                  String(rawSubCat).trim() !== '0'
+                    ? String(rawSubCat).trim()
+                    : ''
+                );
                 const itemSacCode      = item.sac_code;
                 const itemHasBreakdown = hasRateBreakdown(item);
 
@@ -93,8 +102,8 @@ export default function PurchaseTypeTable({ items = [] }) {
                     </td>
                     <td><div className="vpod-desc">{item.description || item.compliance_name || '—'}</div></td>
                     <td>
-                      {subCat
-                        ? <span className="vpod-subcat">{subCat.name}</span>
+                      {subCatLabel
+                        ? <span className="vpod-subcat">{subCatLabel}</span>
                         : <span style={{ color: '#e2e8f0', fontSize: 12 }}>—</span>}
                     </td>
                     <td style={{ textAlign: 'center' }}>

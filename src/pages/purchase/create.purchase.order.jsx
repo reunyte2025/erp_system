@@ -35,7 +35,49 @@ const SUB_COMPLIANCE_BY_CATEGORY = {
   7: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
 };
 
+const OTHER_SUB_COMPLIANCE_VALUE = 0;
+const ALL_SUB_COMPLIANCE_OPTIONS = Object.values(SUB_COMPLIANCE_BY_CATEGORY).flat();
+
 const sanitizeDescription = (value) => String(value || '').trim().slice(0, DESCRIPTION_MAX_LENGTH);
+
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const isKnownSubCompliance = (value) =>
+  ALL_SUB_COMPLIANCE_OPTIONS.some(option => String(option.id) === String(value));
+
+const getSubComplianceFormState = (value) => {
+  const normalized = normalizeSubComplianceCategory(value, null);
+  if (normalized === null || normalized === 0) {
+    return { sub_compliance_id: null, custom_sub_compliance: '' };
+  }
+  if (isKnownSubCompliance(normalized)) {
+    return { sub_compliance_id: normalized, custom_sub_compliance: '' };
+  }
+  return {
+    sub_compliance_id: OTHER_SUB_COMPLIANCE_VALUE,
+    custom_sub_compliance: String(normalized).trim(),
+  };
+};
+
+const resolveSubComplianceValue = (form) => {
+  if (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+    return String(form.custom_sub_compliance || '').trim();
+  }
+  return form.sub_compliance_id || null;
+};
+
+const getSubComplianceLabel = (value) => {
+  const normalized = normalizeSubComplianceCategory(value, null);
+  if (normalized === null || normalized === 0) return '';
+  const known = ALL_SUB_COMPLIANCE_OPTIONS.find(option => String(option.id) === String(normalized));
+  return known ? known.name : String(normalized);
+};
 
 // ── Company options (matches backend Company class) ──────────────────────────
 const COMPANIES = [
@@ -68,7 +110,7 @@ const SubComplianceDropdown = ({ value, options = [], onChange, placeholder = 'S
   React.useEffect(() => { if (!isOpen) setSearch(''); }, [isOpen]);
 
   const filtered = options.filter(item => item.name.toLowerCase().includes(search.toLowerCase()));
-  const selected = options.find(item => item.id === value);
+  const selected = options.find(item => String(item.id) === String(value));
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -112,12 +154,12 @@ const SubComplianceDropdown = ({ value, options = [], onChange, placeholder = 'S
                     setSearch('');
                   }}
                   className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 text-sm ${
-                    value === item.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''
+                    String(value) === String(item.id) ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-gray-900 font-medium">{item.name}</span>
-                    {value === item.id && (
+                    {String(value) === String(item.id) && (
                       <div className="w-5 h-5 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -255,6 +297,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   // ── Blank item form for execution ─────────────────────────────────────────
   const BLANK_ITEM_FORM = {
     compliance_name: '', compliance_id: null, sub_compliance_id: null, quantity: 1,
+    custom_sub_compliance: '',
     unit: '', item_sac_code: '',
     // Professional_amount = the "Rate (Rs.) per unit" field
     Professional_amount: 0,
@@ -284,11 +327,13 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         const grouped = {};
         editQuotation.items.forEach(item => {
           const catId = item.compliance_category ?? 5;
+          const subState = getSubComplianceFormState(item.sub_compliance_category);
           if (!grouped[catId]) grouped[catId] = { category_id: catId, category_name: COMPLIANCE_CATEGORIES[catId]?.shortName || `Category ${catId}`, items: [] };
           grouped[catId].items.push({
             compliance_name:    item.description || '',
             compliance_id:      item.compliance_id || null,
-            sub_compliance_id:  item.sub_compliance_category || null,
+            sub_compliance_id:  subState.sub_compliance_id,
+            custom_sub_compliance: subState.custom_sub_compliance,
             quantity:           item.quantity || 1,
             unit:               item.unit || '',
             item_sac_code:      item.sac_code || '',
@@ -356,7 +401,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     try {
-      const results = await getComplianceDescriptions(categoryId, subCategoryId || null);
+      const results = await getComplianceDescriptions(categoryId, subCategoryId);
       descriptionsCacheRef.current[cacheKey] = results;
       setComplianceDescriptions(results);
       setDescriptionMode(results.length > 0 ? 'dropdown' : 'manual');
@@ -476,7 +521,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     const newItem = {
       compliance_name:    complianceName,
       compliance_id:      itemForm.compliance_id || null,
-      sub_compliance_id:  itemForm.sub_compliance_id || null,
+      sub_compliance_id:  resolveSubComplianceValue(itemForm),
+      custom_sub_compliance: itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE ? String(itemForm.custom_sub_compliance || '').trim() : '',
       quantity:           parseInt(itemForm.quantity, 10) || 1,
       unit:               String(itemForm.unit || '').trim(),
       item_sac_code:      String(itemForm.item_sac_code || '').trim(),
@@ -490,7 +536,11 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     const editIdx = getActiveEditingIndex();
     if (editIdx !== null) { setActiveItems(prev => prev.map((item, i) => i === editIdx ? newItem : item)); setActiveEditingIndex(null); }
     else { setActiveItems(prev => [...prev, newItem]); }
-    setActiveItemForm({ ...BLANK_ITEM_FORM, sub_compliance_id: itemForm.sub_compliance_id });
+    setActiveItemForm({
+      ...BLANK_ITEM_FORM,
+      sub_compliance_id: itemForm.sub_compliance_id,
+      custom_sub_compliance: itemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE ? itemForm.custom_sub_compliance : '',
+    });
     setDescriptionSearch(''); setShowDescriptionDropdown(false); setDescSelectedFromDropdown(false);
   };
 
@@ -499,7 +549,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     setActiveItemForm({
       compliance_name:    item.compliance_name,
       compliance_id:      item.compliance_id || null,
-      sub_compliance_id:  item.sub_compliance_id || null,
+      ...getSubComplianceFormState(item.sub_compliance_id),
       quantity:           item.quantity || 1,
       unit:               item.unit || '',
       item_sac_code:      item.item_sac_code || '',
@@ -511,7 +561,12 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     });
     setActiveEditingIndex(index);
     setDescSelectedFromDropdown(true);
-    fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
+    const subState = getSubComplianceFormState(item.sub_compliance_id);
+    if (subState.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+      fetchComplianceDescriptions(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+    } else {
+      fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
+    }
   };
 
   const handleRemoveItem = (index) => {
@@ -604,7 +659,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
       formMap[cId] = cId === categoryId ? {
         compliance_name:    item.compliance_name || '',
         compliance_id:      item.compliance_id || null,
-        sub_compliance_id:  item.sub_compliance_id || null,
+        ...getSubComplianceFormState(item.sub_compliance_id),
         quantity:           item.quantity || 1,
         unit:               item.unit || '',
         item_sac_code:      item.item_sac_code || '',
@@ -619,7 +674,12 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     const editIdxMap = {};
     EXECUTION_CAT_IDS.forEach(cId => { editIdxMap[cId] = cId === categoryId ? itemIndex : null; });
     setEditingItemIndexMap(editIdxMap);
-    fetchComplianceDescriptions(categoryId, item.sub_compliance_id || null);
+    const subState = getSubComplianceFormState(item.sub_compliance_id);
+    if (subState.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+      fetchComplianceDescriptions(categoryId, OTHER_SUB_COMPLIANCE_VALUE);
+    } else {
+      fetchComplianceDescriptions(categoryId, item.sub_compliance_id || null);
+    }
     setDescriptionSearch(''); setShowDescriptionDropdown(false);
     setShowAddSection(true);
   };
@@ -669,7 +729,13 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
     if (!selectedProject)      { setError('Please select a project');                    return; }
     if (!selectedCompany)      { setError('Please select a company');                    return; }
     if (sections.length === 0) { setError('Please add at least one compliance section'); return; }
-    if (!sacCode.trim())       { setError('Please enter a SAC code');                   return; }
+
+    // SAC code length validation — backend allows max 6 characters
+    const sacCodeTrimmed = sacCode.trim();
+    if (sacCodeTrimmed && sacCodeTrimmed.length > 6) {
+      setError(`SAC code "${sacCodeTrimmed}" is too long — maximum 6 characters allowed (e.g. 708104).`);
+      return;
+    }
 
     setSubmitting(true); setError('');
 
@@ -692,15 +758,21 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
             throw new Error(`Rate must be greater than 0 for: ${description}`);
           }
 
-          const total = (matAmt || labAmt)
-            ? parseFloat((matAmt + labAmt).toFixed(2))
-            : parseFloat((profRate * quantity).toFixed(2));
+          const total = calcItemTotal({
+            ...item,
+            quantity,
+            Professional_amount: profRate,
+            material_rate: matRate,
+            material_amount: matAmt,
+            labour_rate: labRate,
+            labour_amount: labAmt,
+          });
 
           return {
             ...(isEditMode && item._itemId ? { id: item._itemId } : {}),
             description,
             quantity,
-            unit:                    String(item.unit || '').trim() || null,
+            unit:                    String(item.unit || '').trim(),
             sac_code:                String(item.item_sac_code || '').trim(),
             Professional_amount:     profRate.toFixed(2),
             material_rate:           matRate.toFixed(2),
@@ -709,7 +781,11 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
             labour_amount:           labAmt.toFixed(2),
             total_amount:            total,
             compliance_category:     parseInt(section.category_id),
-            sub_compliance_category: parseInt(item.sub_compliance_id || 0),
+            sub_compliance_category: (() => {
+              const resolved = resolveSubComplianceValue(item);
+              if (resolved === null || resolved === undefined || resolved === '') return 0;
+              return normalizeSubComplianceCategory(resolved, 0);
+            })(),
           };
         })
       );
@@ -729,6 +805,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
       const projectId = Number(selectedProject.id);
       if (isNaN(vendorId)  || vendorId  <= 0) throw new Error('Invalid vendor ID');
       if (isNaN(projectId) || projectId <= 0) throw new Error('Invalid project ID');
+      const resolvedSacCode = sacCode.trim() || String(allItems.find(item => String(item.sac_code || '').trim())?.sac_code || '').trim();
 
       // ── Edit mode ──
       if (isEditMode) {
@@ -739,7 +816,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
           project:          projectId,
           gst_rate:         String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
           discount_rate:    discountRateStr,
-          sac_code:         sacCode.trim(),
+          sac_code:         resolvedSacCode,
           total_amount:     subTotal.toFixed(2),
           total_gst_amount: gstAmt.toFixed(2),
           grand_total:      grandTotal.toFixed(2),
@@ -762,7 +839,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         project:          projectId,
         gst_rate:         String(gstEnabled ? (parseFloat(gstRate) || 0).toFixed(2) : '0'),
         discount_rate:    discountRateStr,
-        sac_code:         sacCode.trim(),
+        sac_code:         resolvedSacCode,
         total_amount:     subTotal.toFixed(2),
         total_gst_amount: gstAmt.toFixed(2),
         grand_total:      grandTotal.toFixed(2),
@@ -823,7 +900,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         const complianceName = sanitizeDescription(f.compliance_name);
         if (!complianceName) return;
         const newItem = {
-          compliance_name:    complianceName, compliance_id: f.compliance_id || null, sub_compliance_id: f.sub_compliance_id || null,
+          compliance_name:    complianceName, compliance_id: f.compliance_id || null, sub_compliance_id: resolveSubComplianceValue(f),
+          custom_sub_compliance: f.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE ? String(f.custom_sub_compliance || '').trim() : '',
           quantity:           parseInt(f.quantity, 10) || 1, unit: String(f.unit || '').trim(), item_sac_code: String(f.item_sac_code || '').trim(),
           Professional_amount: parseFloat(f.Professional_amount) || 0,
           material_rate: parseFloat(f.material_rate) || 0, material_amount: parseFloat(f.material_amount) || 0,
@@ -832,7 +910,11 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         };
         if (modalEditingItemIndex !== null) { setActiveItems(prev => prev.map((it, i) => i === modalEditingItemIndex ? newItem : it)); modalSetEditingIdx(null); }
         else { setActiveItems(prev => [...prev, newItem]); }
-        modalSetItemForm({ ...BLANK_ITEM_FORM, sub_compliance_id: f.sub_compliance_id });
+        modalSetItemForm({
+          ...BLANK_ITEM_FORM,
+          sub_compliance_id: f.sub_compliance_id,
+          custom_sub_compliance: f.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE ? f.custom_sub_compliance : '',
+        });
         setDescriptionSearch(''); setShowDescriptionDropdown(false); setDescSelectedFromDropdown(false);
       }
     : handleAddItem;
@@ -841,7 +923,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         const item = categoryItemsMap[activeCategoryId]?.items?.[index];
         if (!item) return;
         modalSetItemForm({
-          compliance_name: item.compliance_name, compliance_id: item.compliance_id || null, sub_compliance_id: item.sub_compliance_id || null,
+          compliance_name: item.compliance_name, compliance_id: item.compliance_id || null, ...getSubComplianceFormState(item.sub_compliance_id),
           quantity: item.quantity || 1, unit: item.unit || '', item_sac_code: item.item_sac_code || '',
           Professional_amount: parseFloat(item.Professional_amount) || 0,
           material_rate: parseFloat(item.material_rate) || 0, material_amount: parseFloat(item.material_amount) || 0,
@@ -849,7 +931,12 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
         });
         modalSetEditingIdx(index);
         setDescSelectedFromDropdown(true);
-        fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
+        const subState = getSubComplianceFormState(item.sub_compliance_id);
+        if (subState.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
+          fetchComplianceDescriptions(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+        } else {
+          fetchComplianceDescriptions(activeCategoryId, item.sub_compliance_id || null);
+        }
       }
     : handleEditItem;
   const modalRemoveItem = isEditSectionMode
@@ -859,11 +946,26 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
   const modalTotalItems   = Object.values(categoryItemsMap).reduce((sum, cat) => sum + (cat.items?.length || 0), 0);
   const modalSaveDisabled = Object.values(categoryItemsMap).every(cat => (cat.items?.length || 0) === 0);
 
-  const canAddItem = modalItemForm.compliance_name.trim() &&
-    (parseFloat(modalItemForm.Professional_amount) > 0 || parseFloat(modalItemForm.material_rate) > 0 || parseFloat(modalItemForm.material_amount) > 0 || parseFloat(modalItemForm.labour_rate) > 0 || parseFloat(modalItemForm.labour_amount) > 0);
-
   // Sub-compliance for current category
-  const subOptions = SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId] || [];
+  const subOptions = [
+    ...(SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId] || []),
+    { id: OTHER_SUB_COMPLIANCE_VALUE, name: 'Other' },
+  ];
+
+  const subComplianceValid = !subOptions.length ||
+    (
+      modalItemForm.sub_compliance_id !== null &&
+      modalItemForm.sub_compliance_id !== undefined &&
+      modalItemForm.sub_compliance_id !== '' &&
+      (
+        modalItemForm.sub_compliance_id !== OTHER_SUB_COMPLIANCE_VALUE ||
+        String(modalItemForm.custom_sub_compliance || '').trim()
+      )
+    );
+
+  const canAddItem = modalItemForm.compliance_name.trim() &&
+    subComplianceValid &&
+    (parseFloat(modalItemForm.Professional_amount) > 0 || parseFloat(modalItemForm.material_rate) > 0 || parseFloat(modalItemForm.material_amount) > 0 || parseFloat(modalItemForm.labour_rate) > 0 || parseFloat(modalItemForm.labour_amount) > 0);
 
   // ============================================================================
   // RENDER
@@ -1029,8 +1131,8 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
               {/* Right: SAC Code + Submit */}
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-600 whitespace-nowrap">SAC Code <span className="text-red-500">*</span></label>
-                  <input type="text" value={sacCode} onChange={e => setSacCode(e.target.value)} placeholder="e.g. 998313" required
+                  <label className="text-xs font-medium text-gray-600 whitespace-nowrap">SAC Code <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <input type="text" value={sacCode} onChange={e => setSacCode(e.target.value)} placeholder="e.g. 998313"
                     className="w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors bg-white" />
                 </div>
 
@@ -1360,14 +1462,32 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                             value={modalItemForm.sub_compliance_id}
                             options={subOptions}
                             onChange={(id) => {
-                              modalSetItemForm(prev => ({ ...prev, sub_compliance_id: id, compliance_name: '' }));
+                              modalSetItemForm(prev => ({
+                                ...prev,
+                                sub_compliance_id: id,
+                                custom_sub_compliance: id === OTHER_SUB_COMPLIANCE_VALUE ? prev.custom_sub_compliance : '',
+                                compliance_name: '',
+                              }));
                               setDescriptionSearch('');
                               setShowDescriptionDropdown(false);
                               setDescSelectedFromDropdown(false);
-                              fetchComplianceDescriptions(activeCategoryId, id);
+                              if (id === OTHER_SUB_COMPLIANCE_VALUE) {
+                                fetchComplianceDescriptions(activeCategoryId, OTHER_SUB_COMPLIANCE_VALUE);
+                              } else {
+                                fetchComplianceDescriptions(activeCategoryId, id);
+                              }
                             }}
                             placeholder="Select sub-compliance category"
                           />
+                          {modalItemForm.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && (
+                            <input
+                              type="text"
+                              value={modalItemForm.custom_sub_compliance || ''}
+                              onChange={e => modalSetItemForm(prev => ({ ...prev, custom_sub_compliance: e.target.value }))}
+                              placeholder="Enter sub-compliance manually"
+                              className="mt-2 w-full px-3 py-2.5 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm bg-amber-50"
+                            />
+                          )}
                         </div>
                       )}
 
@@ -1610,6 +1730,7 @@ export default function CreatePurchaseOrder({ onUpdateNavigation }) {
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
                               <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                                {getSubComplianceLabel(item.sub_compliance_id) && <span className="text-xs text-indigo-600 font-medium">{getSubComplianceLabel(item.sub_compliance_id)}</span>}
                                 <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                                 {item.unit && <span className="text-xs text-gray-400">Unit: {item.unit}</span>}
                                 <span className="text-xs text-gray-400">Rate: Rs. {parseFloat(item.Professional_amount || 0).toLocaleString('en-IN')}</span>

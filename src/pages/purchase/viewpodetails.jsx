@@ -56,6 +56,7 @@ import {
   getPOCompanyName,
   GST_APPLICABLE_COMPANY_ID,
   STATUS_CONFIG,
+  SUB_COMPLIANCE_CATEGORIES,
 } from '../../services/purchaseHelpers';
 
 // ─── STATUS_CONFIG with Lucide Icons (this file only — helpers stay zero-React) ─
@@ -83,6 +84,20 @@ const getStatusUI = (s) => {
   return STATUS_CONFIG_UI[key] || STATUS_CONFIG_UI[lower] || STATUS_CONFIG_UI['1'];
 };
 
+const normalizeSubComplianceCategory = (value, fallback = 0) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const text = String(value).trim();
+  if (!text) return fallback;
+  const numeric = Number(text);
+  return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const getSubComplianceLabel = (value) => {
+  const normalized = normalizeSubComplianceCategory(value, null);
+  if (normalized === null || normalized === 0) return '';
+  return SUB_COMPLIANCE_CATEGORIES[normalized]?.name || String(normalized);
+};
+
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 const StatusPill = ({ status }) => (
@@ -97,17 +112,17 @@ const StatusPill = ({ status }) => (
 );
 
 const MetaBlock = ({ icon: Icon, label, value, accent }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
     <span style={{
-      fontSize: 10, fontWeight: 700, color: '#94a3b8',
+      fontSize: 11, fontWeight: 700, color: '#64748b',
       textTransform: 'uppercase', letterSpacing: '0.08em',
       display: 'flex', alignItems: 'center', gap: 4,
     }}>
-      {Icon && <Icon size={10} />} {label}
+      {Icon && <Icon size={11} />} {label}
     </span>
     <span style={{
-      fontSize: 13, fontWeight: 700,
-      color: accent ? '#0f766e' : '#1e293b',
+      fontSize: 14, fontWeight: 700,
+      color: accent ? '#0f766e' : '#0f172a',
       fontFamily: accent ? 'monospace' : 'inherit',
       letterSpacing: accent ? '0.03em' : 0,
     }}>
@@ -294,7 +309,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
   // ─── Compliance modal fetch ───────────────────────────────────────────────────
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    const res = await getComplianceByCategory(categoryId, subCategoryId || null);
+    const res = await getComplianceByCategory(categoryId, subCategoryId);
     if (res?.status === 'success' && res?.data?.results) return res.data.results;
     return [];
   };
@@ -310,7 +325,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       id:                      it.id,
       description:             it.description || it.compliance_name || '',
       quantity:                parseInt(it.quantity) || 1,
-      unit:                    (it.unit && it.unit !== 'N/A') ? it.unit : null,
+      unit:                    (it.unit && it.unit !== 'N/A') ? String(it.unit) : '',
       sac_code:                it.sac_code || '',
       Professional_amount:     parseFloat(it.Professional_amount || 0),
       material_rate:           parseFloat(it.material_rate || 0),
@@ -318,7 +333,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       labour_rate:             parseFloat(it.labour_rate || 0),
       labour_amount:           parseFloat(it.labour_amount || 0),
       compliance_category:     it.compliance_category ?? 5,
-      sub_compliance_category: it.sub_compliance_category ?? 0,
+      sub_compliance_category: normalizeSubComplianceCategory(it.sub_compliance_category, 0),
       total_amount:            parseFloat(it.total_amount || 0),
     })));
     setSaveError(''); setSaveSuccess(false);
@@ -386,11 +401,11 @@ export default function ViewPODetails({ onUpdateNavigation }) {
       return {
         id:                      null,
         compliance_category:     compCat,
-        sub_compliance_category: parseInt(item.sub_compliance_category) || 0,
+        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
-        unit:                    String(item.unit || '').trim() || null,
-        sac_code:                String(item.sac_code || '').trim() || null,
+        unit:                    String(item.unit || '').trim(),
+        sac_code:                String(item.sac_code || '').trim(),
         Professional_amount:     parseFloat(item.Professional_amount) || 0,
         material_rate:           parseFloat(item.material_rate)   || 0,
         material_amount:         parseFloat(item.material_amount) || 0,
@@ -474,17 +489,13 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
       if (data && (data.id || data.quotation_number || data.status === 'success')) {
         const updated = data.data || data;
+        const refreshed = await getPurchaseOrderById(parseInt(po.id));
+        const refreshedPo = refreshed?.data || updated;
         setPo(prev => ({
           ...prev, ...updated,
+          ...refreshedPo,
           company:          editCompany,
-          company_name:     newCompanyName,
-          sac_code:         editSacCode.trim(),
-          gst_rate:         String(isGSTApplicable ? editGstRate : 0),
-          discount_rate:    String(editDiscRate),
-          total_amount:     sub,
-          total_gst_amount: gst,
-          grand_total:      grand,
-          items: updated.items || editItems.map(it => ({ ...it, total_amount: calcItemTotal(it) })),
+          company_name:     refreshedPo.company_name || newCompanyName,
         }));
         setSaveSuccess(true);
         setEditMode(false);
@@ -743,84 +754,89 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         .vpod-co-dd-item .co-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid #e2e8f0;flex-shrink:0}
 
         /* ── Meta strip ── */
-        .vpod-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:14px 40px;background:#f8fafc;border-bottom:1.5px solid #e8ecf2}
-        .vpod-meta-sep{width:1px;height:30px;background:#e2e8f0;margin:0 18px;flex-shrink:0}
+        .vpod-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:16px 40px;background:#f8fafc;border-bottom:1.5px solid #dde3ec}
+        .vpod-meta-sep{width:1px;height:32px;background:#c8d0dc;margin:0 20px;flex-shrink:0}
 
         /* ── Parties ── */
-        .vpod-parties{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:0;padding:24px 40px;border-bottom:1.5px solid #f0f4f8;align-items:start}
+        .vpod-parties{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:0;padding:28px 40px;border-bottom:1.5px solid #dde3ec;align-items:start}
         .vpod-arrow-col{display:flex;align-items:center;justify-content:center;padding-top:28px}
-        .vpod-party{display:flex;flex-direction:column;gap:4px;padding-right:24px}
-        .vpod-party--proj{padding-left:24px;border-left:1.5px solid #f0f4f8;padding-right:24px}
-        .vpod-party--rates{padding-left:24px;border-left:1.5px solid #f0f4f8}
-        .vpod-plabel{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
-        .vpod-pavatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:6px}
-        .vpod-picon{width:36px;height:36px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin-bottom:6px}
-        .vpod-pname{font-size:15px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
-        .vpod-pdetail{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-top:2px}
-        .vpod-rates-list{display:flex;flex-direction:column;gap:10px}
-        .vpod-rate-row{display:flex;align-items:center;gap:10px}
-        .vpod-rate-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-        .vpod-rate-v{font-size:15px;font-weight:800;color:#1e293b}
-        .vpod-rate-l{font-size:11px;color:#94a3b8;font-weight:500;margin-top:1px}
+        .vpod-party{display:flex;flex-direction:column;gap:4px;padding-right:28px}
+        .vpod-party--proj{padding-left:28px;border-left:1.5px solid #dde3ec;padding-right:28px}
+        .vpod-party--rates{padding-left:28px;border-left:1.5px solid #dde3ec}
+        .vpod-plabel{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+        .vpod-pavatar{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#0f766e,#14b8a6);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;margin-bottom:8px}
+        .vpod-picon{width:40px;height:40px;border-radius:12px;background:#f0fdf4;border:1.5px solid #86efac;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+        .vpod-pname{font-size:16px;font-weight:800;color:#0f172a;letter-spacing:-.01em}
+        .vpod-pdetail{display:flex;align-items:center;gap:5px;font-size:12.5px;color:#475569;margin-top:3px}
+        .vpod-rates-list{display:flex;flex-direction:column;gap:12px}
+        .vpod-rate-row{display:flex;align-items:center;gap:12px}
+        .vpod-rate-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .vpod-rate-v{font-size:16px;font-weight:800;color:#0f172a}
+        .vpod-rate-l{font-size:12px;color:#64748b;font-weight:600;margin-top:1px}
 
-        .vpod-items{padding:0 40px 24px}
-        .vpod-sec-hdr{display:flex;align-items:center;gap:8px;padding:20px 0 14px;font-size:14px;font-weight:800;color:#1e293b;letter-spacing:-.01em}
-        .vpod-sec-badge{background:#f1f5f9;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:#64748b}
-        .vpod-table-wrap{overflow-x:auto;border-radius:12px;border:1.5px solid #f0f4f8}
+        .vpod-items{padding:0 40px 28px}
+        .vpod-sec-hdr{display:flex;align-items:center;gap:8px;padding:22px 0 16px;font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em}
+        .vpod-sec-badge{background:#e8ecf2;border-radius:12px;padding:3px 10px;font-size:11px;font-weight:700;color:#475569}
+        .vpod-table-wrap{overflow-x:auto;border-radius:12px;border:1.5px solid #dde3ec;box-shadow:0 1px 4px rgba(0,0,0,.04)}
         .vpod-table{width:100%;border-collapse:collapse;font-size:13px}
-        .vpod-table thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;background:#f8fafc;border-bottom:1.5px solid #f0f4f8;white-space:nowrap}
-        .vpod-cat-row td{padding:8px 12px;background:#f8fafc;border-top:1.5px solid #f0f4f8}
-        .vpod-cat-inner{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#374151}
-        .vpod-cat-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
-        .vpod-cat-cnt{background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px}
-        .vpod-row td{padding:10px 12px;border-top:1px solid #f8fafc;vertical-align:top}
-        .vpod-row:hover td{background:#fafffe}
-        .vpod-row-idx{text-align:center;font-size:11px;color:#d1d5db;font-weight:700;width:32px}
-        .vpod-desc{font-size:13px;color:#1e293b;font-weight:500;line-height:1.5}
-        .vpod-subcat{display:inline-flex;align-items:center;padding:2px 8px;background:#eff6ff;color:#1d4ed8;border-radius:8px;font-size:10px;font-weight:700}
-        .vpod-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;background:#f1f5f9;border-radius:6px;font-size:12px;font-weight:700;color:#475569;padding:0 5px}
-        .vpod-cat-sub td{padding:6px 12px;background:#fafffe;border-top:1px solid #f0f4f8}
+        .vpod-table thead th{padding:11px 14px;text-align:left;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;background:#f1f5f9;border-bottom:1.5px solid #dde3ec;white-space:nowrap}
+        .vpod-cat-row td{padding:9px 14px;background:linear-gradient(90deg,#f1f5f9,#f8fafc);border-top:1.5px solid #dde3ec}
+        .vpod-cat-inner{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;color:#1e293b}
+        .vpod-cat-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#14b8a6);flex-shrink:0}
+        .vpod-cat-cnt{background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px}
+        .vpod-row td{padding:12px 14px;border-top:1px solid #e8ecf2;vertical-align:middle}
+        .vpod-row:hover td{background:#f8fffe}
+        .vpod-row-idx{text-align:center;font-size:12px;color:#94a3b8;font-weight:700;width:36px}
+        .vpod-desc{font-size:13px;color:#0f172a;font-weight:500;line-height:1.6}
+        .vpod-subcat{display:inline-flex;align-items:center;padding:4px 11px;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+        .vpod-qty-badge{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;background:#e8ecf2;border-radius:7px;font-size:13px;font-weight:700;color:#334155;padding:0 7px}
+        .vpod-cat-sub td{padding:8px 14px;background:#f8fafc;border-top:1px solid #dde3ec}
 
         /* ── Edit mode ── */
         .vpod-edit-banner{display:flex;align-items:center;gap:10px;padding:10px 18px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fcd34d;border-radius:12px;margin-bottom:14px;animation:vpod_in .25s ease}
         .vpod-edit-input{padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#1e293b;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s;width:100%}
         .vpod-edit-input:focus{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1)}
         .vpod-edit-input-sm{width:80px;text-align:right}
+        input[type=number].vpod-edit-input::-webkit-inner-spin-button,
+        input[type=number].vpod-edit-input::-webkit-outer-spin-button,
+        input[type=number].vpod-edit-input-sm::-webkit-inner-spin-button,
+        input[type=number].vpod-edit-input-sm::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+        input[type=number].vpod-edit-input,
+        input[type=number].vpod-edit-input-sm{-moz-appearance:textfield}
         .vpod-edit-input-md{width:110px}
-        .vpod-edit-row td{background:#fafffe !important;padding:8px 6px !important}
+        .vpod-edit-row td{background:#fafffe !important;padding:8px 6px !important;vertical-align:middle;overflow:visible}
         .vpod-edit-row:hover td{background:#f0fdf4 !important}
         .vpod-edit-totals{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1.5px solid #6ee7b7;border-radius:14px;padding:20px 22px}
         .vpod-save-err{display:flex;align-items:flex-start;gap:8px;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#dc2626;line-height:1.5}
 
         /* ── Footer ── */
-        .vpod-foot{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px 40px;border-top:1.5px solid #f0f4f8}
-        .vpod-sum-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:12px}
-        .vpod-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-        .vpod-sum-item{display:flex;flex-direction:column;gap:2px}
-        .vpod-sum-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
-        .vpod-sum-val{font-size:13px;font-weight:700;color:#1e293b}
-        .vpod-tbox{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:20px 22px}
-        .vpod-tbox-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;align-items:center;gap:6px}
-        .vpod-trow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#475569;font-weight:500}
+        .vpod-foot{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:28px 40px;border-top:1.5px solid #dde3ec}
+        .vpod-sum-title{font-size:14px;font-weight:800;color:#0f172a;margin-bottom:14px}
+        .vpod-sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+        .vpod-sum-item{display:flex;flex-direction:column;gap:3px}
+        .vpod-sum-lbl{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em}
+        .vpod-sum-val{font-size:13.5px;font-weight:700;color:#0f172a}
+        .vpod-tbox{background:#f8fafc;border:1.5px solid #dde3ec;border-radius:14px;padding:22px 24px}
+        .vpod-tbox-title{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;display:flex;align-items:center;gap:6px}
+        .vpod-trow{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;color:#334155;font-weight:500}
         .vpod-trow--disc{color:#ea580c}
-        .vpod-trow--sub{color:#64748b;font-size:12px}
-        .vpod-tdiv{border:none;border-top:1.5px solid #e2e8f0;margin:10px 0}
-        .vpod-grand{display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:900;color:#1e293b;padding:4px 0}
-        .vpod-words{font-size:11px;color:#94a3b8;margin-top:8px;font-style:italic;line-height:1.5}
+        .vpod-trow--sub{color:#475569;font-size:12.5px}
+        .vpod-tdiv{border:none;border-top:1.5px solid #dde3ec;margin:12px 0}
+        .vpod-grand{display:flex;justify-content:space-between;align-items:center;font-size:19px;font-weight:900;color:#0f172a;padding:4px 0}
+        .vpod-words{font-size:11.5px;color:#64748b;margin-top:8px;font-style:italic;line-height:1.5}
         .vpod-dl-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:14px;padding:11px 0;background:linear-gradient(135deg,#0f766e,#0d9488);border:none;border-radius:10px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s}
         .vpod-dl-btn:hover{background:linear-gradient(135deg,#0d6460,#0b7a72);transform:translateY(-1px)}
         .vpod-dl-btn:disabled{opacity:.6;cursor:not-allowed}
 
-        /* ── Toasts & modals ── */
         .vpod-success-toast{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:10px;background:#0f766e;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,118,110,.4);animation:vpod_toast_in .3s cubic-bezier(.16,1,.3,1)}
-        .vpod-remarks{margin-top:14px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e8ecf2}
-        .vpod-rem-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
-        .vpod-rem-text{font-size:12.5px;color:#475569;line-height:1.6;margin:0}
-        .vpod-misc-note{font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:2px 6px;font-style:italic}
+        .vpod-remarks{margin-top:16px;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #dde3ec}
+        .vpod-rem-title{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+        .vpod-rem-text{font-size:13px;color:#334155;line-height:1.6;margin:0}
+        .vpod-misc-note{font-size:12px;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:3px 9px;font-style:italic;font-weight:500}
         .vpod-exec-rate-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
 
         /* ── Doc footer ── */
-        .vpod-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #e8ecf2;font-size:11px;color:#94a3b8}
+        .vpod-doc-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 40px;background:#f8fafc;border-top:1.5px solid #dde3ec;font-size:11px;color:#64748b}
 
         /* ── Print ── */
         @media print{
@@ -973,12 +989,12 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <MetaBlock icon={Calendar} label="Last Updated" value={fmtDate(po.updated_at)} />
             <div className="vpod-meta-sep" />
             {editMode ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Building2 size={10} /> Company
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Building2 size={11} /> Company
                   <span style={{ color: '#f59e0b', fontSize: 10 }}>✎</span>
                 </span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f766e' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#0f766e' }}>
                   {PO_COMPANIES.find(c => c.id === parseInt(editCompany))?.name || companyName}
                 </span>
               </div>
@@ -987,9 +1003,9 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             )}
             <div className="vpod-meta-sep" />
             {editMode ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Tag size={10} /> SAC Code <span style={{ color: '#f59e0b' }}>✎</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Tag size={11} /> SAC Code <span style={{ color: '#f59e0b' }}>✎</span>
                 </span>
                 <input
                   className="vpod-edit-input vpod-edit-input-md"
@@ -1007,8 +1023,8 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             <MetaBlock icon={Hash} label="PO Number" value={poNum} accent />
             <div className="vpod-meta-sep" />
             {/* PO Type — always Execution */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</span>
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
                 background: '#f5f3ff', border: '1.5px solid #ddd6fe',
@@ -1044,7 +1060,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
             </div>
 
             <div className="vpod-arrow-col">
-              <ChevronRight size={16} style={{ color: '#cbd5e1' }} />
+              <ChevronRight size={16} style={{ color: '#94a3b8' }} />
             </div>
 
             {/* Project */}
@@ -1160,7 +1176,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
 
             {/* ── EDIT MODE TABLE ── */}
             {editMode && (
-              <div className="vpod-table-wrap">
+              <div className="vpod-table-wrap" style={{ borderRadius: 14, border: '1.5px solid #e2e8f0', overflow: 'visible', boxShadow: '0 1px 6px rgba(0,0,0,.05)' }}>
                 {editItems.length === 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 8 }}>
                     <FileText size={28} color="#e2e8f0" />
@@ -1177,21 +1193,50 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                     editGroups[key].rows.push({ it, globalIdx });
                   });
 
+                  const expandFocus = (e, extra = {}) => {
+                    const inp = e.currentTarget;
+                    const wrapper = inp.parentElement;
+                    if (wrapper) {
+                      wrapper.style.height = `${wrapper.offsetHeight}px`;
+                      wrapper.style.minWidth = `${wrapper.offsetWidth}px`;
+                    }
+                    Object.assign(inp.style, {
+                      position: 'absolute', top: '0', left: '0', zIndex: '9999',
+                      minWidth: '150px', width: 'auto',
+                      boxShadow: '0 6px 24px rgba(15,118,110,0.25), 0 2px 8px rgba(0,0,0,0.15)',
+                      borderColor: '#0f766e', borderWidth: '2px',
+                      background: '#f0fdf4', borderRadius: '8px', padding: '6px 10px',
+                      ...extra,
+                    });
+                  };
+                  const expandBlur = (e, restore = {}) => {
+                    const inp = e.currentTarget;
+                    const wrapper = inp.parentElement;
+                    if (wrapper) { wrapper.style.height = ''; wrapper.style.minWidth = ''; }
+                    Object.assign(inp.style, {
+                      position: '', top: '', left: '', zIndex: '', minWidth: '',
+                      width: '100%', boxShadow: 'none', borderColor: '', borderWidth: '',
+                      background: '', borderRadius: '', padding: '',
+                      ...restore,
+                    });
+                  };
+
                   return (
                     <table className="vpod-table" style={{ tableLayout: 'fixed' }}>
                       <thead>
                         <tr>
-                          <th style={{ width: 32 }}>#</th>
+                          <th style={{ width: 36 }}>#</th>
                           <th style={{ width: 'auto' }}>
                             Description <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
                           </th>
-                          <th style={{ width: 58, textAlign: 'center' }}>Qty</th>
-                          <th style={{ width: 72, textAlign: 'center' }}>Unit</th>
-                          <th style={{ width: 116, textAlign: 'right' }}>Material Amt (₹)</th>
-                          <th style={{ width: 116, textAlign: 'right' }}>Labour Amt (₹)</th>
-                          <th style={{ width: 116, textAlign: 'right' }}>Professional (₹)</th>
+                          <th style={{ width: 62, textAlign: 'center' }}>Qty</th>
+                          <th style={{ width: 76, textAlign: 'center' }}>Unit</th>
+                          <th style={{ width: 92, textAlign: 'center' }}>SAC Code</th>
+                          <th style={{ width: 120, textAlign: 'right' }}>Material Amt (₹)</th>
+                          <th style={{ width: 120, textAlign: 'right' }}>Labour Amt (₹)</th>
+                          <th style={{ width: 120, textAlign: 'right' }}>Professional (₹)</th>
                           <th style={{ width: 110, textAlign: 'right' }}>Item Total</th>
-                          <th style={{ width: 40 }}></th>
+                          <th style={{ width: 42 }}></th>
                         </tr>
                       </thead>
                       {Object.values(editGroups).map((grp, gi) => {
@@ -1199,7 +1244,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                         return (
                           <tbody key={gi}>
                             <tr className="vpod-cat-row">
-                              <td colSpan={9}>
+                              <td colSpan={10}>
                                 <div className="vpod-cat-inner">
                                   <span className="vpod-cat-dot" />
                                   {grp.catName}
@@ -1211,83 +1256,149 @@ export default function ViewPODetails({ onUpdateNavigation }) {
                               const itemTotal = calcItemTotal(it);
                               return (
                                 <tr key={globalIdx} className="vpod-edit-row">
-                                  <td style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', fontWeight: 700 }}>{globalIdx + 1}</td>
-                                  <td>
-                                    <textarea
-                                      className="vpod-edit-input"
-                                      value={it.description}
-                                      onChange={e => updateItem(globalIdx, 'description', e.target.value)}
-                                      rows={2}
-                                      style={{ resize: 'vertical', minHeight: 42, fontSize: 12 }}
-                                      placeholder="Service description…"
-                                    />
+                                  <td style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>{globalIdx + 1}</td>
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 8px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <textarea
+                                        className="vpod-edit-input"
+                                        value={it.description}
+                                        onChange={e => updateItem(globalIdx, 'description', e.target.value)}
+                                        rows={2}
+                                        style={{ resize: 'vertical', minHeight: 44, fontSize: 12, width: '100%' }}
+                                        placeholder="Service description…"
+                                        onFocus={e => {
+                                          const inp = e.currentTarget;
+                                          const wrapper = inp.parentElement;
+                                          if (wrapper) { wrapper.style.height = `${Math.max(wrapper.offsetHeight, 60)}px`; wrapper.style.minWidth = `${wrapper.offsetWidth}px`; }
+                                          Object.assign(inp.style, { position: 'absolute', top: '0', left: '0', zIndex: '9999', minWidth: '220px', width: 'auto', boxShadow: '0 6px 24px rgba(15,118,110,0.25)', borderColor: '#0f766e', borderWidth: '2px', background: '#f0fdf4' });
+                                        }}
+                                        onBlur={e => {
+                                          const inp = e.currentTarget;
+                                          const wrapper = inp.parentElement;
+                                          if (wrapper) { wrapper.style.height = ''; wrapper.style.minWidth = ''; }
+                                          Object.assign(inp.style, { position: '', top: '', left: '', zIndex: '', minWidth: '', width: '100%', boxShadow: 'none', borderColor: '', borderWidth: '', background: '' });
+                                        }}
+                                      />
+                                    </div>
+                                    {getSubComplianceLabel(it.sub_compliance_category) && (
+                                      <div style={{ marginTop: 5, fontSize: 11, fontWeight: 700, color: '#6d28d9', display: 'inline-flex', alignItems: 'center', padding: '2px 8px', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 12 }}>
+                                        {getSubComplianceLabel(it.sub_compliance_category)}
+                                      </div>
+                                    )}
                                   </td>
-                                  <td>
-                                    <input
-                                      type="number" min="1"
-                                      className="vpod-edit-input"
-                                      value={it.quantity}
-                                      onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
-                                      style={{ textAlign: 'center', width: '100%' }}
-                                    />
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="number" min="1"
+                                        className="vpod-edit-input"
+                                        value={it.quantity}
+                                        onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
+                                        onWheel={e => e.target.blur()}
+                                        style={{ textAlign: 'center', width: '100%' }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'center' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'center' })}
+                                      />
+                                    </div>
                                   </td>
-                                  <td>
-                                    <input
-                                      type="text"
-                                      className="vpod-edit-input"
-                                      value={it.unit || ''}
-                                      onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
-                                      placeholder="Unit"
-                                      style={{ textAlign: 'center', width: '100%' }}
-                                    />
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="text"
+                                        className="vpod-edit-input"
+                                        value={it.unit || ''}
+                                        onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                        placeholder="Unit"
+                                        style={{ textAlign: 'center', width: '100%' }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'center' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'center' })}
+                                      />
+                                    </div>
                                   </td>
-                                  <td>
-                                    <input
-                                      type="number" min="0" step="0.01"
-                                      className="vpod-edit-input"
-                                      value={it.material_amount === 0 ? '' : it.material_amount}
-                                      onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00"
-                                      style={{ textAlign: 'right', width: '100%' }}
-                                    />
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="text"
+                                        className="vpod-edit-input"
+                                        value={it.sac_code || ''}
+                                        onChange={e => updateItem(globalIdx, 'sac_code', e.target.value)}
+                                        placeholder="SAC"
+                                        maxLength={6}
+                                        style={{ textAlign: 'center', width: '100%', fontFamily: 'monospace', fontWeight: 700 }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'center', fontFamily: 'monospace' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'center', fontFamily: 'monospace' })}
+                                      />
+                                    </div>
                                   </td>
-                                  <td>
-                                    <input
-                                      type="number" min="0" step="0.01"
-                                      className="vpod-edit-input"
-                                      value={it.labour_amount === 0 ? '' : it.labour_amount}
-                                      onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00"
-                                      style={{ textAlign: 'right', width: '100%' }}
-                                    />
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="number" min="0" step="0.01"
+                                        className="vpod-edit-input"
+                                        value={it.material_amount === 0 ? '' : it.material_amount}
+                                        onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
+                                        onWheel={e => e.target.blur()}
+                                        placeholder="0.00"
+                                        style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                      />
+                                    </div>
                                   </td>
-                                  <td>
-                                    <input
-                                      type="number" min="0" step="0.01"
-                                      className="vpod-edit-input"
-                                      value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                      onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                      placeholder="0.00"
-                                      style={{ textAlign: 'right', width: '100%' }}
-                                    />
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="number" min="0" step="0.01"
+                                        className="vpod-edit-input"
+                                        value={it.labour_amount === 0 ? '' : it.labour_amount}
+                                        onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                        onWheel={e => e.target.blur()}
+                                        placeholder="0.00"
+                                        style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                      />
+                                    </div>
                                   </td>
-                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#0f766e', fontSize: 13 }}>
+                                  <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <input
+                                        type="number" min="0" step="0.01"
+                                        className="vpod-edit-input"
+                                        value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                        onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                        onWheel={e => e.target.blur()}
+                                        placeholder="0.00"
+                                        style={{ textAlign: 'right', width: '100%' }}
+                                        onFocus={e => expandFocus(e, { textAlign: 'right' })}
+                                        onBlur={e => expandBlur(e, { textAlign: 'right' })}
+                                      />
+                                    </div>
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#0f766e', fontSize: 13, padding: '8px 12px 8px 6px', whiteSpace: 'nowrap' }}>
                                     ₹&nbsp;{fmtINR(itemTotal)}
+                                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>Mat+Lab+Prof</div>
                                   </td>
-                                  <td style={{ textAlign: 'center' }}>
+                                  <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '8px 8px 8px 4px' }}>
                                     <button
                                       onClick={() => removeItem(globalIdx)}
-                                      style={{ width: 28, height: 28, border: 'none', background: '#fef2f2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}
+                                      style={{
+                                        width: 30, height: 30, border: '1px solid #fecaca', background: '#fff5f5',
+                                        borderRadius: 7, cursor: 'pointer', display: 'inline-flex',
+                                        alignItems: 'center', justifyContent: 'center', color: '#ef4444',
+                                        transition: 'all .15s',
+                                      }}
                                       title="Remove item"
+                                      onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fca5a5'; }}
+                                      onMouseLeave={e => { e.currentTarget.style.background = '#fff5f5'; e.currentTarget.style.borderColor = '#fecaca'; }}
                                     ><Trash2 size={13} /></button>
                                   </td>
                                 </tr>
                               );
                             })}
-                            <tr className="vpod-cat-sub">
-                              <td colSpan={7} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}>{grp.catName} subtotal</td>
-                              <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>₹&nbsp;{fmtINR(grpEditTotal)}</td>
-                              <td />
+                            <tr className="vpod-cat-sub" style={{ background: '#f8fafc', borderTop: '1.5px solid #e8ecf2' }}>
+                              <td colSpan={8} style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', padding: '9px 14px', letterSpacing: '0.01em' }}>{grp.catName} subtotal</td>
+                              <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', padding: '9px 12px', whiteSpace: 'nowrap' }}>₹&nbsp;{fmtINR(grpEditTotal)}</td>
+                              <td style={{ padding: '9px 8px' }} />
                             </tr>
                           </tbody>
                         );
@@ -1699,6 +1810,7 @@ export default function ViewPODetails({ onUpdateNavigation }) {
         onSave={handleComplianceSave}
         existingItems={editItems}
         fetchDescriptions={fetchDescriptionsForModal}
+        quotationType="execution"
       />
 
       {/* ── Send to Vendor Modal ── */}
