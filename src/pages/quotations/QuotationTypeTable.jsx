@@ -39,6 +39,64 @@ const getSubComplianceName = (value) => {
   return SUB_COMPLIANCE_CATEGORIES[value]?.name || String(value);
 };
 
+// ── Expand-on-focus helpers ────────────────────────────────────────────────────
+// Strategy: each input sits inside a `position:relative` wrapper div.
+// On focus the input switches to `position:absolute` with high z-index so it
+// floats above ALL sibling table cells. The wrapper keeps its height so the
+// row doesn't collapse.
+const onExpandFocus = (e, extra = {}) => {
+  const inp = e.currentTarget;
+  const wrapper = inp.parentElement;
+  if (wrapper) {
+    // Lock the wrapper size so the row height doesn't collapse
+    const h = wrapper.offsetHeight;
+    const w = wrapper.offsetWidth;
+    wrapper.style.height = `${h}px`;
+    wrapper.style.minWidth = `${w}px`;
+  }
+  Object.assign(inp.style, {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    zIndex: '9999',
+    minWidth: '170px',
+    width: 'auto',
+    boxShadow: '0 6px 24px rgba(15,118,110,0.25), 0 2px 8px rgba(0,0,0,0.15)',
+    borderColor: '#0f766e',
+    borderWidth: '2px',
+    background: '#f0fdf4',
+    borderRadius: '8px',
+    padding: '6px 10px',
+    transition: 'box-shadow 0.12s, border-color 0.12s',
+    ...extra,
+  });
+};
+
+const onExpandBlur = (e, restore = {}) => {
+  const inp = e.currentTarget;
+  const wrapper = inp.parentElement;
+  if (wrapper) {
+    wrapper.style.height = '';
+    wrapper.style.minWidth = '';
+  }
+  Object.assign(inp.style, {
+    position: '',
+    top: '',
+    left: '',
+    zIndex: '',
+    minWidth: '',
+    width: '100%',
+    boxShadow: 'none',
+    borderColor: '',
+    borderWidth: '',
+    background: '',
+    borderRadius: '',
+    padding: '',
+    transition: 'box-shadow 0.12s, border-color 0.12s',
+    ...restore,
+  });
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -142,6 +200,20 @@ export default function QuotationTypeTable({
   // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="vqd-items">
+      {/* ── Hide number-input spinners for all edit inputs in this section ── */}
+      <style>{`
+        .vqd-items input[type=number].vqd-edit-input::-webkit-inner-spin-button,
+        .vqd-items input[type=number].vqd-edit-input::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .vqd-items input[type=number].vqd-edit-input {
+          -moz-appearance: textfield;
+        }
+        .vqd-items .vqd-edit-input:focus {
+          outline: none;
+        }
+      `}</style>
 
       {/* ── Section header ── */}
       <div className="vqd-sec-hdr">
@@ -268,11 +340,22 @@ export default function QuotationTypeTable({
                       const subCatName = getSubComplianceName(item.sub_compliance_category);
                       const prof     = parseFloat(item.Professional_amount || 0);
                       const consultancy    = item.consultancy_charges ?? item.miscellaneous_amount;
-                      const consultancyStr = (() => {
-                        if (!consultancy || String(consultancy).trim() === '--') return null;
-                        const s = String(consultancy).trim();
-                        return s !== '' && !isNaN(parseFloat(s)) ? s : null;
-                      })();
+                      const consultancyText = consultancy == null ? '' : String(consultancy).trim();
+                      const isConsultancyAmount = consultancyText !== '' &&
+                        !isNaN(consultancyText) &&
+                        !isNaN(parseFloat(consultancyText));
+                      const consultancyDisplay = consultancyText === ''
+                        ? <span style={{ color: '#e2e8f0' }}>—</span>
+                        : isConsultancyAmount
+                          ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyText))}</span>
+                          : (
+                            <span
+                              title="Note only, not included in total"
+                              style={{ color: '#d97706', fontWeight: 600, fontStyle: 'italic', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+                            >
+                              {consultancyText}
+                            </span>
+                          );
                       const { qty, matRate, labRate, matAmt, labAmt } = getExecutionDisplayValues(item);
                       const unitDisplay = isBlankOptionalValue(item.unit) ? '—' : item.unit;
                       const itemSacCode        = item.sac_code;
@@ -326,9 +409,7 @@ export default function QuotationTypeTable({
                             /* ── Architecture columns: Consultancy + Professional ── */
                             <>
                               <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                {consultancyStr
-                                  ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
-                                  : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                {consultancyDisplay}
                               </td>
                               <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
                                 ₹&nbsp;{fmtINR(prof)}
@@ -340,9 +421,7 @@ export default function QuotationTypeTable({
                                 ₹&nbsp;{fmtINR(prof)}
                               </td>
                               <td style={{ textAlign: 'right', fontSize: 12 }}>
-                                {consultancyStr
-                                  ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>
-                                  : <span style={{ color: '#e2e8f0' }}>—</span>}
+                                {consultancyDisplay}
                               </td>
                             </>
                           ) : (
@@ -418,7 +497,7 @@ export default function QuotationTypeTable({
           EDIT MODE TABLE
           ═══════════════════════════════════════════════════════════════════ */}
       {editMode && (
-        <div className="vqd-table-wrap">
+        <div className="vqd-table-wrap" style={{ borderRadius: 14, border: '1.5px solid #e2e8f0', overflow: 'visible', boxShadow: '0 1px 6px rgba(0,0,0,.05)' }}>
           {editItems.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 8 }}>
               <FileText size={28} color="#e2e8f0" />
@@ -429,7 +508,7 @@ export default function QuotationTypeTable({
           ) : (
             <table
               className={`vqd-table${isExecution ? ' vqd-exec-edit' : ''}`}
-              style={{ tableLayout: 'fixed', width: '100%' }}
+              style={{ tableLayout: 'fixed', width: '100%', overflow: 'visible', borderCollapse: 'separate', borderSpacing: 0 }}
             >
               <colgroup>
                 {isArchitecture ? (
@@ -448,6 +527,7 @@ export default function QuotationTypeTable({
                   <>
                     <col style={{ width: 36 }} />
                     <col />
+                    <col style={{ width: 110 }} />
                     <col style={{ width: 56 }} />
                     <col style={{ width: 80 }} />
                     <col style={{ width: 128 }} />
@@ -459,6 +539,7 @@ export default function QuotationTypeTable({
                   <>
                     <col style={{ width: 34 }} />
                     <col />
+                    <col style={{ width: 118 }} />
                     <col style={{ width: 52 }} />
                     <col style={{ width: 56 }} />
                     <col style={{ width: 96 }} />
@@ -476,52 +557,60 @@ export default function QuotationTypeTable({
                 {isArchitecture ? (
                   /* ── Architecture edit header ── */
                   <tr>
-                    <th style={{ textAlign: 'center' }}>#</th>
-                    <th>
-                      Description{' '}
-                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    <th style={{ textAlign: 'center', width: 36, padding: '11px 4px' }}>#</th>
+                    <th style={{ padding: '11px 10px 11px 6px', minWidth: 130 }}>
+                      Description
+                      <span style={{ display: 'block', color: '#f59e0b', fontWeight: 500, fontStyle: 'italic', fontSize: 10, marginTop: 2 }}>(editable)</span>
                     </th>
-                    <th style={{ textAlign: 'center' }}>Qty</th>
-                    <th style={{ textAlign: 'center' }}>
-                      Unit{' '}
-                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    <th style={{ textAlign: 'center', padding: '11px 6px' }}>Qty</th>
+                    <th style={{ textAlign: 'center', padding: '11px 6px' }}>
+                      Unit
+                      <span style={{ color: '#f59e0b', fontWeight: 500, fontStyle: 'italic', fontSize: 10, marginLeft: 4 }}>(editable)</span>
                     </th>
-                    <th style={{ textAlign: 'right' }}>Consultancy (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Professional (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Item Total</th>
-                    <th></th>
+                    <th style={{ textAlign: 'right', padding: '11px 6px' }}>Consultancy (₹)</th>
+                    <th style={{ textAlign: 'right', padding: '11px 6px' }}>Professional (₹)</th>
+                    <th style={{ textAlign: 'right', padding: '11px 12px 11px 6px' }}>Item Total</th>
+                    <th style={{ width: 46, padding: '11px 8px' }}></th>
                   </tr>
                 ) : isRegulatory ? (
                   /* ── Regulatory edit header — single row ── */
                   <tr>
-                    <th style={{ textAlign: 'center' }}>#</th>
-                    <th>
-                      Description{' '}
-                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    <th style={{ textAlign: 'center', width: 36, padding: '11px 4px' }}>#</th>
+                    <th style={{ padding: '11px 10px 11px 6px', minWidth: 130 }}>
+                      Description
+                      <span style={{ display: 'block', color: '#f59e0b', fontWeight: 500, fontStyle: 'italic', fontSize: 10, marginTop: 2 }}>(editable)</span>
                     </th>
-                    <th style={{ textAlign: 'center' }}>Qty</th>
-                    <th style={{ textAlign: 'center' }}>
-                      Unit{' '}
-                      <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                    <th style={{ textAlign: 'center', padding: '11px 10px', minWidth: 100 }}>
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: '0.04em' }}>Sub-Category</span>
+                      <span style={{ display: 'block', color: '#94a3b8', fontWeight: 400, fontStyle: 'italic', fontSize: 9, marginTop: 2 }}>view only</span>
                     </th>
-                    <th style={{ textAlign: 'right' }}>Professional (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Misc / Note</th>
-                    <th style={{ textAlign: 'right' }}>Item Total</th>
-                    <th></th>
+                    <th style={{ textAlign: 'center', padding: '11px 6px' }}>Qty</th>
+                    <th style={{ textAlign: 'center', padding: '11px 6px' }}>
+                      Unit
+                      <span style={{ color: '#f59e0b', fontWeight: 500, fontStyle: 'italic', fontSize: 10, marginLeft: 4 }}>(editable)</span>
+                    </th>
+                    <th style={{ textAlign: 'right', padding: '11px 6px' }}>Professional (₹)</th>
+                    <th style={{ textAlign: 'right', padding: '11px 6px' }}>Misc / Note</th>
+                    <th style={{ textAlign: 'right', padding: '11px 12px 11px 6px' }}>Item Total</th>
+                    <th style={{ width: 46, padding: '11px 8px' }}></th>
                   </tr>
                 ) : (
                   /* ── Execution edit header — two rows with sub-columns ── */
                   <>
                     <tr>
-                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>#</th>
-                      <th rowSpan={2} style={{ verticalAlign: 'middle' }}>
-                        Description{' '}
-                        <span style={{ color: '#f59e0b', fontWeight: 400, fontStyle: 'italic', fontSize: 10 }}>(editable)</span>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle', width: 34, padding: '10px 4px' }}>#</th>
+                      <th rowSpan={2} style={{ verticalAlign: 'middle', padding: '10px 10px 10px 6px', minWidth: 130 }}>
+                        Description
+                        <span style={{ display: 'block', color: '#f59e0b', fontWeight: 500, fontStyle: 'italic', fontSize: 10, marginTop: 2 }}>(editable)</span>
                       </th>
-                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Qty</th>
-                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>Unit</th>
-                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle' }}>SAC Code</th>
-                      <th rowSpan={2} style={{ textAlign: 'right', verticalAlign: 'middle' }}>Prof. (₹)</th>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 10px', minWidth: 100 }}>
+                        <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: '0.04em' }}>Sub-Category</span>
+                        <span style={{ display: 'block', color: '#94a3b8', fontWeight: 400, fontStyle: 'italic', fontSize: 9, marginTop: 2 }}>view only</span>
+                      </th>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 6px' }}>Qty</th>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 6px' }}>Unit</th>
+                      <th rowSpan={2} style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 6px' }}>SAC Code</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', verticalAlign: 'middle', padding: '10px 6px' }}>Prof. (₹)</th>
                       <th
                         colSpan={2}
                         style={{
@@ -572,22 +661,22 @@ export default function QuotationTypeTable({
               {/* Edit table body — grouped by compliance category */}
               {Object.values(editGroups).map((grp, gi) => {
                 const grpEditTotal = grp.rows.reduce((s, { it }) => s + calcItemTotal(it), 0);
-                // Edit colSpan: Architecture=8, Regulatory=8, Execution=12
-                const editTotalColSpan = isExecution ? 12 : 8;
+                // Edit colSpan: Architecture=8, Regulatory=9 (+SubCat), Execution=13 (+SubCat)
+                const editTotalColSpan = isExecution ? 13 : isRegulatory ? 9 : 8;
                 return (
                   <tbody key={gi}>
                     {/* Category header row */}
-                    <tr className="vqd-cat-row">
-                      <td colSpan={editTotalColSpan}>
+                    <tr className="vqd-cat-row" style={{ background: 'linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+                      <td colSpan={editTotalColSpan} style={{ padding: '9px 14px', borderTop: '1.5px solid #e8ecf2', borderBottom: '1px solid #e8ecf2' }}>
                         <div className="vqd-cat-inner">
                           <span
                             className="vqd-cat-dot"
-                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : isArchitecture ? { background: 'linear-gradient(135deg,#9333ea,#c084fc)' } : {}}
+                            style={isExecution ? { background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' } : isArchitecture ? { background: 'linear-gradient(135deg,#9333ea,#c084fc)' } : { background: 'linear-gradient(135deg,#0f766e,#14b8a6)' }}
                           />
-                          {grp.catName}
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#334155', letterSpacing: '-0.01em' }}>{grp.catName}</span>
                           <span
                             className="vqd-cat-cnt"
-                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : isArchitecture ? { background: '#fdf4ff', color: '#9333ea' } : {}}
+                            style={isExecution ? { background: '#f5f3ff', color: '#7c3aed' } : isArchitecture ? { background: '#fdf4ff', color: '#9333ea' } : { background: '#f0fdf4', color: '#0f766e' }}
                           >
                             {grp.rows.length} item{grp.rows.length !== 1 ? 's' : ''}
                           </span>
@@ -599,217 +688,347 @@ export default function QuotationTypeTable({
                     {grp.rows.map(({ it, globalIdx }) => {
                       const itemTotal = calcItemTotal(it);
                       return (
-                        <tr key={globalIdx} style={{ background: '#fafffe', verticalAlign: 'middle' }}>
+                        <tr key={globalIdx} style={{ background: '#ffffff', verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9', transition: 'background .12s', overflow: 'visible' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
+                        >
                           {/* # */}
-                          <td style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', fontWeight: 700, verticalAlign: 'middle' }}>
+                          <td style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', fontWeight: 700, verticalAlign: 'middle', padding: '10px 4px' }}>
                             {globalIdx + 1}
                           </td>
 
                           {/* Description */}
-                          <td style={{ verticalAlign: 'middle' }}>
+                          <td style={{ verticalAlign: 'middle', padding: '8px 8px 8px 4px' }}>
                             <textarea
                               className="vqd-edit-input"
                               value={it.description}
                               onChange={e => updateItem(globalIdx, 'description', e.target.value)}
                               rows={2}
-                              style={{ resize: 'vertical', minHeight: 42, fontSize: 12 }}
+                              style={{ resize: 'vertical', minHeight: 44, fontSize: 12, lineHeight: 1.5 }}
                               placeholder="Service description…"
                             />
                           </td>
 
-                          {/* Qty */}
-                          <td style={{ verticalAlign: 'middle' }}>
-                            <input
-                              type="number"
-                              min="1"
-                              className="vqd-edit-input"
-                              value={it.quantity}
-                              onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
-                              style={{ textAlign: 'center', width: '100%' }}
-                            />
-                          </td>
-
-                          {/* Type-specific editable columns */}
+                          {/* Type-specific columns — Qty is placed INSIDE each branch
+                               so it always appears in the correct column position matching the header */}
                           {isArchitecture ? (
-                            /* ── Architecture edit columns ── */
+                            /* ── Architecture: # | Desc | Qty | Unit | Consultancy | Professional | Total | Del ── */
                             <>
+                              {/* Qty */}
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="1"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.quantity}
+                                    onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
+                              </td>
                               {/* Unit */}
-                              <td style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="text"
-                                  className="vqd-edit-input"
-                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
-                                  onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
-                                  placeholder="e.g. Nos"
-                                  style={{ textAlign: 'center', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.unit ?? ''}
+                                    onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                    placeholder="e.g. Nos"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* Consultancy */}
-                              <td>
-                                <input
-                                  type="number"
-                                  className="vqd-edit-input"
-                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
-                                  onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
-                                  placeholder="0.00"
-                                  style={{ textAlign: 'right', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
+                                    onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
+                                    placeholder="0.00 or note"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right' })}
+                                    style={{ textAlign: 'right', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* Professional amount */}
-                              <td>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                  onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  style={{ textAlign: 'right', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="0" step="0.01"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                    onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right' })}
+                                    style={{ textAlign: 'right', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                             </>
                           ) : isRegulatory ? (
+                            /* ── Regulatory: # | Desc | SubCat(RO) | Qty | Unit | Professional | Misc | Total | Del ── */
                             <>
+                              {/* Sub-Category — read-only */}
+                              <td style={{ verticalAlign: 'middle', padding: '8px 10px' }}>
+                                {(() => {
+                                  const subCatName = getSubComplianceName(it.sub_compliance_category);
+                                  return subCatName ? (
+                                    <span style={{
+                                      display: 'inline-flex', alignItems: 'center', padding: '4px 9px',
+                                      background: '#eff6ff', color: '#1d4ed8',
+                                      border: '1px solid #bfdbfe',
+                                      borderRadius: 20, fontSize: 11, fontWeight: 600,
+                                      lineHeight: 1.4, letterSpacing: '0.01em',
+                                    }}>
+                                      {subCatName}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>—</span>
+                                  );
+                                })()}
+                              </td>
+                              {/* Qty */}
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="1"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.quantity}
+                                    onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
+                              </td>
                               {/* Unit */}
-                              <td style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="text"
-                                  className="vqd-edit-input"
-                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
-                                  onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
-                                  placeholder="e.g. Nos"
-                                  style={{ textAlign: 'center', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.unit ?? ''}
+                                    onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                    placeholder="e.g. Nos"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* Professional amount */}
-                              <td>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                  onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  style={{ textAlign: 'right', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="0" step="0.01"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                    onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right' })}
+                                    style={{ textAlign: 'right', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* Consultancy / Misc */}
-                              <td>
-                                <input
-                                  type="number"
-                                  className="vqd-edit-input"
-                                  value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
-                                  onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
-                                  placeholder="0.00"
-                                  style={{ textAlign: 'right', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.consultancy_charges === '0' || it.consultancy_charges === 0 ? '' : (it.consultancy_charges ?? '')}
+                                    onChange={e => updateItem(globalIdx, 'consultancy_charges', e.target.value)}
+                                    placeholder="0.00 or note"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right' })}
+                                    style={{ textAlign: 'right', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                             </>
                           ) : (
+                            /* ── Execution: # | Desc | SubCat(RO) | Qty | Unit | SAC | Prof | MatRate | LabRate | MatAmt | LabAmt | Total | Del ── */
                             <>
+                              {/* Sub-Category — read-only */}
+                              <td style={{ verticalAlign: 'middle', padding: '8px 10px' }}>
+                                {(() => {
+                                  const subCatName = getSubComplianceName(it.sub_compliance_category);
+                                  return subCatName ? (
+                                    <span style={{
+                                      display: 'inline-flex', alignItems: 'center', padding: '4px 9px',
+                                      background: '#f5f3ff', color: '#7c3aed',
+                                      border: '1px solid #ddd6fe',
+                                      borderRadius: 20, fontSize: 11, fontWeight: 600,
+                                      lineHeight: 1.4, letterSpacing: '0.01em',
+                                    }}>
+                                      {subCatName}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>—</span>
+                                  );
+                                })()}
+                              </td>
+                              {/* Qty */}
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="1"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.quantity}
+                                    onChange={e => updateItem(globalIdx, 'quantity', parseInt(e.target.value) || 1)}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
+                              </td>
                               {/* Unit */}
-                              <td style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="text"
-                                  className="vqd-edit-input"
-                                  value={isBlankOptionalValue(it.unit) ? '' : it.unit}
-                                  onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
-                                  placeholder="Unit"
-                                  style={{ textAlign: 'center', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.unit ?? ''}
+                                    onChange={e => updateItem(globalIdx, 'unit', e.target.value)}
+                                    placeholder="Unit"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center' })}
+                                    style={{ textAlign: 'center', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* SAC Code */}
-                              <td style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="text"
-                                  className="vqd-edit-input"
-                                  value={it.sac_code || ''}
-                                  onChange={e => updateItem(globalIdx, 'sac_code', e.target.value)}
-                                  placeholder="e.g. 998312"
-                                  title="Per-item SAC Code"
-                                  style={{ textAlign: 'center', width: '100%', fontFamily: 'monospace', fontSize: 12 }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    className="vqd-edit-input"
+                                    value={it.sac_code || ''}
+                                    onChange={e => updateItem(globalIdx, 'sac_code', e.target.value)}
+                                    placeholder="e.g. 998312"
+                                    title="Per-item SAC Code"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'center', fontFamily: 'monospace', fontSize: '12px' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'center', fontFamily: 'monospace', fontSize: '12px' })}
+                                    style={{ textAlign: 'center', width: '100%', fontFamily: 'monospace', fontSize: 12 }}
+                                  />
+                                </div>
                               </td>
                               {/* Professional amount */}
-                              <td style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.Professional_amount === 0 ? '' : it.Professional_amount}
-                                  onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  style={{ textAlign: 'right', width: '100%' }}
-                                />
+                              <td style={{ verticalAlign: 'middle', padding: '8px 6px', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number" min="0" step="0.01"
+                                    onWheel={e => e.target.blur()}
+                                    className="vqd-edit-input"
+                                    value={it.Professional_amount === 0 ? '' : it.Professional_amount}
+                                    onChange={e => updateItem(globalIdx, 'Professional_amount', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right' })}
+                                    style={{ textAlign: 'right', width: '100%' }}
+                                  />
+                                </div>
                               </td>
                               {/* Mat. Rate */}
-                              <td className="col-rate" style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.material_rate === 0 ? '' : it.material_rate}
-                                  onChange={e => updateItem(globalIdx, 'material_rate', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  title="Material Rate per unit — Material Amount = Rate × Qty (auto-calculated)"
-                                  style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
-                                />
+                              <td className="col-rate" style={{ verticalAlign: 'middle', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="vqd-edit-input"
+                                    value={it.material_rate === 0 ? '' : it.material_rate}
+                                    onChange={e => updateItem(globalIdx, 'material_rate', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    title="Material Rate per unit — Material Amount = Rate × Qty (auto-calculated)"
+                                    onWheel={e => e.target.blur()}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right', borderColor: '#c4b5fd' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right', borderColor: '#c4b5fd' })}
+                                    style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
+                                  />
+                                </div>
                               </td>
                               {/* Lab. Rate */}
-                              <td className="col-rate-last" style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.labour_rate === 0 ? '' : it.labour_rate}
-                                  onChange={e => updateItem(globalIdx, 'labour_rate', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  title="Labour Rate per unit — Labour Amount = Rate × Qty (auto-calculated)"
-                                  style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
-                                />
+                              <td className="col-rate-last" style={{ verticalAlign: 'middle', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="vqd-edit-input"
+                                    value={it.labour_rate === 0 ? '' : it.labour_rate}
+                                    onChange={e => updateItem(globalIdx, 'labour_rate', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    title="Labour Rate per unit — Labour Amount = Rate × Qty (auto-calculated)"
+                                    onWheel={e => e.target.blur()}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right', borderColor: '#c4b5fd' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right', borderColor: '#c4b5fd' })}
+                                    style={{ textAlign: 'right', width: '100%', borderColor: '#c4b5fd' }}
+                                  />
+                                </div>
                               </td>
                               {/* Material Amt */}
-                              <td className="col-amt" style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.material_amount === 0 ? '' : it.material_amount}
-                                  onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  title="Material Amount — Material Rate = Amt ÷ Qty (auto-calculated)"
-                                  style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
-                                />
+                              <td className="col-amt" style={{ verticalAlign: 'middle', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="vqd-edit-input"
+                                    value={it.material_amount === 0 ? '' : it.material_amount}
+                                    onChange={e => updateItem(globalIdx, 'material_amount', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    title="Material Amount — Material Rate = Amt ÷ Qty (auto-calculated)"
+                                    onWheel={e => e.target.blur()}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                    style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                  />
+                                </div>
                               </td>
                               {/* Labour Amt */}
-                              <td className="col-amt-last" style={{ verticalAlign: 'middle' }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="vqd-edit-input"
-                                  value={it.labour_amount === 0 ? '' : it.labour_amount}
-                                  onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
-                                  placeholder="0.00"
-                                  title="Labour Amount — Labour Rate = Amt ÷ Qty (auto-calculated)"
-                                  style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
-                                />
+                              <td className="col-amt-last" style={{ verticalAlign: 'middle', overflow: 'visible' }}>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="vqd-edit-input"
+                                    value={it.labour_amount === 0 ? '' : it.labour_amount}
+                                    onChange={e => updateItem(globalIdx, 'labour_amount', parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    title="Labour Amount — Labour Rate = Amt ÷ Qty (auto-calculated)"
+                                    onWheel={e => e.target.blur()}
+                                    onFocus={e => onExpandFocus(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                    onBlur={e => onExpandBlur(e, { textAlign: 'right', borderColor: '#6ee7b7' })}
+                                    style={{ textAlign: 'right', width: '100%', borderColor: '#6ee7b7' }}
+                                  />
+                                </div>
                               </td>
                             </>
                           )}
 
                           {/* Item Total (read-only, live-calculated) */}
-                          <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
-                            <span style={{ fontSize: 13, fontWeight: 800, color: '#0f766e' }}>
+                          <td style={{ textAlign: 'right', verticalAlign: 'middle', padding: '8px 12px 8px 6px', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 13, fontWeight: 800, color: '#0f766e', letterSpacing: '-0.01em' }}>
                               ₹&nbsp;{fmtINR(itemTotal)}
                             </span>
-                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>
+                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>
                               {(isRegulatory || isArchitecture)
                                 ? '(Prof+Misc)×Qty'
                                 : (hasExecutionRateBreakdown(it) ? 'Mat+Lab' : 'Rate×Qty')}
@@ -817,14 +1036,18 @@ export default function QuotationTypeTable({
                           </td>
 
                           {/* Remove button */}
-                          <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                          <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '8px 8px 8px 4px' }}>
                             <button
                               onClick={() => removeItem(globalIdx)}
+                              title="Remove item"
                               style={{
-                                width: 28, height: 28, border: 'none', background: '#fef2f2',
-                                borderRadius: 6, cursor: 'pointer', display: 'inline-flex',
-                                alignItems: 'center', justifyContent: 'center', color: '#dc2626',
+                                width: 30, height: 30, border: '1px solid #fecaca', background: '#fff5f5',
+                                borderRadius: 7, cursor: 'pointer', display: 'inline-flex',
+                                alignItems: 'center', justifyContent: 'center', color: '#ef4444',
+                                transition: 'all .15s',
                               }}
+                              onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fca5a5'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = '#fff5f5'; e.currentTarget.style.borderColor = '#fecaca'; }}
                             >
                               <Trash2 size={13} />
                             </button>
@@ -834,17 +1057,17 @@ export default function QuotationTypeTable({
                     })}
 
                     {/* Category subtotal row */}
-                    <tr className="vqd-cat-sub">
+                    <tr className="vqd-cat-sub" style={{ background: '#f8fafc', borderTop: '1.5px solid #e8ecf2' }}>
                       <td
-                        colSpan={(isExecution ? 10 : 6)}
-                        style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', paddingRight: 14 }}
+                        colSpan={(isExecution ? 11 : isRegulatory ? 7 : 6)}
+                        style={{ textAlign: 'right', fontSize: 11, color: '#94a3b8', fontStyle: 'italic', padding: '9px 14px', letterSpacing: '0.01em' }}
                       >
                         {grp.catName} subtotal
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', paddingRight: 4 }}>
+                      <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#0f766e', padding: '9px 12px', whiteSpace: 'nowrap' }}>
                         ₹&nbsp;{fmtINR(grpEditTotal)}
                       </td>
-                      <td />
+                      <td style={{ padding: '9px 8px' }} />
                     </tr>
                   </tbody>
                 );

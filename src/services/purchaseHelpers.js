@@ -168,19 +168,14 @@ export function numberToWords(n) {
  * Returns the computed total for one PO line item.
  * PO items are always execution-type (material + labour + professional).
  *
- * Priority order:
+ * Calculation priority:
  *   1. item.total_amount — the backend-computed value; always use when present
- *      and non-zero (it is the source of truth from the API).
+ *      and non-zero only when no current rate/amount fields are present.
  *   2. Calculated fallback — used only when total_amount is absent (e.g. a
  *      brand-new item being built in edit-mode before the first save).
  */
 export const calcItemTotal = (item) => {
   // ── 1. Trust the backend value when it is a valid positive number ────────────
-  const backendTotal = parseFloat(item.total_amount);
-  if (!isNaN(backendTotal) && backendTotal > 0) {
-    return parseFloat(backendTotal.toFixed(2));
-  }
-
   // ── 2. Calculated fallback ───────────────────────────────────────────────────
   const qty     = parseInt(item.quantity)              || 1;
   const prof    = parseFloat(item.Professional_amount) || 0;
@@ -190,15 +185,20 @@ export const calcItemTotal = (item) => {
   const labAmt  = parseFloat(item.labour_amount)       || 0;
 
   // Prefer direct amounts; fall back to rate * qty
-  if (matAmt > 0 || labAmt > 0) {
-    return parseFloat((matAmt + labAmt + prof * qty).toFixed(2));
+  const effectiveMat = matAmt > 0 ? matAmt : (matRate > 0 ? matRate * qty : 0);
+  const effectiveLab = labAmt > 0 ? labAmt : (labRate > 0 ? labRate * qty : 0);
+  if (effectiveMat > 0 || effectiveLab > 0) {
+    return parseFloat((effectiveMat + effectiveLab).toFixed(2));
   }
 
-  if (matRate > 0 || labRate > 0) {
-    return parseFloat(((matRate + labRate + prof) * qty).toFixed(2));
+  if (prof > 0) {
+    return parseFloat((prof * qty).toFixed(2));
   }
 
-  return parseFloat((prof * qty).toFixed(2));
+  const backendTotal = parseFloat(item.total_amount);
+  return !isNaN(backendTotal) && backendTotal > 0
+    ? parseFloat(backendTotal.toFixed(2))
+    : 0;
 };
 
 /**

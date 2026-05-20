@@ -177,7 +177,7 @@ export default function InvoiceTypeTable({
                       <td style={{ textAlign: 'center' }}>
                         <span className="vid-qty-badge">{qty}</span>
                       </td>
-                      <td style={{ textAlign: 'right', fontSize: 12 }}>
+                      <td style={{ textAlign: 'right', fontSize: 12, verticalAlign: 'middle' }}>
                         {consultancyStr
                           ? isMiscNumeric(consultancyStr)
                             ? <span style={{ color: '#475569', fontWeight: 600 }}>₹&nbsp;{fmtINR(parseFloat(consultancyStr))}</span>

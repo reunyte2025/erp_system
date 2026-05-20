@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Trash2, RotateCcw } from 'lucide-react';
+import { User, Trash2, RotateCcw, StickyNote } from 'lucide-react';
+import { getAllNotes, NOTE_ENTITY } from '../../services/notes';
 
 /**
  * ============================================================================
@@ -133,6 +134,66 @@ const ActionsMenu = ({ row, handlers }) => {
 };
 
 // ============================================================================
+// NOTES CELL COMPONENT
+// Fetches notes for a specific client and renders a preview in the list row.
+// ============================================================================
+
+const NotesCell = ({ clientId }) => {
+  const [notes, setNotes] = useState(null); // null = loading, [] = empty
+
+  useEffect(() => {
+    if (!clientId) { setNotes([]); return; }
+    let cancelled = false;
+    getAllNotes(NOTE_ENTITY.CLIENT, clientId)
+      .then((data) => {
+        if (cancelled) return;
+        // API may return { results: [] } or a plain array
+        const list = Array.isArray(data) ? data
+          : Array.isArray(data?.results) ? data.results
+          : Array.isArray(data?.data) ? data.data
+          : [];
+        setNotes(list);
+      })
+      .catch(() => { if (!cancelled) setNotes([]); });
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  // Loading skeleton
+  if (notes === null) {
+    return (
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{
+          display: 'inline-block', width: 60, height: 10,
+          borderRadius: 6, background: '#e2e8f0',
+          animation: 'notesCell_pulse 1.4s ease-in-out infinite',
+        }} />
+        <style>{`@keyframes notesCell_pulse{0%,100%{opacity:.6}50%{opacity:1}}`}</style>
+      </span>
+    );
+  }
+
+  // Empty
+  if (notes.length === 0) {
+    return <span className="text-gray-400 block text-center text-sm">—</span>;
+  }
+
+  const firstNote = notes[0].note || '';
+  const preview = firstNote.length > 22 ? firstNote.substring(0, 22) + '…' : firstNote;
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-gray-700 text-sm" title={firstNote}>
+      <StickyNote className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
+      <span className="truncate max-w-[100px]">{preview}</span>
+      {notes.length > 1 && (
+        <span className="ml-1 text-xs text-teal-600 font-semibold flex-shrink-0">
+          +{notes.length - 1}
+        </span>
+      )}
+    </span>
+  );
+};
+
+// ============================================================================
 // COLUMN DEFINITIONS
 // ============================================================================
 
@@ -193,23 +254,11 @@ const baseColumns = [
     label: 'Notes',
     width: '150px',
     headerAlign: 'center',
-    render: (row) => {
-      const notes = row.Notes || [];
-      if (notes.length === 0)
-        return <span className="text-gray-400 block text-center text-sm">—</span>;
-      const firstNote = notes[0].note || '';
-      const preview = firstNote.length > 20 ? firstNote.substring(0, 20) + '…' : firstNote;
-      return (
-        <span className="text-gray-700 text-sm" title={firstNote}>
-          {preview}
-          {notes.length > 1 && (
-            <span className="ml-2 text-xs text-teal-600 font-semibold">
-              +{notes.length - 1}
-            </span>
-          )}
-        </span>
-      );
-    },
+    render: (row) => (
+      <div className="flex justify-center">
+        <NotesCell clientId={row.id} />
+      </div>
+    ),
   },
 
   // ── GST Number ────────────────────────────────────────────────────────

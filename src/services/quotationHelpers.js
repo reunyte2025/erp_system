@@ -117,6 +117,13 @@ export const optionalMoneyOrNull = (v) => {
   return isNaN(n) ? null : n.toFixed(2);
 };
 
+export const consultancyChargeValue = (v, blankValue = '0.00') => {
+  if (v === '' || v === null || v === undefined) return blankValue;
+  const text = String(v).trim();
+  if (!text) return blankValue;
+  return isMiscNumeric(text) ? parseFloat(text).toFixed(2) : text;
+};
+
 export const getStatus = (s) =>
   STATUS_CONFIG[String(s || '').toLowerCase()] || STATUS_CONFIG['1'];
 
@@ -204,8 +211,7 @@ export const calcItemTotal = (item) => {
   const consultancy = (() => {
     const raw = item.consultancy_charges ?? item.miscellaneous_amount;
     if (isBlankOptionalValue(raw)) return 0;
-    const n = parseFloat(String(raw).trim());
-    return isNaN(n) ? 0 : n;
+    return isMiscNumeric(raw) ? parseFloat(String(raw).trim()) : 0;
   })();
 
   return parseFloat(((prof + consultancy) * qty).toFixed(2));
