@@ -13,6 +13,7 @@ import {
   updateRegulatoryQuotation, updateExecutionQuotation,
   getQuotationCompanyName, getUserById, getAllProjects,
   QUOTATION_COMPANIES,
+  getSubComplianceCategories,
 } from '../../services/quotation';
 import { getComplianceByCategory, createProforma, getProformas } from '../../services/proforma';
 import { getClientById, getClientProjects } from '../../services/clients';
@@ -49,6 +50,13 @@ const normalizeSubComplianceCategory = (value, fallback = 0) => {
   if (!text) return fallback;
   const numeric = Number(text);
   return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
+};
+
+const normalizeItemSubComplianceCategory = (item, fallback = 0) => {
+  const categoryId = parseInt(item.compliance_category, 10);
+  const normalized = normalizeSubComplianceCategory(item.sub_compliance_category, fallback);
+  if (![3, 4, 6].includes(categoryId)) return normalized;
+  return typeof normalized === 'string' ? normalized : fallback;
 };
 
 const normalizeUnitForEdit = (value) => {
@@ -265,9 +273,40 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
   const [showAddSection, setShowAddSection] = useState(false);
 
   const fetchDescriptionsForModal = async (categoryId, subCategoryId) => {
-    const res = await getComplianceByCategory(categoryId, subCategoryId ?? null);
-    if (res?.status === 'success' && res?.data?.results) return res.data.results;
-    return [];
+    try {
+      // getSubComplianceCategories hits /compliance/get_compliance_by_category/
+      // with { category: categoryId, page_size: 100 }.
+      // We pass subCategoryId separately so the modal can filter by sub-category.
+      const res = await getSubComplianceCategories(categoryId, subCategoryId ?? null);
+      const data = res?.data ?? res;
+      const results =
+        data?.data?.results ??
+        data?.results ??
+        (Array.isArray(data?.data) ? data.data : null) ??
+        (Array.isArray(data) ? data : null) ??
+        [];
+      // If subCategoryId provided, filter to only matching rows
+      if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+        const filtered = Array.isArray(results)
+          ? results.filter(row => {
+              const rowSubCat =
+                row?.sub_category?.id ??
+                row?.sub_compliance_category?.id ??
+                row?.sub_category_id ??
+                row?.sub_category ??
+                row?.sub_compliance_category_id ??
+                row?.sub_compliance_category ??
+                null;
+              if (rowSubCat === null || rowSubCat === undefined) return true;
+              return String(rowSubCat) === String(subCategoryId);
+            })
+          : [];
+        return filtered;
+      }
+      return Array.isArray(results) ? results : [];
+    } catch {
+      return [];
+    }
   };
 
   const handleComplianceSave = (newFlatItems) => {
@@ -291,7 +330,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         // compliance_category is the field that determines which section this
         // item appears under. It must ALWAYS be set from the item, never inferred.
         compliance_category:     complianceCat,
-        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+        sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
         description:             String(item.description || '').trim(),
         quantity:                parseInt(item.quantity) || 1,
         // Preserve unit as entered; '' if not provided
@@ -471,7 +510,10 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
           const rawId  = it.id != null ? parseInt(it.id) : null;
           const itemId = rawId && rawId > 0 ? rawId : null;
           const compCat    = parseInt(it.compliance_category)     || (isExec ? 5 : 1);
-          const subCompCat = normalizeSubComplianceCategory(it.sub_compliance_category, 0);
+          const subCompCat = normalizeItemSubComplianceCategory({
+            compliance_category: compCat,
+            sub_compliance_category: it.sub_compliance_category,
+          }, 0);
 
           if (isExec) {
             const qty     = parseInt(it.quantity) || 1;
@@ -615,7 +657,7 @@ export default function ViewQuotationDetails({ onUpdateNavigation }) {
         Professional_amount:  String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
         total_amount:         String(calcItemTotal(item).toFixed(2)),
         compliance_category:  item.compliance_category ?? item.category ?? null,
-        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+        sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
       };
     });
   };
