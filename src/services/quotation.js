@@ -236,6 +236,32 @@ const normalizeSubComplianceCategory = (value, fallback = 0) => {
   return Number.isInteger(numeric) && String(numeric) === text ? numeric : text;
 };
 
+const normalizeItemSubComplianceCategory = (item, fallback = 0) => {
+  const categoryId = parseInt(item.compliance_category, 10);
+  const normalized = normalizeSubComplianceCategory(item.sub_compliance_category, fallback);
+  if (![3, 4, 6].includes(categoryId)) return normalized;
+  return typeof normalized === 'string' ? normalized : fallback;
+};
+
+const getRowSubCategoryValue = (row) => {
+  const nested = row?.sub_category || row?.sub_compliance_category || null;
+  return nested?.id ??
+    row?.sub_category_id ??
+    row?.sub_category ??
+    row?.sub_compliance_category_id ??
+    row?.sub_compliance_category ??
+    null;
+};
+
+const filterDescriptionsBySubCategory = (rows, subCategoryId) => {
+  if (subCategoryId === null || subCategoryId === undefined || subCategoryId === '') return rows;
+  return rows.filter(row => {
+    const rowSubCategory = getRowSubCategoryValue(row);
+    if (rowSubCategory === null || rowSubCategory === undefined || rowSubCategory === '') return true;
+    return String(rowSubCategory) === String(subCategoryId);
+  });
+};
+
 const optionalTextOrBlank = (value) => optionalTextOrNull(value) ?? '';
 
 const itemUnitString = (item = {}) => {
@@ -269,7 +295,7 @@ const buildExecutionItemsPayload = (items = []) =>
       labour_amount:           labAmt.toFixed(2),
       total_amount:            total.toFixed(2),
       compliance_category:     parseInt(item.compliance_category) || null,
-      sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+      sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
     };
   });
 
@@ -331,7 +357,7 @@ const _createQuotationInternal = async (quotationData, endpoint) => {
       Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
       total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
       compliance_category:     parseInt(item.compliance_category)  || null,
-      sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+      sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
     }));
   }
 
@@ -424,7 +450,7 @@ export const updateRegulatoryQuotation = async (quotationData) => {
         Professional_amount:     String((parseFloat(item.Professional_amount) || 0).toFixed(2)),
         total_amount:            String((parseFloat(item.total_amount)         || 0).toFixed(2)),
         compliance_category:     parseInt(item.compliance_category)  || 1,
-        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+        sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
       };
     }),
   };
@@ -490,7 +516,7 @@ export const updateExecutionQuotation = async (quotationData) => {
         labour_amount:           String(labAmt.toFixed(2)),
         total_amount:            String(total.toFixed(2)),
         compliance_category:     parseInt(item.compliance_category) || 5,
-        sub_compliance_category: normalizeSubComplianceCategory(item.sub_compliance_category, 0),
+        sub_compliance_category: normalizeItemSubComplianceCategory(item, 0),
       };
     }),
   };
@@ -630,13 +656,15 @@ export const getComplianceByCategory = async () => {
   }
 };
 
-export const getSubComplianceCategories = async (categoryId) => {
+export const getSubComplianceCategories = async (categoryId, subCategoryId) => {
   if (!categoryId) throw new Error('Category ID is required');
   try {
     serviceLogger.log(`Fetching sub-compliance categories for category ${categoryId}`);
-    const response = await api.get('/compliance/get_compliance_by_category/', {
-      params: { category: categoryId, page_size: 100 },
-    });
+    const params = { category: categoryId, page_size: 100 };
+    if (subCategoryId !== null && subCategoryId !== undefined && subCategoryId !== '') {
+      params.sub_category = subCategoryId;
+    }
+    const response = await api.get('/compliance/get_compliance_by_category/', { params });
     serviceLogger.log('Sub-compliance categories fetched');
     return response.data;
   } catch (error) {
@@ -669,7 +697,7 @@ export const getComplianceDescriptions = async (categoryId, subCategoryId = null
     }
     const response = await api.get('/compliance/get_compliance_by_category/', { params });
     if (response?.data?.status === 'success' && response?.data?.data?.results) {
-      return response.data.data.results;
+      return filterDescriptionsBySubCategory(response.data.data.results, subCategoryId);
     }
     return [];
   } catch (error) {
