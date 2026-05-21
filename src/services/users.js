@@ -31,9 +31,9 @@ const USER_ENDPOINTS = {
 const ROLE_ENDPOINTS = {
   GET_ALL: '/roles/get_all_roles/',
   GET_BY_ID: '/roles/get_role/',         // query param: ?id=
-  CREATE: '/roles/create_role/',
-  UPDATE: '/roles/update_role/',         // PUT with id in body
-  DELETE: '/roles/delete_role/',         // DELETE ?id=
+  // CREATE: '/roles/create_role/',
+  // UPDATE: '/roles/update_role/',         // PUT with id in body
+  // DELETE: '/roles/delete_role/',         // DELETE ?id=
 };
 
 // ============================================================================

@@ -41,6 +41,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Plus, Edit, Search, ChevronDown, Loader2, FileText, Trash2,
 } from 'lucide-react';
+import { getSubComplianceCategories } from '../../services/quotation';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -57,13 +58,13 @@ const ALL_COMPLIANCE_CATEGORIES = {
 };
 
 // Sub-compliance options per category
-const SUB_COMPLIANCE_BY_CATEGORY = {
+const DEFAULT_SUB_COMPLIANCE_BY_CATEGORY = {
   1: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
   2: [ { id: 1, name: 'Plumbing Compliance' }, { id: 2, name: 'PCO Compliance' }, { id: 3, name: 'General Compliance' }, { id: 4, name: 'Road Setback Handing over' } ],
   3: [],
   4: [],
   5: [ { id: 5, name: 'Internal Water Main' }, { id: 6, name: 'Permanent Water Connection' } ],
-  6: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
+  6: [],
   7: [ { id: 7, name: 'Pipe Jacking Method' }, { id: 8, name: 'HDD Method' }, { id: 9, name: 'Open Cut Method' } ],
 };
 
@@ -85,6 +86,8 @@ const REGULATORY_CATS    = [1, 2, 3, 4];
 const EXECUTION_CATS     = [5, 6, 7];
 const OTHER_SUB_COMPLIANCE_VALUE = 0;
 const ARCHITECTURE_CATS  = [8]; // Architecture — no sub-category, manual description, regulatory-style fields
+
+const OPTIONAL_CUSTOM_SUB_COMPLIANCE_CATS = [3, 4, 6];
 
 const BLANK_ITEM_FORM = {
   compliance_name:      '',
@@ -138,16 +141,87 @@ const calcItemTotalExecution = (item) => {
 
 const resolveSubComplianceValue = (form, isArchCategory) => {
   if (isArchCategory) return null;
+  const customSubCompliance = String(form.custom_sub_compliance || '').trim();
   if (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE) {
-    return String(form.custom_sub_compliance || '').trim();
+    return customSubCompliance || OTHER_SUB_COMPLIANCE_VALUE;
   }
-  return form.sub_compliance_id || null;
+  if (customSubCompliance) return customSubCompliance;
+  return form.sub_compliance_id || OTHER_SUB_COMPLIANCE_VALUE;
 };
 
 const getSubComplianceLabel = (value) => {
   if (!value) return '';
   if (SUB_COMPLIANCE_CATEGORIES[value]) return SUB_COMPLIANCE_CATEGORIES[value].name;
   return String(value);
+};
+
+const extractArrayPayload = (response) =>
+  response?.data?.results ||
+  response?.data?.data?.results ||
+  response?.results ||
+  (Array.isArray(response?.data?.data) ? response.data.data : null) ||
+  (Array.isArray(response?.data) ? response.data : null) ||
+  (Array.isArray(response) ? response : []);
+
+const normalizeSubComplianceOptions = (response, categoryId) => {
+  const rows = extractArrayPayload(response);
+  if (!Array.isArray(rows)) return [];
+
+  const seen = new Set();
+  const options = [];
+  rows.forEach((row) => {
+    const nested = row?.sub_category || row?.sub_compliance_category || row?.subComplianceCategory || null;
+    const id =
+      nested?.id ??
+      row?.sub_category_id ??
+      row?.sub_category ??
+      row?.sub_compliance_category_id ??
+      row?.sub_compliance_category ??
+      row?.subComplianceCategoryId ??
+      (!row?.compliance_description && !row?.description ? row?.id : null);
+
+    if (id === null || id === undefined || id === '' || Number(id) === OTHER_SUB_COMPLIANCE_VALUE) return;
+
+    const name =
+      nested?.name ??
+      nested?.sub_category_name ??
+      row?.sub_category_name ??
+      row?.sub_compliance_category_name ??
+      row?.sub_compliance_name ??
+      row?.subComplianceCategoryName ??
+      SUB_COMPLIANCE_CATEGORIES[id]?.name ??
+      (!row?.compliance_description && !row?.description ? (row?.name || row?.compliance_name) : null);
+
+    if (!name) return;
+    const key = String(id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    options.push({ id, name: String(name).trim() });
+  });
+
+  // These categories intentionally have no backend sub-compliance today.
+  if (options.length === 0 && [3, 4, 6].includes(Number(categoryId))) return [];
+  return options;
+};
+
+const getRowSubCategoryValue = (row) => {
+  const nested = row?.sub_category || row?.sub_compliance_category || row?.subComplianceCategory || null;
+  return nested?.id ??
+    row?.sub_category_id ??
+    row?.sub_category ??
+    row?.sub_compliance_category_id ??
+    row?.sub_compliance_category ??
+    row?.subComplianceCategoryId ??
+    null;
+};
+
+const filterDescriptionsBySubCategory = (rows, subCategoryId) => {
+  if (subCategoryId === null || subCategoryId === undefined || subCategoryId === '') return rows;
+  return rows.filter(row => {
+    const rowSubCategory = getRowSubCategoryValue(row);
+    if (rowSubCategory === null || rowSubCategory === undefined || rowSubCategory === '') return true;
+    return String(rowSubCategory) === String(subCategoryId);
+  });
 };
 
 /**
@@ -173,7 +247,7 @@ const resolveQuotationType = (quotationType, existingItems = []) => {
 
 // ─── Sub-compliance Dropdown ──────────────────────────────────────────────────
 
-const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Select Sub-Compliance' }) => {
+const SubComplianceDropdown = ({ value, onChange, options = [], loading = false, placeholder = 'Select Sub-Compliance' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef(null);
@@ -185,7 +259,7 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
   }, []);
 
   const list = [
-    ...(SUB_COMPLIANCE_BY_CATEGORY[categoryId] || []),
+    ...options,
     { id: OTHER_SUB_COMPLIANCE_VALUE, name: 'Other' },
   ];
   const filtered = list.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
@@ -195,7 +269,7 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
     <div ref={ref} className="relative w-full">
       <button type="button" onClick={() => setIsOpen(p => !p)}
         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors">
-        <span className={selected ? 'text-gray-900' : 'text-gray-500'}>{selected ? selected.name : placeholder}</span>
+        <span className={selected ? 'text-gray-900' : 'text-gray-500'}>{loading ? 'Loading sub-compliance...' : selected ? selected.name : placeholder}</span>
         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
@@ -209,7 +283,12 @@ const SubComplianceDropdown = ({ value, onChange, categoryId, placeholder = 'Sel
             </div>
           </div>
           <div className="max-h-48 overflow-y-auto">
-            {filtered.length > 0 ? filtered.map(item => (
+            {loading ? (
+              <div className="px-4 py-5 text-center text-gray-500 text-sm">
+                <Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto mb-2" />
+                <p>Loading sub-compliance...</p>
+              </div>
+            ) : filtered.length > 0 ? filtered.map(item => (
               <button key={item.id} type="button" onMouseDown={e => e.preventDefault()}
                 onClick={() => { onChange(item.id); setIsOpen(false); setSearch(''); }}
                 className={`w-full px-4 py-3 text-left hover:bg-teal-50 transition-colors border-b border-gray-100 last:border-0 text-sm ${value === item.id ? 'bg-teal-50 border-l-4 border-l-teal-500' : ''}`}>
@@ -259,6 +338,8 @@ export default function AddComplianceModal({
   const [categoryItemsMap,   setCategoryItemsMap]   = useState({});
   const [itemFormMap,        setItemFormMap]        = useState({});
   const [editingIndexMap,    setEditingIndexMap]    = useState({});
+  const [subComplianceOptionsMap, setSubComplianceOptionsMap] = useState({});
+  const [subComplianceLoadingMap, setSubComplianceLoadingMap] = useState({});
 
   // ── Description state ───────────────────────────────────────────────────────
   const [complianceDescriptions, setComplianceDescriptions] = useState([]);
@@ -270,6 +351,7 @@ export default function AddComplianceModal({
 
   const descCacheRef  = useRef({});
   const descRequestRef = useRef(0);
+  const subComplianceRequestRef = useRef({});
   const descFieldRef  = useRef(null);
   const descPanelRef  = useRef(null);
 
@@ -301,12 +383,15 @@ export default function AddComplianceModal({
     setCategoryItemsMap({});
     setItemFormMap({});
     setEditingIndexMap({});
+    setSubComplianceOptionsMap({});
+    setSubComplianceLoadingMap({});
     setComplianceDescriptions([]);
     setDescriptionMode('dropdown');
     setDescriptionSearch('');
     setShowDescDropdown(false);
     setDescSelectedFromDropdown(false);
     descCacheRef.current = {};
+    subComplianceRequestRef.current = {};
 
     if (detected) {
       initForType(detected);
@@ -339,10 +424,11 @@ export default function AddComplianceModal({
     setEditingIndexMap(initEditIdx);
 
     setActiveCategoryId(firstId);
+    fetchSubComplianceForCategory(firstId);
 
     // Architecture: always manual description (no API fetch needed)
     // Pre-fetch descriptions for execution / regulatory no-sub cats
-    const needsImmediateFetch = type === 'execution' || (type === 'regulatory' && [3, 4].includes(firstId));
+    const needsImmediateFetch = [3, 4, 6].includes(firstId);
     if (needsImmediateFetch) {
       fetchDescForCategory(firstId, null);
     }
@@ -365,7 +451,7 @@ export default function AddComplianceModal({
     try {
       const results = await fetchDescriptions(categoryId, subCategoryId);
       if (requestId !== descRequestRef.current) return;
-      const arr = Array.isArray(results) ? results : [];
+      const arr = filterDescriptionsBySubCategory(Array.isArray(results) ? results : [], subCategoryId);
       descCacheRef.current[cacheKey] = arr;
       setComplianceDescriptions(arr);
       setDescriptionMode(arr.length > 0 ? 'dropdown' : 'manual');
@@ -404,6 +490,7 @@ export default function AddComplianceModal({
     }));
     setEditingIndexMap(prev => ({ ...prev, [categoryId]: null }));
     setActiveCategoryId(categoryId);
+    fetchSubComplianceForCategory(categoryId);
 
     // Always fully reset ALL description UI state when switching categories.
     setComplianceDescriptions([]);
@@ -417,8 +504,8 @@ export default function AddComplianceModal({
       setDescriptionMode('manual');
       return;
     }
-    // Auto-fetch for execution cats + regulatory cats 3,4 (no sub-category needed)
-    if (EXECUTION_CATS.includes(categoryId) || [3, 4].includes(categoryId)) {
+    // Auto-fetch only for categories that do not use a predefined sub-category.
+    if ([3, 4, 6].includes(categoryId)) {
       fetchDescForCategory(categoryId, null);
     }
     // For cats 1,2 (regulatory with sub-compliance): do NOT auto-fetch —
@@ -453,9 +540,8 @@ export default function AddComplianceModal({
   const isArchCategory = activeCategoryId ? ARCHITECTURE_CATS.includes(activeCategoryId) : false;
 
   const isItemFormInvalid = (form) => {
-    const requiresSubCompliance = isExecCategory
-      ? (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0)
-      : [1, 2].includes(activeCategoryId);
+    const hasSubComplianceOptions = (subComplianceOptionsMap[activeCategoryId]?.length || 0) > 0;
+    const requiresSubCompliance = hasSubComplianceOptions;
     const quantity = parseInt(form.quantity, 10) || 0;
     const professionalAmount = parseFloat(form.Professional_amount) || 0;
     const hasExecutionAmount = [
@@ -468,11 +554,38 @@ export default function AddComplianceModal({
 
     return (
       !String(form.compliance_name || '').trim() ||
+      activeSubComplianceLoading ||
       quantity <= 0 ||
       (requiresSubCompliance && (form.sub_compliance_id === null || form.sub_compliance_id === undefined || form.sub_compliance_id === '')) ||
-      (form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(form.custom_sub_compliance || '').trim()) ||
+      (requiresSubCompliance && form.sub_compliance_id === OTHER_SUB_COMPLIANCE_VALUE && !String(form.custom_sub_compliance || '').trim()) ||
       (isExecCategory ? !hasExecutionAmount : professionalAmount <= 0)
     );
+  };
+
+  const fetchSubComplianceForCategory = async (categoryId) => {
+    if (!categoryId || ARCHITECTURE_CATS.includes(categoryId)) return [];
+    if (subComplianceOptionsMap[categoryId]) return subComplianceOptionsMap[categoryId];
+
+    const fallback = DEFAULT_SUB_COMPLIANCE_BY_CATEGORY[categoryId] || [];
+    const requestId = (subComplianceRequestRef.current[categoryId] || 0) + 1;
+    subComplianceRequestRef.current[categoryId] = requestId;
+    setSubComplianceLoadingMap(prev => ({ ...prev, [categoryId]: true }));
+
+    try {
+      const response = await getSubComplianceCategories(categoryId);
+      if (subComplianceRequestRef.current[categoryId] !== requestId) return [];
+      const options = normalizeSubComplianceOptions(response, categoryId);
+      setSubComplianceOptionsMap(prev => ({ ...prev, [categoryId]: options }));
+      return options;
+    } catch {
+      if (subComplianceRequestRef.current[categoryId] !== requestId) return [];
+      setSubComplianceOptionsMap(prev => ({ ...prev, [categoryId]: fallback }));
+      return fallback;
+    } finally {
+      if (subComplianceRequestRef.current[categoryId] === requestId) {
+        setSubComplianceLoadingMap(prev => ({ ...prev, [categoryId]: false }));
+      }
+    }
   };
 
   const handleAddItem = () => {
@@ -520,8 +633,8 @@ export default function AddComplianceModal({
       setDescriptionMode('manual');
       return;
     }
-    // Re-fetch descriptions for execution / no-sub cats so the list is still ready
-    if (EXECUTION_CATS.includes(activeCategoryId) || [3, 4].includes(activeCategoryId)) {
+    // Re-fetch descriptions for no-sub cats so the list is still ready.
+    if ([3, 4, 6].includes(activeCategoryId)) {
       fetchDescForCategory(activeCategoryId, null);
     } else {
       setComplianceDescriptions([]);
@@ -532,11 +645,14 @@ export default function AddComplianceModal({
   const handleEditItem = (index) => {
     const item = getActiveItems()[index];
     if (!item) return;
+    const categoryOptions = subComplianceOptionsMap[activeCategoryId] || [];
+    const isKnownSubCompliance = categoryOptions.some(option => String(option.id) === String(item.sub_compliance_id)) ||
+      !!SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id];
     setItemForm({
       compliance_name:      item.compliance_name,
       compliance_id:        item.compliance_id   || null,
-      sub_compliance_id:    SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? item.sub_compliance_id : (item.sub_compliance_id ? OTHER_SUB_COMPLIANCE_VALUE : null),
-      custom_sub_compliance: SUB_COMPLIANCE_CATEGORIES[item.sub_compliance_id] ? '' : (item.sub_compliance_id || ''),
+      sub_compliance_id:    isKnownSubCompliance ? item.sub_compliance_id : (item.sub_compliance_id ? OTHER_SUB_COMPLIANCE_VALUE : null),
+      custom_sub_compliance: isKnownSubCompliance ? '' : (item.sub_compliance_id || ''),
       quantity:             item.quantity || 1,
       unit:                 item.unit || '',
       // Regulatory
@@ -614,6 +730,8 @@ export default function AddComplianceModal({
   const itemForm       = getItemForm();
   const editingIdx     = getEditingIdx();
   const activeItems    = getActiveItems();
+  const activeSubComplianceOptions = subComplianceOptionsMap[activeCategoryId] || [];
+  const activeSubComplianceLoading = !!subComplianceLoadingMap[activeCategoryId];
   const totalItemCount = Object.values(categoryItemsMap).reduce((s, c) => s + (c.items?.length || 0), 0);
   const hasDraftItemInput = [
     itemForm.compliance_name,
@@ -646,8 +764,12 @@ export default function AddComplianceModal({
 
   // Determine whether sub-compliance is required for current category
   const subCompRequired = isExecCategory
-    ? (SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0)
-    : [1, 2].includes(activeCategoryId);
+    ? (activeSubComplianceOptions.length > 0)
+    : activeSubComplianceOptions.length > 0;
+  const getActiveSubComplianceLabel = (value) => {
+    const matched = activeSubComplianceOptions.find(option => String(option.id) === String(value));
+    return matched?.name || getSubComplianceLabel(value);
+  };
 
   const addItemDisabled = isItemFormInvalid(itemForm);
 
@@ -790,14 +912,15 @@ export default function AddComplianceModal({
                 <div className="p-4 space-y-3">
 
                   {/* Sub-compliance dropdown — only for categories that have sub-options */}
-                  {(SUB_COMPLIANCE_BY_CATEGORY[activeCategoryId]?.length > 0) && (
+                  {(activeSubComplianceLoading || activeSubComplianceOptions.length > 0) && (
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                         Sub-Compliance Category {subCompRequired && <span className="text-red-400">*</span>}
                       </label>
                       <SubComplianceDropdown
                         value={itemForm.sub_compliance_id}
-                        categoryId={activeCategoryId}
+                        options={activeSubComplianceOptions}
+                        loading={activeSubComplianceLoading}
                         onChange={(id) => {
                           setItemForm(prev => ({ ...prev, sub_compliance_id: id, custom_sub_compliance: id === OTHER_SUB_COMPLIANCE_VALUE ? prev.custom_sub_compliance : '', compliance_name: '' }));
                           setDescriptionSearch('');
@@ -830,6 +953,26 @@ export default function AddComplianceModal({
                           className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
                         />
                       )}
+                    </div>
+                  )}
+
+                  {OPTIONAL_CUSTOM_SUB_COMPLIANCE_CATS.includes(activeCategoryId) && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Add Sub-Compliance Category
+                        <span className="ml-1 normal-case font-normal text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={itemForm.custom_sub_compliance || ''}
+                        onChange={e => setItemForm(prev => ({
+                          ...prev,
+                          sub_compliance_id: OTHER_SUB_COMPLIANCE_VALUE,
+                          custom_sub_compliance: e.target.value,
+                        }))}
+                        placeholder="Enter custom sub-compliance category"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                      />
                     </div>
                   )}
 
@@ -868,7 +1011,16 @@ export default function AddComplianceModal({
                             </div>
                             <textarea
                               value={itemForm.compliance_name}
-                              onChange={e => setItemForm(p => ({ ...p, compliance_name: e.target.value }))}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setItemForm(p => ({ ...p, compliance_name: val }));
+                                // If the user clears the field entirely, drop back to the
+                                // dropdown selector so the field does not disappear.
+                                if (!val.trim()) {
+                                  setDescSelectedFromDropdown(false);
+                                  setShowDescDropdown(false);
+                                }
+                              }}
                               rows={3} autoFocus
                               className="w-full px-3 py-2.5 border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none bg-white shadow-sm"
                               placeholder="Edit the description as needed…"
@@ -980,27 +1132,11 @@ export default function AddComplianceModal({
                             value={itemForm.quantity}
                             onChange={e => {
                               const raw = e.target.value.replace(/[^0-9]/g, '');
-                              const qty = parseInt(raw, 10) || 1;
-                              // Auto-recalculate amounts when qty changes
-                              const matAmt = parseFloat(((parseFloat(itemForm.material_rate) || 0) * qty).toFixed(2));
-                              const labAmt = parseFloat(((parseFloat(itemForm.labour_rate)   || 0) * qty).toFixed(2));
-                              setItemForm(p => ({
-                                ...p,
-                                quantity:        raw,
-                                material_amount: (parseFloat(p.material_rate) || 0) > 0 ? matAmt : p.material_amount,
-                                labour_amount:   (parseFloat(p.labour_rate)   || 0) > 0 ? labAmt : p.labour_amount,
-                              }));
+                              setItemForm(p => ({ ...p, quantity: raw }));
                             }}
                             onBlur={e => {
                               const qty = Math.max(1, parseInt(e.target.value, 10) || 1);
-                              const matAmt = parseFloat(((parseFloat(itemForm.material_rate) || 0) * qty).toFixed(2));
-                              const labAmt = parseFloat(((parseFloat(itemForm.labour_rate)   || 0) * qty).toFixed(2));
-                              setItemForm(p => ({
-                                ...p,
-                                quantity:        qty,
-                                material_amount: (parseFloat(p.material_rate) || 0) > 0 ? matAmt : p.material_amount,
-                                labour_amount:   (parseFloat(p.labour_rate)   || 0) > 0 ? labAmt : p.labour_amount,
-                              }));
+                              setItemForm(p => ({ ...p, quantity: qty }));
                             }}
                             placeholder="1"
                             className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
@@ -1013,11 +1149,11 @@ export default function AddComplianceModal({
                           Rate (Rs.) <span className="text-red-400">*</span>
                           <span className="ml-1 normal-case font-normal text-gray-400">per unit</span>
                         </label>
-                        <input type="number" min="0" step="0.01"
+                        <input type="text" inputMode="decimal"
                           value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                          onChange={e => setItemForm(p => ({ ...p, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                          onChange={e => setItemForm(p => ({ ...p, Professional_amount: e.target.value }))}
                           placeholder="0.00"
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                       </div>
 
                       {/* Row 3: Rate Breakdown (Material + Labour) — optional */}
@@ -1029,53 +1165,37 @@ export default function AddComplianceModal({
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Rate (Rs./unit)</label>
-                            <input type="number" min="0" step="0.01"
+                            <input type="text" inputMode="decimal"
                               value={itemForm.material_rate === 0 ? '' : itemForm.material_rate}
-                              onChange={e => {
-                                const rate = parseFloat(e.target.value) || 0;
-                                const qty  = parseInt(itemForm.quantity, 10) || 1;
-                                setItemForm(p => ({
-                                  ...p,
-                                  material_rate:   rate,
-                                  material_amount: parseFloat((rate * qty).toFixed(2)),
-                                }));
-                              }}
+                              onChange={e => setItemForm(p => ({ ...p, material_rate: e.target.value }))}
                               placeholder="0.00"
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Material Amount (Rs.)</label>
-                            <input type="number" min="0" step="0.01"
+                            <input type="text" inputMode="decimal"
                               value={itemForm.material_amount === 0 ? '' : itemForm.material_amount}
-                              onChange={e => setItemForm(p => ({ ...p, material_amount: parseFloat(e.target.value) || 0 }))}
-                              placeholder="auto = rate × qty"
-                              className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                              onChange={e => setItemForm(p => ({ ...p, material_amount: e.target.value }))}
+                              placeholder="0.00"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3 mt-3">
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Rate (Rs./unit)</label>
-                            <input type="number" min="0" step="0.01"
+                            <input type="text" inputMode="decimal"
                               value={itemForm.labour_rate === 0 ? '' : itemForm.labour_rate}
-                              onChange={e => {
-                                const rate = parseFloat(e.target.value) || 0;
-                                const qty  = parseInt(itemForm.quantity, 10) || 1;
-                                setItemForm(p => ({
-                                  ...p,
-                                  labour_rate:   rate,
-                                  labour_amount: parseFloat((rate * qty).toFixed(2)),
-                                }));
-                              }}
+                              onChange={e => setItemForm(p => ({ ...p, labour_rate: e.target.value }))}
                               placeholder="0.00"
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Labour Amount (Rs.)</label>
-                            <input type="number" min="0" step="0.01"
+                            <input type="text" inputMode="decimal"
                               value={itemForm.labour_amount === 0 ? '' : itemForm.labour_amount}
-                              onChange={e => setItemForm(p => ({ ...p, labour_amount: parseFloat(e.target.value) || 0 }))}
-                              placeholder="auto = rate × qty"
-                              className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                              onChange={e => setItemForm(p => ({ ...p, labour_amount: e.target.value }))}
+                              placeholder="0.00"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                           </div>
                         </div>
                       </div>
@@ -1118,18 +1238,19 @@ export default function AddComplianceModal({
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Qty <span className="text-red-400">*</span></label>
-                          <input type="number" min="1"
+                          <input type="text" inputMode="numeric"
                             value={itemForm.quantity}
-                            onChange={e => setItemForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))}
+                            onChange={e => setItemForm(p => ({ ...p, quantity: e.target.value.replace(/[^0-9]/g, '') }))}
+                            onBlur={e => setItemForm(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
                             className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Professional (Rs.) <span className="text-red-400">*</span></label>
-                          <input type="number" min="0" step="0.01"
+                          <input type="text" inputMode="decimal"
                             value={itemForm.Professional_amount === 0 ? '' : itemForm.Professional_amount}
-                            onChange={e => setItemForm(p => ({ ...p, Professional_amount: parseFloat(e.target.value) || 0 }))}
+                            onChange={e => setItemForm(p => ({ ...p, Professional_amount: e.target.value }))}
                             placeholder="0.00"
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
                         </div>
                       </div>
 
@@ -1193,7 +1314,7 @@ export default function AddComplianceModal({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 leading-snug">{item.compliance_name}</p>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                            {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{getSubComplianceLabel(item.sub_compliance_id)}</span>}
+                            {item.sub_compliance_id && <span className="text-xs text-indigo-600 font-medium">{getActiveSubComplianceLabel(item.sub_compliance_id)}</span>}
                             <span className="text-xs text-gray-400">Qty: {item.quantity}</span>
                             {isExec ? (
                               <>
